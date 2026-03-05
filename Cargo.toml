@@ -47,7 +47,7 @@ clickhouse = { version = "0.13", features = ["time", "uuid"] }
 fred = { version = "10", features = ["subscriber-client"] }
 
 # Auth
-jsonwebtoken = "9"
+jsonwebtoken = "10"
 argon2 = "0.5"
 sha2 = "0.10"
 
