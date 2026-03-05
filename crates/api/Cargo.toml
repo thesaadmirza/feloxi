@@ -1,0 +1,41 @@
+[package]
+name = "api"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "api"
+path = "src/main.rs"
+
+[dependencies]
+common = { workspace = true }
+db = { workspace = true }
+auth = { workspace = true }
+engine = { workspace = true }
+alerting = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+axum-extra = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+dashmap = { workspace = true }
+futures = { workspace = true }
+dotenvy = { workspace = true }
+config = { workspace = true }
+fred = { workspace = true }
+clickhouse = { workspace = true }
+sqlx = { workspace = true }
+lapin = { workspace = true }
+base64 = { workspace = true }
+tokio-util = { workspace = true }
+utoipa = { workspace = true }
+utoipa-swagger-ui = { workspace = true }
+reqwest = { workspace = true }

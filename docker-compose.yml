@@ -1,0 +1,136 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.api
+    container_name: feloxi-api
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      - DATABASE_URL=postgresql://fp:feloxi@postgres:5432/feloxi
+      - REDIS_URL=redis://redis:6379
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=feloxi
+      - JWT_SECRET=${JWT_SECRET:-dev-secret-change-in-production-1234567890}
+      - CORS_ORIGIN=http://localhost:3000,http://127.0.0.1:3000
+      - RUST_LOG=${RUST_LOG:-api=info,tower_http=info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - feloxi
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.web
+    container_name: feloxi-web
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://localhost:${PORT:-8080}
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - feloxi
+
+  seed:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.seed
+    container_name: feloxi-seed
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - PG_HOST=postgres
+      - PG_PORT=5432
+      - PG_USER=fp
+      - PG_PASS=feloxi
+      - PG_DB=feloxi
+      - CH_HOST=clickhouse
+      - CH_PORT=8123
+      - CH_USER=default
+      - CH_PASSWORD=feloxi
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    networks:
+      - feloxi
+    restart: "no"
+
+  postgres:
+    image: postgres:17-bookworm
+    container_name: feloxi-postgres
+    environment:
+      - POSTGRES_USER=fp
+      - POSTGRES_PASSWORD=feloxi
+      - POSTGRES_DB=feloxi
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/docker/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fp -d feloxi"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - feloxi
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.12
+    container_name: feloxi-clickhouse
+    environment:
+      - CLICKHOUSE_DB=feloxi
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=feloxi
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./deploy/docker/clickhouse-config.xml:/etc/clickhouse-server/config.d/custom.xml
+      - ./deploy/docker/init-clickhouse.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - feloxi
+
+  redis:
+    image: redis:7-alpine
+    container_name: feloxi-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - feloxi
+
+volumes:
+  postgres_data:
+  clickhouse_data:
+  redis_data:
+
+networks:
+  feloxi:
+    driver: bridge

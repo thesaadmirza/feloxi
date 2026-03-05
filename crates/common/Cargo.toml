@@ -1,0 +1,15 @@
+[package]
+name = "common"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+axum = { workspace = true }
+sqlx = { workspace = true }
+jsonwebtoken = { workspace = true }
