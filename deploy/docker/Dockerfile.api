@@ -1,0 +1,42 @@
+# ── Stage 1: Cache dependencies ──────────────────────────────────────
+FROM rust:1.88-bookworm AS builder
+WORKDIR /app
+
+# Copy workspace manifests
+COPY Cargo.toml Cargo.lock ./
+COPY crates/common/Cargo.toml crates/common/
+COPY crates/db/Cargo.toml crates/db/
+COPY crates/auth/Cargo.toml crates/auth/
+COPY crates/engine/Cargo.toml crates/engine/
+COPY crates/alerting/Cargo.toml crates/alerting/
+COPY crates/api/Cargo.toml crates/api/
+
+# Create dummy source files so cargo can resolve the workspace and compile dependencies.
+# sqlx::migrate!() in db needs the migrations dir to exist at compile time.
+RUN mkdir -p migrations/postgres && \
+    for dir in common db auth engine alerting; do \
+      mkdir -p crates/$dir/src && echo "pub fn _dummy() {}" > crates/$dir/src/lib.rs; \
+    done && \
+    mkdir -p crates/api/src && echo "fn main() {}" > crates/api/src/main.rs
+
+# Build dependencies only (this layer is cached unless Cargo.toml/Cargo.lock change)
+RUN cargo build --release --bin api 2>&1 || true
+
+# ── Stage 2: Build the actual binary ────────────────────────────────
+COPY migrations/ migrations/
+COPY crates/ crates/
+RUN touch crates/*/src/*.rs 2>/dev/null; \
+    cargo build --release --bin api
+
+# ── Stage 3: Minimal runtime image ──────────────────────────────────
+FROM debian:bookworm-slim
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    useradd -r -s /bin/false feloxi
+
+COPY --from=builder /app/target/release/api /usr/local/bin/
+
+USER feloxi
+EXPOSE 8080
+CMD ["api"]

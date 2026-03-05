@@ -1,0 +1,92 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/common",
+    "crates/db",
+    "crates/auth",
+    "crates/engine",
+    "crates/alerting",
+    "crates/api",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/thesaadmirza/feloxi"
+
+[workspace.lints.clippy]
+large_enum_variant = "warn"
+manual_clamp = "warn"
+derivable_impls = "warn"
+for_kv_map = "warn"
+unnecessary_cast = "warn"
+type_complexity = "warn"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# IDs and time
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Logging / tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Web framework
+axum = { version = "0.8", features = ["ws", "macros"] }
+axum-extra = { version = "0.10", features = ["typed-header"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "compression-gzip", "request-id"] }
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono", "json"] }
+clickhouse = { version = "0.13", features = ["time", "uuid"] }
+fred = { version = "10", features = ["subscriber-client"] }
+
+# Auth
+jsonwebtoken = "9"
+argon2 = "0.5"
+sha2 = "0.10"
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json"] }
+
+# Email
+lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "smtp-transport", "builder"] }
+
+# AMQP
+lapin = "2"
+
+# Encoding
+base64 = "0.22"
+
+# OpenAPI
+utoipa = { version = "5", features = ["axum_extras", "uuid", "chrono"] }
+utoipa-swagger-ui = { version = "9", features = ["axum"] }
+
+# Async utilities
+futures = "0.3"
+tokio-util = { version = "0.7", features = ["rt"] }
+dashmap = "6"
+
+# Config
+config = "0.14"
+dotenvy = "0.15"
+
+# Internal crates
+common = { path = "crates/common" }
+db = { path = "crates/db" }
+auth = { path = "crates/auth" }
+engine = { path = "crates/engine" }
+alerting = { path = "crates/alerting" }

@@ -1,0 +1,22 @@
+<clickhouse>
+    <logger>
+        <level>warning</level>
+        <console>true</console>
+    </logger>
+    <listen_host>::</listen_host>
+    <http_port>8123</http_port>
+    <tcp_port>9000</tcp_port>
+    <max_connections>100</max_connections>
+    <max_concurrent_queries>50</max_concurrent_queries>
+    <users>
+        <default>
+            <password></password>
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <profile>default</profile>
+            <quota>default</quota>
+            <access_management>1</access_management>
+        </default>
+    </users>
+</clickhouse>

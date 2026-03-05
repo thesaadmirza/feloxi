@@ -1,0 +1,3830 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Feloxi API",
+    "description": "Celery task monitoring and management API",
+    "license": {
+      "name": ""
+    },
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/v1/alerts/history": {
+      "get": {
+        "tags": [
+          "alerts"
+        ],
+        "operationId": "list_history",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertHistoryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alerts/rules": {
+      "get": {
+        "tags": [
+          "alerts"
+        ],
+        "operationId": "list_rules",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertRulesResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "alerts"
+        ],
+        "operationId": "create_rule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAlertRuleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertRule"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alerts/rules/{rule_id}": {
+      "get": {
+        "tags": [
+          "alerts"
+        ],
+        "operationId": "get_rule",
+        "parameters": [
+          {
+            "name": "rule_id",
+            "in": "path",
+            "description": "Alert rule ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertRule"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "alerts"
+        ],
+        "operationId": "update_rule",
+        "parameters": [
+          {
+            "name": "rule_id",
+            "in": "path",
+            "description": "Alert rule ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAlertRuleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertRule"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "alerts"
+        ],
+        "operationId": "delete_rule",
+        "parameters": [
+          {
+            "name": "rule_id",
+            "in": "path",
+            "description": "Alert rule ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/api-keys": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "list_keys",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeyListResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "create_key",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateApiKeyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/api-keys/{key_id}": {
+      "delete": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "revoke_key",
+        "parameters": [
+          {
+            "name": "key_id",
+            "in": "path",
+            "description": "API key ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Org selection needed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgPickerResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "logout",
+        "responses": {
+          "200": {
+            "description": "Logged out"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Return the current user info (used by frontend to check if session is active).",
+        "operationId": "me",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserInfo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/orgs": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "List all orgs the current user belongs to (for org switcher).",
+        "operationId": "list_user_orgs",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OrgSummary"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "refresh",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid refresh token"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/register": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/switch-org": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "switch_org",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwitchOrgRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not a member"
+          }
+        }
+      }
+    },
+    "/api/v1/brokers": {
+      "get": {
+        "tags": [
+          "brokers"
+        ],
+        "operationId": "list_brokers",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrokerListResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "brokers"
+        ],
+        "operationId": "create_broker",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBrokerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrokerConfig"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/brokers/test": {
+      "post": {
+        "tags": [
+          "brokers"
+        ],
+        "operationId": "test_connection",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestConnectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestConnectionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/brokers/{id}": {
+      "get": {
+        "tags": [
+          "brokers"
+        ],
+        "operationId": "get_broker",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Broker ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrokerConfig"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "brokers"
+        ],
+        "operationId": "delete_broker",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Broker ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/brokers/{id}/queues": {
+      "get": {
+        "tags": [
+          "brokers"
+        ],
+        "operationId": "get_broker_queues",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Broker ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueueListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/brokers/{id}/start": {
+      "post": {
+        "tags": [
+          "brokers"
+        ],
+        "operationId": "start_broker",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Broker ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/brokers/{id}/stats": {
+      "get": {
+        "tags": [
+          "brokers"
+        ],
+        "operationId": "get_broker_stats",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Broker ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrokerStats"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/brokers/{id}/stop": {
+      "post": {
+        "tags": [
+          "brokers"
+        ],
+        "operationId": "stop_broker",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Broker ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/healthz": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "operationId": "healthz",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/metrics/overview": {
+      "get": {
+        "tags": [
+          "metrics"
+        ],
+        "operationId": "overview",
+        "parameters": [
+          {
+            "name": "from_minutes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "queue",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "query",
+            "description": "Filter by broker/agent ID (for per-broker throughput charts).",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverviewResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/metrics/queue-names": {
+      "get": {
+        "tags": [
+          "metrics"
+        ],
+        "operationId": "queue_names",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StringListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/metrics/queues": {
+      "get": {
+        "tags": [
+          "metrics"
+        ],
+        "operationId": "queue_metrics",
+        "parameters": [
+          {
+            "name": "from_minutes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "queue",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "query",
+            "description": "Filter by broker/agent ID (for per-broker throughput charts).",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueueMetricsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/metrics/task-names": {
+      "get": {
+        "tags": [
+          "metrics"
+        ],
+        "operationId": "task_names",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StringListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/metrics/throughput": {
+      "get": {
+        "tags": [
+          "metrics"
+        ],
+        "operationId": "throughput",
+        "parameters": [
+          {
+            "name": "from_minutes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "queue",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "query",
+            "description": "Filter by broker/agent ID (for per-broker throughput charts).",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThroughputResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/queues": {
+      "get": {
+        "tags": [
+          "brokers"
+        ],
+        "operationId": "list_queues",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StringListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/readyz": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "operationId": "readyz",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "operationId": "get_settings",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Tenant"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/notifications": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "operationId": "get_notifications",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationSettings"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "settings"
+        ],
+        "operationId": "update_notifications",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationSettings"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/notifications/test": {
+      "post": {
+        "tags": [
+          "settings"
+        ],
+        "operationId": "test_notification",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestNotificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/retention": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "operationId": "get_retention",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "settings"
+        ],
+        "operationId": "update_retention",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetentionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "operationId": "list_tasks",
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "task_name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "queue",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "operationId": "get_task",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskEventRow"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/retry": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "operationId": "retry_task",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/revoke": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "operationId": "revoke_task",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/timeline": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "operationId": "get_task_timeline",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskTimelineResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/api/v1/team": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "operationId": "get_team",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/team/members": {
+      "post": {
+        "tags": [
+          "settings"
+        ],
+        "operationId": "invite_member",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteMemberRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteMemberResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/team/members/{member_id}": {
+      "delete": {
+        "tags": [
+          "settings"
+        ],
+        "operationId": "remove_member",
+        "parameters": [
+          {
+            "name": "member_id",
+            "in": "path",
+            "description": "Member ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workers": {
+      "get": {
+        "tags": [
+          "workers"
+        ],
+        "operationId": "list_workers",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workers/{worker_id}": {
+      "get": {
+        "tags": [
+          "workers"
+        ],
+        "operationId": "get_worker",
+        "parameters": [
+          {
+            "name": "worker_id",
+            "in": "path",
+            "description": "Worker ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerDetailResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workers/{worker_id}/shutdown": {
+      "post": {
+        "tags": [
+          "workers"
+        ],
+        "operationId": "shutdown_worker",
+        "parameters": [
+          {
+            "name": "worker_id",
+            "in": "path",
+            "description": "Worker ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AlertChannel": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "webhook_url",
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "slack"
+                ]
+              },
+              "webhook_url": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "to",
+              "type"
+            ],
+            "properties": {
+              "to": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "email"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "url",
+              "type"
+            ],
+            "properties": {
+              "headers": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "type": "string"
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "webhook"
+                ]
+              },
+              "url": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "routing_key",
+              "type"
+            ],
+            "properties": {
+              "routing_key": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "pagerduty"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Alert notification channel configuration."
+      },
+      "AlertCondition": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Trigger when task failure rate exceeds threshold.",
+            "required": [
+              "threshold",
+              "window_minutes",
+              "task_name",
+              "type"
+            ],
+            "properties": {
+              "task_name": {
+                "type": "string"
+              },
+              "threshold": {
+                "type": "number",
+                "format": "double"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "task_failure_rate"
+                ]
+              },
+              "window_minutes": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Trigger when queue depth exceeds threshold.",
+            "required": [
+              "threshold",
+              "queue",
+              "type"
+            ],
+            "properties": {
+              "queue": {
+                "type": "string"
+              },
+              "threshold": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "queue_depth"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Trigger when a worker goes offline.",
+            "required": [
+              "grace_period_seconds",
+              "type"
+            ],
+            "properties": {
+              "grace_period_seconds": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "worker_offline"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Trigger when task duration exceeds threshold at given percentile.",
+            "required": [
+              "threshold_seconds",
+              "percentile",
+              "task_name",
+              "type"
+            ],
+            "properties": {
+              "percentile": {
+                "type": "number",
+                "format": "double"
+              },
+              "task_name": {
+                "type": "string"
+              },
+              "threshold_seconds": {
+                "type": "number",
+                "format": "double"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "task_duration"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Trigger when a beat schedule misses its expected run.",
+            "required": [
+              "schedule_name",
+              "type"
+            ],
+            "properties": {
+              "schedule_name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "beat_missed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Trigger when a specific task name fails.",
+            "required": [
+              "task_name",
+              "type"
+            ],
+            "properties": {
+              "task_name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "task_failed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Trigger when no events received for a period.",
+            "required": [
+              "silence_minutes",
+              "type"
+            ],
+            "properties": {
+              "silence_minutes": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "no_events"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Trigger when task throughput deviates from historical baseline (Z-score).",
+            "required": [
+              "zscore_threshold",
+              "window_minutes",
+              "task_name",
+              "type"
+            ],
+            "properties": {
+              "task_name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "throughput_anomaly"
+                ]
+              },
+              "window_minutes": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "zscore_threshold": {
+                "type": "number",
+                "format": "double"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Trigger when task latency deviates from historical baseline (Z-score).",
+            "required": [
+              "zscore_threshold",
+              "window_minutes",
+              "task_name",
+              "type"
+            ],
+            "properties": {
+              "task_name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "latency_anomaly"
+                ]
+              },
+              "window_minutes": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "zscore_threshold": {
+                "type": "number",
+                "format": "double"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Trigger when error rate spikes compared to recent baseline.",
+            "required": [
+              "spike_factor",
+              "baseline_hours",
+              "task_name",
+              "type"
+            ],
+            "properties": {
+              "baseline_hours": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "spike_factor": {
+                "type": "number",
+                "format": "double"
+              },
+              "task_name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "error_rate_spike"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Alert condition types."
+      },
+      "AlertHistoryParams": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "offset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "AlertHistoryResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "has_more"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlertHistoryRow"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "AlertHistoryRow": {
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "rule_id",
+          "fired_at",
+          "severity",
+          "summary",
+          "details",
+          "channels_sent"
+        ],
+        "properties": {
+          "channels_sent": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ChannelDeliveryStatus"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "fired_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "resolved_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "rule_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "AlertRule": {
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "name",
+          "is_enabled",
+          "condition",
+          "channels",
+          "cooldown_secs",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlertChannel"
+            }
+          },
+          "condition": {
+            "$ref": "#/components/schemas/AlertCondition"
+          },
+          "cooldown_secs": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_enabled": {
+            "type": "boolean"
+          },
+          "last_fired_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "name": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AlertRulesResponse": {
+        "type": "object",
+        "description": "List of alert rules.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlertRule"
+            }
+          }
+        }
+      },
+      "ApiKey": {
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "created_by",
+          "name",
+          "key_prefix",
+          "permissions",
+          "is_active",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "key_prefix": {
+            "type": "string"
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ApiKeyListResponse": {
+        "type": "object",
+        "description": "List of API keys.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiKey"
+            }
+          }
+        }
+      },
+      "AuthResponse": {
+        "type": "object",
+        "description": "Successful auth response. Tokens are set as HttpOnly cookies, NOT in the body.",
+        "required": [
+          "user",
+          "expires_in"
+        ],
+        "properties": {
+          "expires_in": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserInfo"
+          }
+        }
+      },
+      "BrokerConfig": {
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "name",
+          "broker_type",
+          "is_active",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "broker_type": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "BrokerListResponse": {
+        "type": "object",
+        "description": "List of broker configurations.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BrokerConfig"
+            }
+          }
+        }
+      },
+      "BrokerStats": {
+        "type": "object",
+        "description": "Broker-specific stats for the detail page.",
+        "required": [
+          "total_events",
+          "events_last_hour",
+          "events_last_24h",
+          "success_count",
+          "failure_count",
+          "top_tasks"
+        ],
+        "properties": {
+          "events_last_24h": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "events_last_hour": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "failure_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "success_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "top_tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TopTaskRow"
+            }
+          },
+          "total_events": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ChannelDeliveryStatus": {
+        "type": "object",
+        "description": "Delivery status for a single notification channel.",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CommandResponse": {
+        "type": "object",
+        "description": "Response for task retry/revoke and worker shutdown commands.",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "command_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CreateAlertRuleRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "condition",
+          "channels"
+        ],
+        "properties": {
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlertChannel"
+            }
+          },
+          "condition": {
+            "$ref": "#/components/schemas/AlertCondition"
+          },
+          "cooldown_secs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateApiKeyResponse": {
+        "type": "object",
+        "description": "Response after creating an API key (includes the raw key, shown once).",
+        "required": [
+          "key",
+          "id",
+          "name",
+          "key_prefix",
+          "message"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "key": {
+            "type": "string"
+          },
+          "key_prefix": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateBrokerRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "broker_type",
+          "connection_url"
+        ],
+        "properties": {
+          "broker_type": {
+            "type": "string"
+          },
+          "connection_url": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateKeyRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "permissions"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "version"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "InviteMemberRequest": {
+        "type": "object",
+        "required": [
+          "email",
+          "role"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      },
+      "InviteMemberResponse": {
+        "type": "object",
+        "description": "Invite member response.",
+        "required": [
+          "id",
+          "email",
+          "role"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "tenant_slug": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional: if the user belongs to multiple orgs, they must specify which one."
+          }
+        }
+      },
+      "MetricsParams": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Filter by broker/agent ID (for per-broker throughput charts)."
+          },
+          "from_minutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "queue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "NotificationSettings": {
+        "type": "object",
+        "description": "Notification settings (SMTP + webhook defaults).",
+        "properties": {
+          "smtp": {
+            "$ref": "#/components/schemas/SmtpSettings"
+          },
+          "webhook_defaults": {
+            "$ref": "#/components/schemas/WebhookDefaults"
+          }
+        }
+      },
+      "OrgPickerResponse": {
+        "type": "object",
+        "description": "Returned when the user's email is in multiple orgs and no slug was provided.",
+        "required": [
+          "needs_org_selection",
+          "organizations"
+        ],
+        "properties": {
+          "needs_org_selection": {
+            "type": "boolean"
+          },
+          "organizations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrgSummary"
+            }
+          }
+        }
+      },
+      "OrgSummary": {
+        "type": "object",
+        "required": [
+          "slug",
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        }
+      },
+      "OverviewResponse": {
+        "type": "object",
+        "description": "Dashboard overview metrics (computed from ClickHouse + Redis).",
+        "required": [
+          "total_tasks",
+          "success_count",
+          "failure_count",
+          "failure_rate",
+          "avg_runtime",
+          "p95_runtime",
+          "avg_wait_time",
+          "active_workers",
+          "period_minutes"
+        ],
+        "properties": {
+          "active_workers": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "avg_runtime": {
+            "type": "number",
+            "format": "double"
+          },
+          "avg_wait_time": {
+            "type": "number",
+            "format": "double"
+          },
+          "failure_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "failure_rate": {
+            "type": "number",
+            "format": "double"
+          },
+          "p95_runtime": {
+            "type": "number",
+            "format": "double"
+          },
+          "period_minutes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "success_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total_tasks": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "OverviewStats": {
+        "type": "object",
+        "description": "Summary stats for the dashboard overview.",
+        "required": [
+          "total_tasks",
+          "success_count",
+          "failure_count",
+          "avg_runtime",
+          "p95_runtime"
+        ],
+        "properties": {
+          "avg_runtime": {
+            "type": "number",
+            "format": "double"
+          },
+          "avg_wait_time": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "failure_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "p95_runtime": {
+            "type": "number",
+            "format": "double"
+          },
+          "success_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total_tasks": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "QueueInfo": {
+        "type": "object",
+        "description": "Queue depth information.",
+        "required": [
+          "queue_name",
+          "depth"
+        ],
+        "properties": {
+          "depth": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "queue_name": {
+            "type": "string"
+          }
+        }
+      },
+      "QueueListResponse": {
+        "type": "object",
+        "description": "List of queue depths from a broker.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueueInfo"
+            }
+          }
+        }
+      },
+      "QueueMetricsResponse": {
+        "type": "object",
+        "description": "Queue metrics time-series data.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueueMetricsRow"
+            }
+          }
+        }
+      },
+      "QueueMetricsRow": {
+        "type": "object",
+        "description": "Per-minute queue metrics from the materialized view.",
+        "required": [
+          "tenant_id",
+          "queue",
+          "minute",
+          "enqueued",
+          "dequeued",
+          "completed",
+          "failed"
+        ],
+        "properties": {
+          "completed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "dequeued": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "enqueued": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "minute": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "queue": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "RegisterRequest": {
+        "type": "object",
+        "required": [
+          "tenant_name",
+          "tenant_slug",
+          "email",
+          "password"
+        ],
+        "properties": {
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "tenant_name": {
+            "type": "string"
+          },
+          "tenant_slug": {
+            "type": "string"
+          }
+        }
+      },
+      "RetentionInput": {
+        "type": "object",
+        "required": [
+          "task_events_days",
+          "worker_events_days",
+          "alert_history_days"
+        ],
+        "properties": {
+          "alert_history_days": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "task_events_days": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "worker_events_days": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "RetentionPolicy": {
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "resource_type",
+          "retention_days",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "resource_type": {
+            "type": "string"
+          },
+          "retention_days": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "RetentionResponse": {
+        "type": "object",
+        "description": "Data retention configuration.",
+        "required": [
+          "task_events_days",
+          "worker_events_days",
+          "alert_history_days"
+        ],
+        "properties": {
+          "alert_history_days": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "task_events_days": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "worker_events_days": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "RetryRequest": {
+        "type": "object",
+        "required": [
+          "task_name",
+          "args",
+          "kwargs",
+          "queue"
+        ],
+        "properties": {
+          "args": {},
+          "kwargs": {},
+          "queue": {
+            "type": "string"
+          },
+          "task_name": {
+            "type": "string"
+          }
+        }
+      },
+      "Role": {
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "name",
+          "permissions",
+          "is_system",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_system": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "SmtpSettings": {
+        "type": "object",
+        "properties": {
+          "from_address": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "tls": {
+            "type": "boolean"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "StringListResponse": {
+        "type": "object",
+        "description": "List of string values (task names, queue names).",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "SwitchOrgRequest": {
+        "type": "object",
+        "description": "Switch to a different org (re-issues tokens for that org).",
+        "required": [
+          "tenant_slug"
+        ],
+        "properties": {
+          "tenant_slug": {
+            "type": "string"
+          }
+        }
+      },
+      "TaskEventRow": {
+        "type": "object",
+        "description": "ClickHouse row type for task_events table.",
+        "required": [
+          "tenant_id",
+          "event_id",
+          "task_id",
+          "task_name",
+          "queue",
+          "worker_id",
+          "state",
+          "event_type",
+          "timestamp",
+          "args",
+          "kwargs",
+          "result",
+          "exception",
+          "traceback",
+          "runtime",
+          "retries",
+          "agent_id",
+          "broker_type"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "args": {
+            "type": "string"
+          },
+          "broker_type": {
+            "type": "string"
+          },
+          "chord_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "event_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "exception": {
+            "type": "string"
+          },
+          "group_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kwargs": {
+            "type": "string"
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "queue": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string"
+          },
+          "retries": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "root_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "runtime": {
+            "type": "number",
+            "format": "double"
+          },
+          "state": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "task_name": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "traceback": {
+            "type": "string"
+          },
+          "worker_id": {
+            "type": "string"
+          }
+        }
+      },
+      "TaskListParams": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "queue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "task_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "TaskListResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "has_more"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskEventRow"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "TaskMetricsRow": {
+        "type": "object",
+        "description": "Per-minute task metrics from the materialized view.",
+        "required": [
+          "tenant_id",
+          "task_name",
+          "queue",
+          "minute",
+          "success_count",
+          "failure_count",
+          "retry_count",
+          "revoked_count",
+          "total_count",
+          "total_runtime",
+          "max_runtime",
+          "wait_time_samples"
+        ],
+        "properties": {
+          "failure_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "max_runtime": {
+            "type": "number",
+            "format": "double"
+          },
+          "minute": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "queue": {
+            "type": "string"
+          },
+          "retry_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "revoked_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "success_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "task_name": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "total_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total_runtime": {
+            "type": "number",
+            "format": "double"
+          },
+          "total_wait_time": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "wait_time_samples": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "TaskTimelineResponse": {
+        "type": "object",
+        "description": "Task event timeline (all state transitions for a single task).",
+        "required": [
+          "timeline"
+        ],
+        "properties": {
+          "timeline": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskEventRow"
+            }
+          }
+        }
+      },
+      "TeamMember": {
+        "type": "object",
+        "description": "Team member (user with roles).",
+        "required": [
+          "id",
+          "email",
+          "is_active",
+          "created_at",
+          "roles"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "TeamResponse": {
+        "type": "object",
+        "description": "Team response (members + available roles).",
+        "required": [
+          "members",
+          "roles"
+        ],
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamMember"
+            }
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Role"
+            }
+          }
+        }
+      },
+      "Tenant": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "plan",
+          "settings",
+          "max_agents",
+          "max_events_day",
+          "is_active",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "max_agents": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "max_events_day": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "settings": {},
+          "slug": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TestConnectionRequest": {
+        "type": "object",
+        "required": [
+          "broker_type",
+          "connection_url"
+        ],
+        "properties": {
+          "broker_type": {
+            "type": "string"
+          },
+          "connection_url": {
+            "type": "string"
+          }
+        }
+      },
+      "TestConnectionResponse": {
+        "type": "object",
+        "description": "Broker connection test result.",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TestNotificationRequest": {
+        "type": "object",
+        "required": [
+          "channel"
+        ],
+        "properties": {
+          "channel": {
+            "type": "string"
+          },
+          "to": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ThroughputResponse": {
+        "type": "object",
+        "description": "Throughput time-series data.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskMetricsRow"
+            }
+          }
+        }
+      },
+      "TopTaskRow": {
+        "type": "object",
+        "required": [
+          "name",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "UpdateAlertRuleRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "condition",
+          "channels",
+          "cooldown_secs",
+          "is_enabled"
+        ],
+        "properties": {
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlertChannel"
+            }
+          },
+          "condition": {
+            "$ref": "#/components/schemas/AlertCondition"
+          },
+          "cooldown_secs": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "is_enabled": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "UserInfo": {
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "tenant_id",
+          "tenant_slug",
+          "roles"
+        ],
+        "properties": {
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenant_slug": {
+            "type": "string"
+          }
+        }
+      },
+      "WebhookDefaults": {
+        "type": "object",
+        "properties": {
+          "retry_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "WorkerDetailResponse": {
+        "type": "object",
+        "description": "Single worker detail with current state and recent events.",
+        "required": [
+          "worker_id",
+          "recent_events"
+        ],
+        "properties": {
+          "current_state": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorkerState"
+              }
+            ]
+          },
+          "recent_events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkerEventRow"
+            }
+          },
+          "worker_id": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkerEventRow": {
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "event_id",
+          "worker_id",
+          "hostname",
+          "event_type",
+          "timestamp",
+          "active_tasks",
+          "processed",
+          "load_avg",
+          "cpu_percent",
+          "memory_mb",
+          "pool_size",
+          "pool_type",
+          "sw_ident",
+          "sw_ver",
+          "agent_id"
+        ],
+        "properties": {
+          "active_tasks": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "agent_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cpu_percent": {
+            "type": "number",
+            "format": "double"
+          },
+          "event_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "load_avg": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          "memory_mb": {
+            "type": "number",
+            "format": "double"
+          },
+          "pool_size": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "pool_type": {
+            "type": "string"
+          },
+          "processed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "sw_ident": {
+            "type": "string"
+          },
+          "sw_ver": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "worker_id": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkerListParams": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "WorkerListResponse": {
+        "type": "object",
+        "description": "Worker list with online set, ClickHouse events, and Redis states.",
+        "required": [
+          "online_workers",
+          "worker_events",
+          "worker_states"
+        ],
+        "properties": {
+          "online_workers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "worker_events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkerEventRow"
+            }
+          },
+          "worker_states": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkerState"
+            }
+          }
+        }
+      },
+      "WorkerState": {
+        "type": "object",
+        "description": "Cached worker state from Redis (set by broker pipeline on heartbeat events).",
+        "required": [
+          "worker_id",
+          "hostname",
+          "status",
+          "active_tasks",
+          "processed",
+          "load_avg",
+          "cpu_percent",
+          "memory_mb",
+          "pool_size",
+          "pool_type",
+          "sw_ident",
+          "sw_ver"
+        ],
+        "properties": {
+          "active_tasks": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "cpu_percent": {
+            "type": "number",
+            "format": "double"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "load_avg": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          "memory_mb": {
+            "type": "number",
+            "format": "double"
+          },
+          "pool_size": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "pool_type": {
+            "type": "string"
+          },
+          "processed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "status": {
+            "type": "string"
+          },
+          "sw_ident": {
+            "type": "string"
+          },
+          "sw_ver": {
+            "type": "string"
+          },
+          "worker_id": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "health",
+      "description": "Health and readiness checks"
+    },
+    {
+      "name": "auth",
+      "description": "Authentication and authorization"
+    },
+    {
+      "name": "tasks",
+      "description": "Task monitoring and control"
+    },
+    {
+      "name": "workers",
+      "description": "Worker monitoring and control"
+    },
+    {
+      "name": "brokers",
+      "description": "Broker configuration and management"
+    },
+    {
+      "name": "alerts",
+      "description": "Alert rules and history"
+    },
+    {
+      "name": "metrics",
+      "description": "Metrics and analytics"
+    },
+    {
+      "name": "settings",
+      "description": "Tenant settings and team management"
+    }
+  ]
+}
