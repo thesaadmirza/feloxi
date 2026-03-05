@@ -81,7 +81,7 @@ tokio-util = { version = "0.7", features = ["rt"] }
 dashmap = "6"
 
 # Config
-config = "0.14"
+config = "0.15"
 dotenvy = "0.15"
 
 # Internal crates
