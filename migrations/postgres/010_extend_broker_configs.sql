@@ -1,0 +1,4 @@
+ALTER TABLE broker_configs
+  ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'disconnected',
+  ADD COLUMN last_error TEXT,
+  ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
