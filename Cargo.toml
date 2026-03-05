@@ -43,7 +43,7 @@ tower-http = { version = "0.6", features = ["cors", "trace", "compression-gzip",
 
 # Database
 sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono", "json"] }
-clickhouse = { version = "0.13", features = ["time", "uuid"] }
+clickhouse = { version = "0.14", features = ["time", "uuid"] }
 fred = { version = "10", features = ["subscriber-client"] }
 
 # Auth
