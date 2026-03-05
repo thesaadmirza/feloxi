@@ -1,0 +1,49 @@
+# Build artifacts
+target/
+node_modules/
+.next/
+out/
+dist/
+.turbo/
+*.tsbuildinfo
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# Development
+.claude/
+plan.md
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test & coverage
+coverage/
+htmlcov/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.coverage
+lcov.info
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+
+# Documentation (not needed in images)
+docs/
+*.md
+!apps/web/README.md
+LICENSE
