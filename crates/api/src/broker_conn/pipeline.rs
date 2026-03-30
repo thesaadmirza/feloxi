@@ -91,19 +91,40 @@ pub async fn ingest_raw_worker_events(
             .or_insert(event);
     }
 
-    // --- Step 2: Store only state transitions in ClickHouse (not heartbeats) ---
-    // Heartbeats are high-volume (50K/sec) and ephemeral — Redis handles real-time state.
-    // ClickHouse stores online/offline transitions for historical worker timeline.
-    if !transitions.is_empty() {
-        let transition_rows: Vec<_> = transitions
+    // --- Step 2: Store state transitions in ClickHouse (always) ---
+    // Also store sampled heartbeats (1 per worker per 30s) for gap analysis.
+    {
+        let mut rows_to_store: Vec<_> = transitions
             .iter()
             .map(|e| engine::event_processor::normalize_worker_event(tenant_id, source_id, e))
             .collect();
 
-        if let Err(e) =
-            db::clickhouse::worker_events::insert_worker_events(&state.ch, &transition_rows).await
-        {
-            tracing::error!(?e, "Failed to insert worker events into ClickHouse");
+        // Sample heartbeats: throttle via Redis SET NX (30s per worker)
+        for event in latest_per_worker.values() {
+            if event.event_type == "worker-heartbeat" {
+                if let Ok(true) = db::redis::cache::should_sample_heartbeat(
+                    &state.redis,
+                    tenant_id,
+                    &event.worker_id,
+                )
+                .await
+                {
+                    rows_to_store.push(
+                        engine::event_processor::normalize_worker_event(
+                            tenant_id, source_id, event,
+                        ),
+                    );
+                }
+            }
+        }
+
+        if !rows_to_store.is_empty() {
+            if let Err(e) =
+                db::clickhouse::worker_events::insert_worker_events(&state.ch, &rows_to_store)
+                    .await
+            {
+                tracing::error!(?e, "Failed to insert worker events into ClickHouse");
+            }
         }
     }
 

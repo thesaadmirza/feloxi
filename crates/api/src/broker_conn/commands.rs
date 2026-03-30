@@ -25,8 +25,12 @@ pub async fn redis_publish_task(
     args: &serde_json::Value,
     kwargs: &serde_json::Value,
     queue: &str,
+    parent_id: Option<&str>,
+    root_id: Option<&str>,
 ) -> Result<(), String> {
     let client = connect_redis(connection_url).await?;
+
+    let effective_root = root_id.unwrap_or(task_id);
 
     let body = serde_json::json!([
         args,
@@ -43,8 +47,8 @@ pub async fn redis_publish_task(
             "lang": "py",
             "task": task_name,
             "id": task_id,
-            "root_id": task_id,
-            "parent_id": null,
+            "root_id": effective_root,
+            "parent_id": parent_id,
             "group": null,
             "origin": "feloxi",
             "argsrepr": serde_json::to_string(args).unwrap_or_default(),
@@ -176,6 +180,8 @@ pub async fn amqp_publish_task(
     args: &serde_json::Value,
     kwargs: &serde_json::Value,
     queue: &str,
+    parent_id: Option<&str>,
+    root_id: Option<&str>,
 ) -> Result<(), String> {
     let conn = connect_amqp(connection_url).await?;
     let channel =
@@ -197,7 +203,10 @@ pub async fn amqp_publish_task(
             let mut headers = lapin::types::FieldTable::default();
             headers.insert("task".into(), lapin::types::AMQPValue::LongString(task_name.into()));
             headers.insert("id".into(), lapin::types::AMQPValue::LongString(task_id.into()));
-            headers.insert("root_id".into(), lapin::types::AMQPValue::LongString(task_id.into()));
+            headers.insert("root_id".into(), lapin::types::AMQPValue::LongString(root_id.unwrap_or(task_id).into()));
+            if let Some(pid) = parent_id {
+                headers.insert("parent_id".into(), lapin::types::AMQPValue::LongString(pid.into()));
+            }
             headers.insert("lang".into(), lapin::types::AMQPValue::LongString("py".into()));
             headers.insert("origin".into(), lapin::types::AMQPValue::LongString("feloxi".into()));
             headers
@@ -308,13 +317,15 @@ pub async fn publish_task(
     args: &serde_json::Value,
     kwargs: &serde_json::Value,
     queue: &str,
+    parent_id: Option<&str>,
+    root_id: Option<&str>,
 ) -> Result<(), String> {
     match broker_type {
         "redis" => {
-            redis_publish_task(connection_url, task_name, task_id, args, kwargs, queue).await
+            redis_publish_task(connection_url, task_name, task_id, args, kwargs, queue, parent_id, root_id).await
         }
         "rabbitmq" | "amqp" => {
-            amqp_publish_task(connection_url, task_name, task_id, args, kwargs, queue).await
+            amqp_publish_task(connection_url, task_name, task_id, args, kwargs, queue, parent_id, root_id).await
         }
         other => Err(format!("Unsupported broker type: {other}")),
     }
@@ -389,9 +400,8 @@ async fn connect_amqp(url: &str) -> Result<lapin::Connection, String> {
     .map_err(|e| format!("Failed to connect to AMQP: {e}"))
 }
 
-fn parse_redis_db(url: &str) -> u8 {
-    // Redis URL format: redis://host:port/db
-    url.rsplit('/').next().and_then(|s| s.parse::<u8>().ok()).unwrap_or(0)
+pub(crate) fn parse_redis_db(url: &str) -> u32 {
+    url.rsplit('/').next().and_then(|s| s.parse::<u32>().ok()).unwrap_or(0)
 }
 
 #[cfg(test)]

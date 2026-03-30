@@ -72,7 +72,7 @@ pub fn parse_celery_event(event_type: &str, body: &serde_json::Value) -> Option<
         root_id: body.get("root_id").and_then(|v| v.as_str()).map(String::from),
         parent_id: body.get("parent_id").and_then(|v| v.as_str()).map(String::from),
         group_id: body.get("group").and_then(|v| v.as_str()).map(String::from),
-        chord_id: None,
+        chord_id: body.get("chord").and_then(|v| v.as_str()).map(String::from),
     })
 }
 

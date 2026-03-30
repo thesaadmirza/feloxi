@@ -107,7 +107,7 @@ pub async fn run_redis_consumer(
 
     let _manage_handle = subscriber.manage_subscriptions();
 
-    let db_number = extract_db_number(&broker_url);
+    let db_number = parse_redis_db(&broker_url);
     let pattern_with_db = format!("/{db_number}.celeryev/*");
     let pattern_plain = "/celeryev/*".to_string();
 
@@ -130,38 +130,26 @@ pub async fn run_redis_consumer(
     tracing::info!(%config_id, "Connected to Redis broker");
 
     let mut message_rx = subscriber.message_rx();
-    let mut task_batch = Vec::with_capacity(100);
-    let mut worker_batch = Vec::with_capacity(20);
-    let mut flush_interval = tokio::time::interval(Duration::from_secs(1));
+    let flush_secs = env_or("FP_FLUSH_INTERVAL_SECS", 1u64);
+    let drain_secs = env_or("FP_DRAIN_INTERVAL_SECS", 30u64);
+    let drain_max: usize = env_or("FP_DRAIN_MAX_MESSAGES", 500usize);
+    let stats_secs = env_or("FP_STATS_INTERVAL_SECS", 30u64);
+    let task_batch_cap: usize = env_or("FP_TASK_BATCH_SIZE", 100usize);
+    let worker_batch_cap: usize = env_or("FP_WORKER_BATCH_SIZE", 20usize);
+    let mut task_batch = Vec::with_capacity(task_batch_cap);
+    let mut worker_batch = Vec::with_capacity(worker_batch_cap);
+    let mut flush_interval = tokio::time::interval(Duration::from_secs(flush_secs));
     let mut events_since_log: u64 = 0;
     let mut last_stats = tokio::time::Instant::now();
+    let mut last_drain = tokio::time::Instant::now();
 
     loop {
         tokio::select! {
+            biased;
+
             _ = cancel.cancelled() => {
                 tracing::info!(%config_id, "Redis consumer shutting down");
                 break;
-            }
-            _ = flush_interval.tick() => {
-                flush_batches(
-                    &state, tenant_id, config_id,
-                    &mut task_batch, &mut worker_batch,
-                    &mut events_since_log,
-                ).await;
-
-                drain_list_queues(&client, &mut task_batch, &mut worker_batch, 500).await;
-
-                if last_stats.elapsed() >= Duration::from_secs(30) {
-                    let rate = events_since_log as f64 / last_stats.elapsed().as_secs_f64();
-                    tracing::info!(
-                        %config_id,
-                        events = events_since_log,
-                        rate_per_sec = format!("{rate:.0}"),
-                        "Consumer throughput"
-                    );
-                    events_since_log = 0;
-                    last_stats = tokio::time::Instant::now();
-                }
             }
             msg = message_rx.recv() => {
                 match msg {
@@ -173,14 +161,14 @@ pub async fn run_redis_consumer(
 
                         process_pubsub_payload(&payload, &mut task_batch, &mut worker_batch);
 
-                        if task_batch.len() >= 100 {
+                        if task_batch.len() >= task_batch_cap {
                             let events = std::mem::take(&mut task_batch);
                             events_since_log += events.len() as u64;
                             pipeline::ingest_raw_task_events(
                                 &state, tenant_id, config_id, "celery", events,
                             ).await;
                         }
-                        if worker_batch.len() >= 20 {
+                        if worker_batch.len() >= worker_batch_cap {
                             let events = std::mem::take(&mut worker_batch);
                             events_since_log += events.len() as u64;
                             pipeline::ingest_raw_worker_events(
@@ -195,6 +183,30 @@ pub async fn run_redis_consumer(
                         tracing::warn!(%config_id, "PubSub message stream closed");
                         break;
                     }
+                }
+            }
+            _ = flush_interval.tick() => {
+                flush_batches(
+                    &state, tenant_id, config_id,
+                    &mut task_batch, &mut worker_batch,
+                    &mut events_since_log,
+                ).await;
+
+                if last_drain.elapsed() >= Duration::from_secs(drain_secs) {
+                    drain_list_queues(&client, &mut task_batch, &mut worker_batch, drain_max).await;
+                    last_drain = tokio::time::Instant::now();
+                }
+
+                if last_stats.elapsed() >= Duration::from_secs(stats_secs) {
+                    let rate = events_since_log as f64 / last_stats.elapsed().as_secs_f64();
+                    tracing::info!(
+                        %config_id,
+                        events = events_since_log,
+                        rate_per_sec = format!("{rate:.0}"),
+                        "Consumer throughput"
+                    );
+                    events_since_log = 0;
+                    last_stats = tokio::time::Instant::now();
                 }
             }
         }
@@ -217,9 +229,11 @@ pub async fn run_redis_consumer(
     .await;
 }
 
-fn extract_db_number(url: &str) -> u32 {
-    url.rsplit('/').next().and_then(|s| s.parse::<u32>().ok()).unwrap_or(0)
+fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {
+    std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
+
+use super::commands::parse_redis_db;
 
 async fn flush_batches(
     state: &AppState,
