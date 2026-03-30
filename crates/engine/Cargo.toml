@@ -14,6 +14,7 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }
+utoipa = { workspace = true }
 time = "0.3"
 
 [lints]

@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use utoipa::ToSchema;
 
 /// A node in the task workflow DAG.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DagNode {
     pub task_id: String,
     pub task_name: String,
@@ -18,14 +19,14 @@ pub struct DagNode {
 }
 
 /// An edge in the workflow DAG.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DagEdge {
     pub source: String,
     pub target: String,
     pub edge_type: EdgeType,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum EdgeType {
     Chain,
@@ -35,7 +36,7 @@ pub enum EdgeType {
 }
 
 /// Complete workflow DAG.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct WorkflowDag {
     pub root_id: String,
     pub nodes: Vec<DagNode>,
