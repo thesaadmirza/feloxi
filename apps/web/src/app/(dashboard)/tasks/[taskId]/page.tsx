@@ -180,6 +180,7 @@ export default function TaskDetailPage() {
 
   const [retrying, setRetrying] = useState(false);
   const [revoking, setRevoking] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<"retry" | "revoke" | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("details");
 
   const {
@@ -329,7 +330,7 @@ export default function TaskDetailPage() {
         <div className="flex items-center gap-2">
           <StateBadge state={task.state} />
           <button
-            onClick={handleRetry}
+            onClick={() => setConfirmAction("retry")}
             disabled={retrying}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-secondary text-sm text-foreground hover:bg-secondary/80 transition disabled:opacity-50"
           >
@@ -341,7 +342,7 @@ export default function TaskDetailPage() {
             Retry
           </button>
           <button
-            onClick={handleRevoke}
+            onClick={() => setConfirmAction("revoke")}
             disabled={revoking}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-destructive/20 text-sm text-destructive hover:bg-destructive/30 transition disabled:opacity-50"
           >
@@ -524,6 +525,49 @@ export default function TaskDetailPage() {
             currentTaskId={task.task_id}
           />
         </div>
+      )}
+
+      {confirmAction && (
+        <>
+          <div className="fixed inset-0 bg-black/60 z-40" onClick={() => setConfirmAction(null)} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="bg-card border border-border rounded-xl p-6 max-w-sm w-full shadow-xl">
+              <h3 className="text-lg font-semibold text-foreground mb-2">
+                {confirmAction === "retry" ? "Retry Task" : "Revoke Task"}
+              </h3>
+              <p className="text-sm text-muted-foreground mb-1">
+                {confirmAction === "retry"
+                  ? "This will publish a new copy of this task to the broker queue."
+                  : "This will broadcast a revoke command to all workers. The task will be terminated if currently running."}
+              </p>
+              <p className="text-xs text-muted-foreground mb-4 font-mono truncate">
+                {task?.task_id}
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setConfirmAction(null)}
+                  className="px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-secondary transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    setConfirmAction(null);
+                    if (confirmAction === "retry") handleRetry();
+                    else handleRevoke();
+                  }}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
+                    confirmAction === "revoke"
+                      ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      : "bg-primary text-primary-foreground hover:bg-primary/90"
+                  }`}
+                >
+                  {confirmAction === "retry" ? "Retry" : "Revoke"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
