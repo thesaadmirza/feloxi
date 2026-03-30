@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   RotateCcw,
   XCircle,
@@ -83,6 +83,8 @@ function SkeletonRow() {
   );
 }
 
+type ViewMode = "summary" | "events";
+
 export default function TasksPage() {
   const router = useRouter();
   const pathname = usePathname();
@@ -99,6 +101,7 @@ export default function TasksPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [cursorStack, setCursorStack] = useState<string[]>([]);
+  const [viewMode, setViewMode] = useState<ViewMode>("summary");
 
   const updateParam = useCallback(
     (key: string, value: string) => {
@@ -115,32 +118,42 @@ export default function TasksPage() {
     [pathname, router, searchParams]
   );
 
-  const { data, isLoading, isError, error, refetch } = $api.useQuery(
-    "get",
-    "/api/v1/tasks",
-    {
-      params: {
-        query: {
-          state: stateFilter || undefined,
-          task_name: nameFilter || undefined,
-          queue: queueFilter || undefined,
-          limit: TASKS_LIMIT,
-          cursor,
-        },
+  const queryParams = useMemo(() => ({
+    params: {
+      query: {
+        state: stateFilter || undefined,
+        task_name: nameFilter || undefined,
+        queue: queueFilter || undefined,
+        limit: TASKS_LIMIT,
+        cursor,
       },
     },
-    { refetchInterval: autoRefresh ? 5_000 : false }
+  }), [stateFilter, nameFilter, queueFilter, cursor]);
+
+  const summaryQuery = $api.useQuery(
+    "get",
+    "/api/v1/tasks/summary",
+    queryParams,
+    { enabled: viewMode === "summary", refetchInterval: autoRefresh ? 5_000 : false }
   );
 
-  const tasks = data?.data ?? [];
+  const eventsQuery = $api.useQuery(
+    "get",
+    "/api/v1/tasks",
+    queryParams,
+    { enabled: viewMode === "events", refetchInterval: autoRefresh ? 5_000 : false }
+  );
+
+  const activeQuery = viewMode === "summary" ? summaryQuery : eventsQuery;
+  const tasks = activeQuery.data?.data ?? [];
 
   const { data: queueNamesData } = $api.useQuery("get", "/api/v1/metrics/queue-names");
   const queueNames = queueNamesData?.data ?? [];
 
   const toggleAutoRefresh = useCallback(() => setAutoRefresh((v) => !v), []);
-  const handleExportCsv = useCallback(() => exportTasks(tasks, "csv"), [tasks]);
-  const handleExportJson = useCallback(() => exportTasks(tasks, "json"), [tasks]);
-  const handleRefresh = useCallback(() => refetch(), [refetch]);
+  const handleExportCsv = useCallback(() => exportTasks(tasks as TaskEvent[], "csv"), [tasks]);
+  const handleExportJson = useCallback(() => exportTasks(tasks as TaskEvent[], "json"), [tasks]);
+  const handleRefresh = useCallback(() => activeQuery.refetch(), [activeQuery]);
   const dismissActionError = useCallback(() => setActionError(null), []);
   const handleNameKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -158,10 +171,10 @@ export default function TasksPage() {
   );
 
   const handleNextPage = useCallback(() => {
-    if (!data?.next_cursor) return;
+    if (!activeQuery.data?.next_cursor) return;
     setCursorStack((prev) => [...prev, cursor ?? ""]);
-    setCursor(data.next_cursor ?? undefined);
-  }, [data?.next_cursor, cursor]);
+    setCursor(activeQuery.data.next_cursor ?? undefined);
+  }, [activeQuery.data?.next_cursor, cursor]);
 
   const handlePrevPage = useCallback(() => {
     setCursorStack((prev) => {
@@ -170,6 +183,12 @@ export default function TasksPage() {
       setCursor(prevCursor || undefined);
       return next;
     });
+  }, []);
+
+  const handleViewModeChange = useCallback((mode: ViewMode) => {
+    setViewMode(mode);
+    setCursor(undefined);
+    setCursorStack([]);
   }, []);
 
   async function handleRetry(e: React.MouseEvent, task: TaskEvent) {
@@ -191,7 +210,7 @@ export default function TasksPage() {
           queue: task.queue,
         },
       }));
-      refetch();
+      activeQuery.refetch();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to retry task");
     } finally {
@@ -208,7 +227,7 @@ export default function TasksPage() {
       await unwrap(fetchClient.POST("/api/v1/tasks/{task_id}/revoke", {
         params: { path: { task_id: task.task_id } },
       }));
-      refetch();
+      activeQuery.refetch();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to revoke task");
     } finally {
@@ -222,10 +241,36 @@ export default function TasksPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Tasks</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Monitor and manage your task queue events
+            {viewMode === "summary"
+              ? "One row per task — latest state"
+              : "All task events in chronological order"
+            }
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex gap-1 p-1 bg-secondary rounded-lg">
+            <button
+              onClick={() => handleViewModeChange("summary")}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${
+                viewMode === "summary"
+                  ? "bg-zinc-700 text-white shadow-sm"
+                  : "text-zinc-500 hover:text-zinc-200"
+              }`}
+            >
+              Summary
+            </button>
+            <button
+              onClick={() => handleViewModeChange("events")}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${
+                viewMode === "events"
+                  ? "bg-zinc-700 text-white shadow-sm"
+                  : "text-zinc-500 hover:text-zinc-200"
+              }`}
+            >
+              Events
+            </button>
+          </div>
+
           <button
             onClick={toggleAutoRefresh}
             className={[
@@ -333,68 +378,48 @@ export default function TasksPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-secondary/40">
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Task ID</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Task Name</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">State</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Queue</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Worker</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Runtime</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                  Task ID
+                  {viewMode === "summary" ? "Last Seen" : "Timestamp"}
                 </th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                  Task Name
-                </th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                  State
-                </th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                  Queue
-                </th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                  Worker
-                </th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                  Runtime
-                </th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                  Timestamp
-                </th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                  Actions
-                </th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {isLoading &&
+              {activeQuery.isLoading &&
                 Array.from({ length: 8 }).map((_, i) => (
                   <SkeletonRow key={i} />
                 ))}
 
-              {isError && (
+              {activeQuery.isError && (
                 <tr>
-                  <td
-                    colSpan={8}
-                    className="px-4 py-12 text-center text-destructive"
-                  >
-                    Failed to load tasks:{" "}
-                    {(error as Error)?.message ?? "Unknown error"}
+                  <td colSpan={8} className="px-4 py-12 text-center text-destructive">
+                    Failed to load tasks: {(activeQuery.error as Error)?.message ?? "Unknown error"}
                   </td>
                 </tr>
               )}
 
-              {!isLoading && !isError && tasks.length === 0 && (
+              {!activeQuery.isLoading && !activeQuery.isError && tasks.length === 0 && (
                 <tr>
                   <td colSpan={8} className="px-4 py-16 text-center">
                     <div className="flex flex-col items-center gap-3 text-muted-foreground">
                       <ListTodo className="h-10 w-10 opacity-40" />
                       <p className="font-medium">No tasks found</p>
-                      <p className="text-sm">
-                        Try adjusting your filters or check back later
-                      </p>
+                      <p className="text-sm">Try adjusting your filters or check back later</p>
                     </div>
                   </td>
                 </tr>
               )}
 
-              {!isLoading &&
+              {!activeQuery.isLoading &&
                 tasks.map((task) => (
                   <tr
-                    key={task.event_id}
+                    key={`${task.task_id}-${task.timestamp}`}
                     onClick={() => handleTaskRowClick(task.task_id)}
                     className="border-b border-border hover:bg-secondary/30 cursor-pointer transition-colors group"
                   >
@@ -407,9 +432,7 @@ export default function TasksPage() {
                     <td className="px-4 py-3">
                       <StateBadge state={task.state} />
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {task.queue || "—"}
-                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">{task.queue || "—"}</td>
                     <td className="px-4 py-3 text-muted-foreground font-mono text-xs truncate max-w-[140px]">
                       {task.worker_id ? truncateId(task.worker_id, 16) : "—"}
                     </td>
@@ -422,7 +445,7 @@ export default function TasksPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
-                          onClick={(e) => handleRetry(e, task)}
+                          onClick={(e) => handleRetry(e, task as TaskEvent)}
                           disabled={retrying === task.task_id}
                           title="Retry task"
                           className="flex items-center gap-1 px-2 py-1 rounded bg-secondary hover:bg-secondary/70 text-xs text-foreground transition disabled:opacity-50"
@@ -435,7 +458,7 @@ export default function TasksPage() {
                           Retry
                         </button>
                         <button
-                          onClick={(e) => handleRevoke(e, task)}
+                          onClick={(e) => handleRevoke(e, task as TaskEvent)}
                           disabled={revoking === task.task_id}
                           title="Revoke task"
                           className="flex items-center gap-1 px-2 py-1 rounded bg-destructive/20 hover:bg-destructive/30 text-xs text-destructive transition disabled:opacity-50"
@@ -456,11 +479,10 @@ export default function TasksPage() {
           </table>
         </div>
 
-        {data && (
+        {activeQuery.data && (
           <Pagination
-            total={data.total ?? undefined}
             limit={TASKS_LIMIT}
-            hasMore={data.has_more}
+            hasMore={activeQuery.data.has_more}
             currentCount={tasks.length}
             page={cursorStack.length + 1}
             onNext={handleNextPage}

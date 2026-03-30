@@ -2,22 +2,29 @@
 
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   ArrowLeft,
   RotateCcw,
   XCircle,
   Loader2,
   Clock,
-  Server,
   Layers,
   AlertTriangle,
   Copy,
   Check,
+  GitBranch,
+  ExternalLink,
+  Server,
 } from "lucide-react";
 import { $api, fetchClient, unwrap } from "@/lib/api";
-import { formatDuration } from "@/lib/utils";
+import { formatDuration, truncateId } from "@/lib/utils";
+import { getStateColor } from "@/lib/constants";
 import { JsonViewer } from "@/components/shared/json-viewer";
 import { Skeleton } from "@/components/shared/skeleton";
+import WorkflowDag from "@/components/shared/workflow-dag";
+
+type TabId = "details" | "workflow";
 
 function StateBadge({ state }: { state: string }) {
   return (
@@ -38,18 +45,25 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function getStateColor(state: string): string {
-  const colors: Record<string, string> = {
-    PENDING: "#3b82f6",
-    RECEIVED: "#8b5cf6",
-    STARTED: "#f59e0b",
-    SUCCESS: "#22c55e",
-    FAILURE: "#ef4444",
-    RETRY: "#f97316",
-    REVOKED: "#6b7280",
-    REJECTED: "#dc2626",
-  };
-  return colors[state.toUpperCase()] ?? "#6b7280";
+function TaskIdLink({ taskId, label }: { taskId: string; label?: string }) {
+  return (
+    <Link
+      href={`/tasks/${taskId}`}
+      className="inline-flex items-center gap-1 text-primary hover:text-primary/80 transition underline-offset-4 hover:underline"
+    >
+      <span>{label ?? truncateId(taskId, 16)}</span>
+      <ExternalLink className="h-3 w-3" />
+    </Link>
+  );
+}
+
+function WorkflowLink({ rootId }: { rootId: string }) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <TaskIdLink taskId={rootId} />
+      <span className="text-xs text-muted-foreground">(workflow root)</span>
+    </span>
+  );
 }
 
 function TracebackSection({
@@ -118,6 +132,47 @@ function TracebackSection({
   );
 }
 
+function WorkflowSection({
+  rootId,
+  currentTaskId,
+}: {
+  rootId: string;
+  currentTaskId: string;
+}) {
+  const { data, isLoading, isError } = $api.useQuery(
+    "get",
+    "/api/v1/workflows/{root_id}",
+    { params: { path: { root_id: rootId } } },
+    { enabled: !!rootId }
+  );
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+        Could not load workflow data
+      </div>
+    );
+  }
+
+  return (
+    <WorkflowDag
+      nodes={data.nodes}
+      edges={data.edges}
+      rootId={data.root_id}
+      currentTaskId={currentTaskId}
+    />
+  );
+}
+
 export default function TaskDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -125,6 +180,7 @@ export default function TaskDetailPage() {
 
   const [retrying, setRetrying] = useState(false);
   const [revoking, setRevoking] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabId>("details");
 
   const {
     data: task,
@@ -171,8 +227,13 @@ export default function TaskDetailPage() {
           kwargs,
           queue: task.queue,
         },
-      }));
-      refetch();
+      })).then((result) => {
+        if (result.task_id) {
+          router.push(`/tasks/${result.task_id}`);
+        } else {
+          refetch();
+        }
+      });
     } finally {
       setRetrying(false);
     }
@@ -237,6 +298,13 @@ export default function TaskDetailPage() {
   const hasException = !!(task.exception && task.exception !== "null" && task.exception !== "");
   const hasTraceback = !!(task.traceback && task.traceback !== "null" && task.traceback !== "");
   const hasResult = !!(task.result && task.result !== "null" && task.result !== "");
+  const hasWorkflow = !!(task.root_id || task.parent_id || task.group_id);
+
+  const tabs: { id: TabId; label: string; icon: typeof Layers; show: boolean }[] = [
+    { id: "details", label: "Details", icon: Layers, show: true },
+    { id: "workflow", label: "Workflow Chain", icon: GitBranch, show: hasWorkflow },
+  ];
+  const visibleTabs = tabs.filter((t) => t.show);
 
   return (
     <div className="space-y-6">
@@ -251,7 +319,7 @@ export default function TaskDetailPage() {
           </button>
           <span className="text-muted-foreground">/</span>
           <span className="text-sm font-mono text-muted-foreground">
-            {task.task_id.slice(0, 8)}...
+            {truncateId(task.task_id)}
           </span>
         </div>
 
@@ -284,106 +352,175 @@ export default function TaskDetailPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 rounded-xl border border-border bg-card p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Layers className="h-4 w-4 text-primary" />
-            <h2 className="font-semibold text-foreground">{task.task_name}</h2>
-          </div>
-          <InfoRow label="Task ID" value={task.task_id} />
-          <InfoRow label="Event ID" value={task.event_id} />
-          <InfoRow label="Queue" value={task.queue || "—"} />
-          <InfoRow label="Worker" value={task.worker_id || "—"} />
-          <InfoRow
-            label="Runtime"
-            value={task.runtime != null ? formatDuration(task.runtime) : "—"}
-          />
-          <InfoRow label="Retries" value={String(task.retries ?? 0)} />
-          {task.root_id && <InfoRow label="Root ID" value={task.root_id} />}
-          {task.parent_id && <InfoRow label="Parent ID" value={task.parent_id} />}
-          <InfoRow
-            label="Timestamp"
-            value={new Date(task.timestamp).toLocaleString()}
-          />
-          <InfoRow label="Broker" value={task.broker_type || "—"} />
+      {visibleTabs.length > 1 && (
+        <div className="flex gap-1 bg-secondary/50 rounded-lg p-1 w-fit">
+          {visibleTabs.map((tab) => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition ${
+                  activeTab === tab.id
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
+      )}
 
-        <div className="rounded-xl border border-border bg-card p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Clock className="h-4 w-4 text-primary" />
-            <h2 className="font-semibold text-foreground">State Timeline</h2>
-          </div>
-
-          {timelineLoading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <Skeleton key={i} className="h-10 w-full" />
-              ))}
-            </div>
-          ) : timeline.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No timeline available</p>
-          ) : (
-            <div className="relative">
-              <div className="absolute left-3 top-2 bottom-2 w-px bg-border" />
-              <div className="space-y-4">
-                {timeline.map((event, idx) => (
-                  <div
-                    key={event.event_id ?? idx}
-                    className="flex items-start gap-3 pl-8 relative"
-                  >
-                    <div
-                      className="absolute left-1.5 top-1.5 w-3 h-3 rounded-full border-2 border-background"
-                      style={{ backgroundColor: getStateColor(event.state) }}
-                    />
-                    <div className="min-w-0">
-                      <span
-                        className={`badge-${event.state.toLowerCase()} inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium`}
-                      >
-                        {event.state}
-                      </span>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {new Date(event.timestamp).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                          second: "2-digit",
-                        })}
-                      </p>
-                    </div>
-                  </div>
-                ))}
+      {activeTab === "details" && (
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 rounded-xl border border-border bg-card p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Layers className="h-4 w-4 text-primary" />
+                <h2 className="font-semibold text-foreground">{task.task_name}</h2>
               </div>
+              <InfoRow label="Task ID" value={task.task_id} />
+              <InfoRow label="Event ID" value={task.event_id} />
+              <InfoRow label="Queue" value={task.queue || "—"} />
+              <InfoRow label="Worker" value={task.worker_id || "—"} />
+              <InfoRow
+                label="Runtime"
+                value={task.runtime != null ? formatDuration(task.runtime) : "—"}
+              />
+              <InfoRow label="Retries" value={String(task.retries ?? 0)} />
+              {task.root_id && (
+                <InfoRow
+                  label="Root ID"
+                  value={
+                    task.root_id === task.task_id ? (
+                      <span className="text-muted-foreground">{truncateId(task.root_id, 16)} (this task)</span>
+                    ) : (
+                      <WorkflowLink rootId={task.root_id} />
+                    )
+                  }
+                />
+              )}
+              {task.parent_id && (
+                <InfoRow
+                  label="Parent Task"
+                  value={<TaskIdLink taskId={task.parent_id} />}
+                />
+              )}
+              {task.group_id && (
+                <InfoRow label="Group ID" value={truncateId(task.group_id, 16)} />
+              )}
+              {task.chord_id && (
+                <InfoRow
+                  label="Chord Callback"
+                  value={<TaskIdLink taskId={task.chord_id} />}
+                />
+              )}
+              <InfoRow
+                label="Timestamp"
+                value={new Date(task.timestamp).toLocaleString()}
+              />
+              <InfoRow label="Broker" value={task.broker_type || "—"} />
             </div>
-          )}
-        </div>
-      </div>
 
-      {(task.args || task.kwargs) && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {task.args && task.args !== "null" && task.args !== "[]" && (
             <div className="rounded-xl border border-border bg-card p-6">
-              <JsonViewer value={task.args} label="Args" maxHeight={400} />
+              <div className="flex items-center gap-2 mb-4">
+                <Clock className="h-4 w-4 text-primary" />
+                <h2 className="font-semibold text-foreground">State Timeline</h2>
+              </div>
+
+              {timelineLoading ? (
+                <div className="space-y-3">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <Skeleton key={i} className="h-10 w-full" />
+                  ))}
+                </div>
+              ) : timeline.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No timeline available</p>
+              ) : (
+                <div className="relative">
+                  <div className="absolute left-3 top-2 bottom-2 w-px bg-border" />
+                  <div className="space-y-4">
+                    {timeline.map((event, idx) => (
+                      <div
+                        key={event.event_id ?? idx}
+                        className="flex items-start gap-3 pl-8 relative"
+                      >
+                        <div
+                          className="absolute left-1.5 top-1.5 w-3 h-3 rounded-full border-2 border-background"
+                          style={{ backgroundColor: getStateColor(event.state) }}
+                        />
+                        <div className="min-w-0">
+                          <span
+                            className={`badge-${event.state.toLowerCase()} inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium`}
+                          >
+                            {event.state}
+                          </span>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {new Date(event.timestamp).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              second: "2-digit",
+                            })}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {(task.args || task.kwargs) && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {task.args && task.args !== "null" && task.args !== "[]" && (
+                <div className="rounded-xl border border-border bg-card p-6">
+                  <JsonViewer value={task.args} label="Args" maxHeight={400} />
+                </div>
+              )}
+              {task.kwargs && task.kwargs !== "null" && task.kwargs !== "{}" && (
+                <div className="rounded-xl border border-border bg-card p-6">
+                  <JsonViewer value={task.kwargs} label="Kwargs" maxHeight={400} />
+                </div>
+              )}
             </div>
           )}
-          {task.kwargs && task.kwargs !== "null" && task.kwargs !== "{}" && (
+
+          {hasResult && (
             <div className="rounded-xl border border-border bg-card p-6">
-              <JsonViewer value={task.kwargs} label="Kwargs" maxHeight={400} />
+              <div className="flex items-center gap-2 mb-4">
+                <Server className="h-4 w-4 text-[#22c55e]" />
+                <h2 className="font-semibold text-foreground">Result</h2>
+              </div>
+              <JsonViewer value={task.result} label="Return value" maxHeight={999999} defaultCollapsed={false} />
             </div>
           )}
-        </div>
+
+          {(hasException || hasTraceback) && (
+            <TracebackSection
+              exception={task.exception}
+              traceback={task.traceback}
+              hasException={hasException}
+              hasTraceback={hasTraceback}
+            />
+          )}
+        </>
       )}
 
-      {hasResult && (
+      {activeTab === "workflow" && hasWorkflow && (
         <div className="rounded-xl border border-border bg-card p-6">
           <div className="flex items-center gap-2 mb-4">
-            <Server className="h-4 w-4 text-[#22c55e]" />
-            <h2 className="font-semibold text-foreground">Result</h2>
+            <GitBranch className="h-4 w-4 text-primary" />
+            <h2 className="font-semibold text-foreground">Workflow Chain</h2>
           </div>
-          <JsonViewer value={task.result} label="Return value" maxHeight={999999} defaultCollapsed={false} />
+          <WorkflowSection
+            rootId={task.root_id ?? task.task_id}
+            currentTaskId={task.task_id}
+          />
         </div>
-      )}
-
-      {(hasException || hasTraceback) && (
-        <TracebackSection exception={task.exception} traceback={task.traceback} hasException={hasException} hasTraceback={hasTraceback} />
       )}
     </div>
   );
