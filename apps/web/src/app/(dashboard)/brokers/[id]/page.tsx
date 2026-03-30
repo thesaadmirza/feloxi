@@ -29,15 +29,8 @@ import {
 } from "recharts";
 import { $api, fetchClient, unwrap } from "@/lib/api";
 import { timeAgo } from "@/lib/utils";
+import { Skeleton } from "@/components/shared/skeleton";
 import type { TaskMetricsRow } from "@/types/api";
-
-function Skeleton({ className }: { className?: string }) {
-  return (
-    <div
-      className={`animate-pulse bg-zinc-800 rounded ${className ?? "h-4 w-full"}`}
-    />
-  );
-}
 
 function StatCard({
   label,
