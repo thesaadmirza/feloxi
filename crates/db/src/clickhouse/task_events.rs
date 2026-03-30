@@ -191,23 +191,44 @@ pub async fn get_task_timeline(
     Ok(rows)
 }
 
-/// Get the latest event for a specific task.
+/// Merged SELECT that combines data across all events for a task_id.
+/// Uses argMax for latest-wins fields and argMaxIf for first-non-empty fields.
+const MERGED_TASK_SELECT: &str = "\
+    any(tenant_id) AS tenant_id, \
+    argMax(event_id, timestamp) AS event_id, \
+    task_id, \
+    CAST(argMaxIf(task_name, timestamp, task_name != '') AS String) AS task_name, \
+    CAST(argMaxIf(queue, timestamp, queue != '') AS String) AS queue, \
+    argMaxIf(worker_id, timestamp, worker_id != '') AS worker_id, \
+    CAST(argMax(state, timestamp) AS String) AS state, \
+    CAST(argMax(event_type, timestamp) AS String) AS event_type, \
+    max(timestamp) AS timestamp, \
+    argMaxIf(args, timestamp, args != '') AS args, \
+    argMaxIf(kwargs, timestamp, kwargs != '') AS kwargs, \
+    argMaxIf(result, timestamp, result != '') AS result, \
+    argMaxIf(exception, timestamp, exception != '') AS exception, \
+    argMaxIf(traceback, timestamp, traceback != '') AS traceback, \
+    argMax(runtime, timestamp) AS runtime, \
+    max(retries) AS retries, \
+    argMaxIf(root_id, timestamp, root_id IS NOT NULL AND root_id != '') AS root_id, \
+    argMaxIf(parent_id, timestamp, parent_id IS NOT NULL AND parent_id != '') AS parent_id, \
+    argMaxIf(group_id, timestamp, group_id IS NOT NULL AND group_id != '') AS group_id, \
+    argMaxIf(chord_id, timestamp, chord_id IS NOT NULL AND chord_id != '') AS chord_id, \
+    any(agent_id) AS agent_id, \
+    CAST(argMaxIf(broker_type, timestamp, broker_type != '') AS String) AS broker_type";
+
+/// Get a merged view of a single task, combining fields from all its events.
 pub async fn get_task_latest(
     client: &Client,
     tenant_id: Uuid,
     task_id: &str,
 ) -> Result<Option<TaskEventRow>, AppError> {
+    let query = format!(
+        "SELECT {MERGED_TASK_SELECT} FROM task_events \
+         WHERE tenant_id = ? AND task_id = ? GROUP BY task_id"
+    );
     let rows = client
-        .query("SELECT tenant_id, event_id, task_id, \
-                CAST(task_name AS String) AS task_name, \
-                CAST(queue AS String) AS queue, \
-                worker_id, \
-                CAST(state AS String) AS state, \
-                CAST(event_type AS String) AS event_type, \
-                timestamp, args, kwargs, result, exception, traceback, runtime, retries, \
-                root_id, parent_id, group_id, chord_id, agent_id, \
-                CAST(broker_type AS String) AS broker_type \
-                FROM task_events WHERE tenant_id = ? AND task_id = ? ORDER BY timestamp DESC LIMIT 1")
+        .query(&query)
         .bind(tenant_id)
         .bind(task_id)
         .fetch_all::<TaskEventRow>()
@@ -218,28 +239,19 @@ pub async fn get_task_latest(
 }
 
 /// Get all tasks belonging to a workflow (sharing the same root_id).
+/// Merges fields per task_id so args/kwargs from received events are preserved.
 pub async fn get_workflow_tasks(
     client: &Client,
     tenant_id: Uuid,
     root_id: &str,
 ) -> Result<Vec<TaskEventRow>, AppError> {
-    // Get the latest event per task_id for all tasks in this workflow
+    let query = format!(
+        "SELECT {MERGED_TASK_SELECT} FROM task_events \
+         WHERE tenant_id = ? AND (root_id = ? OR task_id = ?) \
+         GROUP BY task_id ORDER BY max(timestamp) ASC"
+    );
     let rows = client
-        .query(
-            "SELECT tenant_id, event_id, task_id, \
-             CAST(task_name AS String) AS task_name, \
-             CAST(queue AS String) AS queue, \
-             worker_id, \
-             CAST(state AS String) AS state, \
-             CAST(event_type AS String) AS event_type, \
-             timestamp, args, kwargs, result, exception, traceback, runtime, retries, \
-             root_id, parent_id, group_id, chord_id, agent_id, \
-             CAST(broker_type AS String) AS broker_type \
-             FROM task_events \
-             WHERE tenant_id = ? \
-               AND (root_id = ? OR task_id = ?) \
-             ORDER BY timestamp ASC",
-        )
+        .query(&query)
         .bind(tenant_id)
         .bind(root_id)
         .bind(root_id)
@@ -247,19 +259,5 @@ pub async fn get_workflow_tasks(
         .await
         .map_err(|e| AppError::Database(e.to_string()))?;
 
-    // Deduplicate: keep latest event per task_id
-    let mut latest: std::collections::HashMap<String, TaskEventRow> =
-        std::collections::HashMap::new();
-    for row in rows {
-        latest
-            .entry(row.task_id.clone())
-            .and_modify(|existing| {
-                if row.timestamp > existing.timestamp {
-                    *existing = row.clone();
-                }
-            })
-            .or_insert(row);
-    }
-
-    Ok(latest.into_values().collect())
+    Ok(rows)
 }

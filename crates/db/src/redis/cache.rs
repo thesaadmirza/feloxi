@@ -129,6 +129,43 @@ pub async fn get_online_workers(pool: &Pool, tenant_id: Uuid) -> Result<Vec<Stri
     Ok(members)
 }
 
+/// Get remaining TTL of heartbeat keys for the given workers.
+/// Returns (worker_id, ttl_seconds) pairs. A TTL of -2 means the key doesn't
+/// exist (heartbeat expired), -1 means no expiry set.
+pub async fn get_heartbeat_ttls(
+    pool: &Pool,
+    tenant_id: Uuid,
+    worker_ids: &[String],
+) -> Result<Vec<(String, i64)>, Error> {
+    if worker_ids.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let mut results = Vec::with_capacity(worker_ids.len());
+    for wid in worker_ids {
+        let key = keys::worker_heartbeat(tenant_id, wid);
+        let ttl: i64 = pool.ttl(&key).await?;
+        results.push((wid.clone(), ttl));
+    }
+
+    Ok(results)
+}
+
+/// Check if a heartbeat sample should be stored (throttle: 1 per 30s per worker).
+/// Returns true if NOT throttled (should store). Sets the throttle key on success.
+pub async fn should_sample_heartbeat(
+    pool: &Pool,
+    tenant_id: Uuid,
+    worker_id: &str,
+) -> Result<bool, Error> {
+    let key = keys::worker_hb_sampled(tenant_id, worker_id);
+    // SET NX with 30s expiry — returns Some("OK") if newly set, None if key existed
+    let result: Option<String> = pool
+        .set(&key, "1", Some(Expiration::EX(30)), Some(SetOptions::NX), false)
+        .await?;
+    Ok(result.is_some())
+}
+
 /// Check if alert rule is in cooldown.
 pub async fn is_alert_in_cooldown(
     pool: &Pool,

@@ -317,6 +317,354 @@ pub async fn get_broker_stats(
     })
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, clickhouse::Row, ToSchema)]
+pub struct TaskSummaryRow {
+    pub task_id: String,
+    pub task_name: String,
+    pub queue: String,
+    pub worker_id: String,
+    pub state: String,
+    #[serde(with = "clickhouse::serde::time::datetime64::millis")]
+    #[schema(value_type = i64)]
+    pub timestamp: OffsetDateTime,
+    pub runtime: f64,
+    pub retries: u32,
+    pub exception: String,
+    pub wait_seconds: f64,
+}
+
+pub async fn get_task_summary(
+    client: &Client,
+    tenant_id: Uuid,
+    limit: u64,
+    task_name: Option<&str>,
+    state: Option<&str>,
+    queue: Option<&str>,
+    cursor_ms: Option<i64>,
+) -> Result<Vec<TaskSummaryRow>, AppError> {
+    // Use a LIMIT BY approach: fetch the latest row per task_id efficiently
+    // rather than GROUP BY across millions of rows.
+    let fetch_limit = limit + 1; // +1 for has_more detection
+
+    let mut query = String::from(
+        r#"SELECT
+            task_id,
+            CAST(task_name AS String) AS task_name,
+            CAST(queue AS String) AS queue,
+            worker_id,
+            CAST(state AS String) AS state,
+            timestamp,
+            runtime,
+            retries,
+            exception,
+            0.0 AS wait_seconds
+        FROM task_events
+        WHERE tenant_id = ?
+          AND timestamp >= now() - toIntervalHour(24)
+          AND state IN ('PENDING', 'RECEIVED', 'STARTED', 'SUCCESS', 'FAILURE', 'RETRY', 'REVOKED', 'REJECTED')"#,
+    );
+
+    if task_name.is_some() {
+        query.push_str(" AND task_name = ?");
+    }
+    if state.is_some() {
+        query.push_str(" AND state = ?");
+    }
+    if queue.is_some() {
+        query.push_str(" AND queue = ?");
+    }
+    if cursor_ms.is_some() {
+        query.push_str(" AND timestamp < fromUnixTimestamp64Milli(toInt64(?))");
+    }
+
+    query.push_str(" ORDER BY timestamp DESC LIMIT 1 BY task_id LIMIT ?");
+
+    let mut q = client.query(&query).bind(tenant_id);
+
+    if let Some(tn) = task_name {
+        q = q.bind(tn);
+    }
+    if let Some(s) = state {
+        q = q.bind(s);
+    }
+    if let Some(qn) = queue {
+        q = q.bind(qn);
+    }
+    if let Some(ms) = cursor_ms {
+        q = q.bind(ms);
+    }
+
+    let rows = q
+        .bind(fetch_limit)
+        .fetch_all::<TaskSummaryRow>()
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    Ok(rows)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, clickhouse::Row, ToSchema)]
+pub struct FailureGroupRow {
+    pub exception: String,
+    pub count: u64,
+    pub first_seen: u64,
+    pub last_seen: u64,
+    pub task_names: Vec<String>,
+    pub latest_task_id: String,
+    pub latest_traceback: String,
+}
+
+pub async fn get_failure_groups(
+    client: &Client,
+    tenant_id: Uuid,
+    from_minutes: u64,
+    limit: u64,
+) -> Result<Vec<FailureGroupRow>, AppError> {
+    let rows = client
+        .query(
+            r#"SELECT
+                exception,
+                count() AS count,
+                toUnixTimestamp64Milli(min(timestamp)) AS first_seen,
+                toUnixTimestamp64Milli(max(timestamp)) AS last_seen,
+                arrayDistinct(groupArray(10)(CAST(task_name AS String))) AS task_names,
+                argMax(task_id, timestamp) AS latest_task_id,
+                argMax(traceback, timestamp) AS latest_traceback
+            FROM task_events
+            WHERE tenant_id = ?
+              AND state = 'FAILURE'
+              AND exception != ''
+              AND timestamp >= now() - toIntervalMinute(?)
+            GROUP BY exception
+            ORDER BY count DESC
+            LIMIT ?"#,
+        )
+        .bind(tenant_id)
+        .bind(from_minutes)
+        .bind(limit)
+        .fetch_all::<FailureGroupRow>()
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    Ok(rows)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, clickhouse::Row, ToSchema)]
+pub struct TaskNameStatsRow {
+    pub task_name: String,
+    pub total: u64,
+    pub success: u64,
+    pub failure: u64,
+    pub retry: u64,
+    pub avg_runtime: f64,
+    pub p95_runtime: f64,
+    pub p99_runtime: f64,
+    pub avg_wait: f64,
+    pub max_runtime: f64,
+}
+
+pub async fn get_task_name_stats(
+    client: &Client,
+    tenant_id: Uuid,
+    from_minutes: u64,
+) -> Result<Vec<TaskNameStatsRow>, AppError> {
+    let rows = client
+        .query(
+            r#"SELECT
+                CAST(task_name AS String) AS task_name,
+                count() AS total,
+                countIf(state = 'SUCCESS') AS success,
+                countIf(state = 'FAILURE') AS failure,
+                countIf(state = 'RETRY') AS retry,
+                ifNull(avgIf(runtime, runtime > 0), 0.0) AS avg_runtime,
+                ifNull(quantileIf(0.95)(runtime, runtime > 0), 0.0) AS p95_runtime,
+                ifNull(quantileIf(0.99)(runtime, runtime > 0), 0.0) AS p99_runtime,
+                ifNull(avgIf(
+                    dateDiff('millisecond', queued_at, started_at) / 1000.0,
+                    queued_at IS NOT NULL AND started_at IS NOT NULL
+                ), 0.0) AS avg_wait,
+                ifNull(maxIf(runtime, runtime > 0), 0.0) AS max_runtime
+            FROM task_events
+            WHERE tenant_id = ?
+              AND state IN ('SUCCESS', 'FAILURE', 'RETRY', 'REVOKED')
+              AND timestamp >= now() - toIntervalMinute(?)
+            GROUP BY task_name
+            ORDER BY total DESC
+            LIMIT 100"#,
+        )
+        .bind(tenant_id)
+        .bind(from_minutes)
+        .fetch_all::<TaskNameStatsRow>()
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    Ok(rows)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, clickhouse::Row, ToSchema)]
+pub struct QueueOverviewRow {
+    pub queue: String,
+    pub enqueued: u64,
+    pub completed: u64,
+    pub failed: u64,
+    pub backlog: i64,
+    pub avg_runtime: f64,
+}
+
+pub async fn get_queue_overview(
+    client: &Client,
+    tenant_id: Uuid,
+    from_minutes: u64,
+) -> Result<Vec<QueueOverviewRow>, AppError> {
+    let rows = client
+        .query(
+            r#"SELECT
+                queue,
+                enqueued,
+                completed,
+                failed,
+                toInt64(enqueued - completed - failed) AS backlog,
+                avg_runtime
+            FROM (
+                SELECT
+                    CAST(queue AS String) AS queue,
+                    sum(enqueued) AS enqueued,
+                    sum(completed) AS completed,
+                    sum(failed) AS failed,
+                    0.0 AS avg_runtime
+                FROM queue_metrics_mv
+                WHERE tenant_id = ?
+                  AND minute >= now() - toIntervalMinute(?)
+                  AND queue != ''
+                GROUP BY queue
+            )
+            ORDER BY enqueued DESC
+            LIMIT 50"#,
+        )
+        .bind(tenant_id)
+        .bind(from_minutes)
+        .fetch_all::<QueueOverviewRow>()
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    Ok(rows)
+}
+
+/// Per-worker task stats aggregated from task_events (last 24 hours).
+#[derive(Debug, Clone, Serialize, Deserialize, clickhouse::Row, ToSchema)]
+pub struct WorkerTaskStatsRow {
+    pub worker_id: String,
+    pub pending: u64,
+    pub started: u64,
+    pub succeeded: u64,
+    pub failed: u64,
+    pub retried: u64,
+    pub revoked: u64,
+    pub total: u64,
+    pub avg_runtime: f64,
+}
+
+pub async fn get_worker_task_stats(
+    client: &Client,
+    tenant_id: Uuid,
+) -> Result<Vec<WorkerTaskStatsRow>, AppError> {
+    let rows = client
+        .query(
+            r#"SELECT
+                worker_id,
+                countIf(state = 'PENDING')  AS pending,
+                countIf(state = 'STARTED')  AS started,
+                countIf(state = 'SUCCESS')  AS succeeded,
+                countIf(state = 'FAILURE')  AS failed,
+                countIf(state = 'RETRY')    AS retried,
+                countIf(state = 'REVOKED')  AS revoked,
+                count()                     AS total,
+                avgIf(runtime, runtime > 0) AS avg_runtime
+            FROM task_events
+            WHERE tenant_id = ?
+              AND timestamp >= now() - toIntervalHour(24)
+              AND worker_id != ''
+            GROUP BY worker_id
+            ORDER BY total DESC"#,
+        )
+        .bind(tenant_id)
+        .fetch_all::<WorkerTaskStatsRow>()
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    Ok(rows)
+}
+
+/// Per-worker heartbeat health metrics (last N hours from sampled heartbeats).
+#[derive(Debug, Clone, Serialize, Deserialize, clickhouse::Row, ToSchema)]
+pub struct WorkerHeartbeatHealthRow {
+    pub worker_id: String,
+    #[serde(with = "clickhouse::serde::time::datetime64::millis")]
+    #[schema(value_type = i64)]
+    pub last_heartbeat: OffsetDateTime,
+    pub heartbeat_count: u64,
+    pub max_gap_secs: f64,
+    pub avg_gap_secs: f64,
+    pub load_avg: f64,
+    pub active_tasks: u32,
+}
+
+pub async fn get_worker_heartbeat_health(
+    client: &Client,
+    tenant_id: Uuid,
+    from_hours: u64,
+) -> Result<Vec<WorkerHeartbeatHealthRow>, AppError> {
+    let rows = client
+        .query(
+            r#"SELECT
+                worker_id,
+                toDateTime64(last_ts, 3, 'UTC') AS last_heartbeat,
+                cnt AS heartbeat_count,
+                if(
+                    length(ts_sorted) >= 2,
+                    arrayMax(arrayMap(
+                        (a, b) -> toFloat64(dateDiff('second', a, b)),
+                        arraySlice(ts_sorted, 1, length(ts_sorted) - 1),
+                        arraySlice(ts_sorted, 2)
+                    )),
+                    0.0
+                ) AS max_gap_secs,
+                if(
+                    length(ts_sorted) >= 2,
+                    arrayAvg(arrayMap(
+                        (a, b) -> toFloat64(dateDiff('second', a, b)),
+                        arraySlice(ts_sorted, 1, length(ts_sorted) - 1),
+                        arraySlice(ts_sorted, 2)
+                    )),
+                    0.0
+                ) AS avg_gap_secs,
+                if(length(latest_load_avg) > 0, latest_load_avg[1], 0.0) AS load_avg,
+                toUInt32(latest_active_tasks) AS active_tasks
+            FROM (
+                SELECT
+                    worker_id,
+                    max(timestamp) AS last_ts,
+                    toUInt64(count()) AS cnt,
+                    arraySort(groupArray(timestamp)) AS ts_sorted,
+                    argMax(load_avg, timestamp) AS latest_load_avg,
+                    argMax(active_tasks, timestamp) AS latest_active_tasks
+                FROM worker_events
+                WHERE tenant_id = ?
+                  AND event_type = 'worker-heartbeat'
+                  AND timestamp >= now() - toIntervalHour(?)
+                GROUP BY worker_id
+            )
+            ORDER BY last_heartbeat DESC"#,
+        )
+        .bind(tenant_id)
+        .bind(from_hours)
+        .fetch_all::<WorkerHeartbeatHealthRow>()
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    Ok(rows)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -10,6 +10,10 @@ pub fn worker_heartbeat(tenant_id: Uuid, worker_id: &str) -> String {
     format!("fp:{tenant_id}:worker:{worker_id}:heartbeat")
 }
 
+pub fn worker_hb_sampled(tenant_id: Uuid, worker_id: &str) -> String {
+    format!("fp:{tenant_id}:worker:{worker_id}:hb_sampled")
+}
+
 pub fn workers_online(tenant_id: Uuid) -> String {
     format!("fp:{tenant_id}:workers:online")
 }
