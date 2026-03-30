@@ -14,6 +14,9 @@ All Feloxi configuration is done through environment variables. Copy `.env.examp
 | `PORT`           | No       | `8080`                        | Port the API server listens on                                                                                                        |
 | `RUST_LOG`       | No       | `api=info,tower_http=info` | Log level filter ([tracing filter syntax](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html)) |
 | `ALLOW_SIGNUP`   | No       | `false`                       | Allow public registration. When `false`, only the setup wizard (first user) and admin invites work                                    |
+| `CLICKHOUSE_USER` | No     | —                             | ClickHouse username (if auth is enabled)                                                                                              |
+| `CLICKHOUSE_PASSWORD` | No | —                             | ClickHouse password (if auth is enabled)                                                                                              |
+| `DISABLE_SWAGGER` | No     | `false`                       | Set to `true` to disable Swagger UI in production                                                                                     |
 
 ## Frontend
 
@@ -81,6 +84,12 @@ Optional environment variables for high-throughput deployments. Defaults work we
 | `FP_PG_MAX_CONNECTIONS`       | `50`     | Maximum PostgreSQL pool connections                                         |
 | `FP_REDIS_POOL_SIZE`          | `50`     | Redis connection pool size                                                  |
 | `FP_PUBSUB_CHANNEL_CAPACITY`  | `10000`  | Internal buffer for Redis PubSub messages from Celery brokers. Increase if you see "PubSub receiver lagged" warnings at high event rates (1000+ events/sec) |
+| `FP_FLUSH_INTERVAL_SECS`     | `1`      | How often the consumer flushes batched events to ClickHouse                 |
+| `FP_DRAIN_INTERVAL_SECS`     | `30`     | How often the consumer drains list-based Celery queues                      |
+| `FP_DRAIN_MAX_MESSAGES`       | `500`    | Maximum messages to drain from list queues per cycle                        |
+| `FP_STATS_INTERVAL_SECS`     | `30`     | How often consumer throughput stats are logged                              |
+| `FP_TASK_BATCH_SIZE`          | `100`    | Task event batch threshold before early flush                               |
+| `FP_WORKER_BATCH_SIZE`        | `20`     | Worker event batch threshold before early flush                             |
 
 ## Logging
 
