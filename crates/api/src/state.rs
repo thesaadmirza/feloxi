@@ -95,8 +95,12 @@ impl AppConfig {
             clickhouse_password: std::env::var("CLICKHOUSE_PASSWORD").ok(),
             redis_url: std::env::var("REDIS_URL")
                 .unwrap_or_else(|_| "redis://localhost:6379".into()),
-            jwt_secret: std::env::var("JWT_SECRET")
-                .expect("JWT_SECRET must be set (min 32 characters)"),
+            jwt_secret: {
+                let secret = std::env::var("JWT_SECRET")
+                    .expect("JWT_SECRET must be set (min 32 characters)");
+                assert!(secret.len() >= 32, "JWT_SECRET must be at least 32 characters");
+                secret
+            },
             cors_origin: std::env::var("CORS_ORIGIN")
                 .unwrap_or_else(|_| "http://localhost:3000".into()),
             allow_signup: std::env::var("ALLOW_SIGNUP")
