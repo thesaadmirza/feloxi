@@ -63,6 +63,7 @@ pub async fn list_enabled_alert_rules(
     Ok(rules)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn update_alert_rule(
     pool: &PgPool,
     tenant_id: Uuid,
