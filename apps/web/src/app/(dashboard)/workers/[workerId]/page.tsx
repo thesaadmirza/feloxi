@@ -66,6 +66,8 @@ export default function WorkerDetailPage() {
         params: { path: { worker_id: workerId } },
       }));
       refetch();
+    } catch (err) {
+      console.error("Shutdown failed:", err);
     } finally {
       setShuttingDown(false);
     }
