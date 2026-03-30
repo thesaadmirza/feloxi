@@ -17,6 +17,7 @@ use utoipa::OpenApi;
         (name = "metrics", description = "Metrics and analytics"),
         (name = "settings", description = "Tenant settings and team management"),
         (name = "setup", description = "Instance setup and configuration status"),
+        (name = "workflows", description = "Task workflow and chain tracking"),
     ),
     paths(
         // Health
@@ -36,10 +37,13 @@ use utoipa::OpenApi;
         crate::routes::tasks::get_task_timeline,
         crate::routes::tasks::retry_task,
         crate::routes::tasks::revoke_task,
+        crate::routes::tasks::list_task_summary,
         // Workers
         crate::routes::workers::list_workers,
         crate::routes::workers::get_worker,
         crate::routes::workers::shutdown_worker,
+        crate::routes::workers::worker_task_stats,
+        crate::routes::workers::worker_health,
         // Brokers
         crate::routes::brokers::list_brokers,
         crate::routes::brokers::create_broker,
@@ -64,6 +68,9 @@ use utoipa::OpenApi;
         crate::routes::metrics::queue_metrics,
         crate::routes::metrics::task_names,
         crate::routes::metrics::queue_names,
+        crate::routes::metrics::failure_groups,
+        crate::routes::metrics::task_name_stats,
+        crate::routes::metrics::queue_overview,
         // Settings / Tenants
         crate::routes::tenants::get_settings,
         crate::routes::tenants::get_team,
@@ -78,6 +85,8 @@ use utoipa::OpenApi;
         crate::routes::api_keys::list_keys,
         crate::routes::api_keys::create_key,
         crate::routes::api_keys::revoke_key,
+        // Workflows
+        crate::routes::workflows::get_workflow,
         // Setup
         crate::routes::setup::status,
     ),
@@ -94,6 +103,7 @@ use utoipa::OpenApi;
         crate::routes::tasks::TaskListParams,
         crate::routes::tasks::RetryRequest,
         crate::routes::workers::WorkerListParams,
+        crate::routes::workers::WorkerHealthParams,
         crate::routes::brokers::CreateBrokerRequest,
         crate::routes::brokers::TestConnectionRequest,
         crate::routes::alerts::CreateAlertRuleRequest,
@@ -125,6 +135,16 @@ use utoipa::OpenApi;
         db::clickhouse::aggregations::QueueMetricsRow,
         db::clickhouse::aggregations::BrokerStats,
         db::clickhouse::aggregations::TopTaskRow,
+        db::clickhouse::aggregations::WorkerTaskStatsRow,
+        db::clickhouse::aggregations::WorkerHeartbeatHealthRow,
+        db::clickhouse::aggregations::TaskSummaryRow,
+        db::clickhouse::aggregations::FailureGroupRow,
+        db::clickhouse::aggregations::TaskNameStatsRow,
+        db::clickhouse::aggregations::QueueOverviewRow,
+        // DAG types
+        engine::dag_resolver::DagNode,
+        engine::dag_resolver::DagEdge,
+        engine::dag_resolver::WorkflowDag,
         // Broker commands
         crate::broker_conn::commands::QueueInfo,
         // Worker state
@@ -135,6 +155,9 @@ use utoipa::OpenApi;
         crate::routes::responses::CommandResponse,
         crate::routes::responses::WorkerListResponse,
         crate::routes::responses::WorkerDetailResponse,
+        crate::routes::responses::WorkerTaskStatsResponse,
+        crate::routes::responses::WorkerHealthResponse,
+        crate::routes::responses::WorkerHealthRow,
         crate::routes::responses::OverviewResponse,
         crate::routes::responses::ThroughputResponse,
         crate::routes::responses::QueueMetricsResponse,
@@ -153,6 +176,11 @@ use utoipa::OpenApi;
         crate::routes::responses::NotificationSettings,
         crate::routes::responses::SmtpSettings,
         crate::routes::responses::WebhookDefaults,
+        crate::routes::responses::TaskSummaryListResponse,
+        crate::routes::responses::FailureGroupsResponse,
+        crate::routes::responses::TaskNameStatsResponse,
+        crate::routes::responses::QueueOverviewResponse,
+        crate::routes::metrics::FailureGroupsParams,
         crate::routes::setup::SetupStatusResponse,
     ))
 )]

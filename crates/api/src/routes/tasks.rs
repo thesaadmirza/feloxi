@@ -7,7 +7,7 @@ use serde::Deserialize;
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use crate::routes::responses::{CommandResponse, TaskListResponse, TaskTimelineResponse};
+use crate::routes::responses::{CommandResponse, TaskListResponse, TaskSummaryListResponse, TaskTimelineResponse};
 use crate::state::AppState;
 use auth::middleware::CurrentUser;
 use common::AppError;
@@ -33,17 +33,7 @@ pub async fn list_tasks(
 ) -> Result<Json<TaskListResponse>, AppError> {
     auth::rbac::check_permission(&user, "tasks_read")?;
 
-    let limit = params.limit.unwrap_or(50).clamp(1, 200);
-    let cursor_ms: Option<i64> = params.cursor.as_deref().and_then(|c| c.parse().ok());
-
-    let total = db::clickhouse::task_events::count_task_events(
-        &state.ch,
-        user.tenant_id,
-        params.task_name.as_deref(),
-        params.state.as_deref(),
-        params.queue.as_deref(),
-    )
-    .await?;
+    let (limit, cursor_ms) = parse_cursor_params(&params);
 
     let mut events = db::clickhouse::task_events::query_task_events(
         &state.ch,
@@ -56,21 +46,12 @@ pub async fn list_tasks(
     )
     .await?;
 
-    let has_more = events.len() > limit as usize;
-    if has_more {
-        events.truncate(limit as usize);
-    }
+    let (has_more, next_cursor) = paginate(&mut events, limit, |e| {
+        let ms = e.timestamp.unix_timestamp() * 1000 + e.timestamp.millisecond() as i64;
+        ms.to_string()
+    });
 
-    let next_cursor = if has_more {
-        events.last().map(|e| {
-            let ms = e.timestamp.unix_timestamp() * 1000 + e.timestamp.millisecond() as i64;
-            ms.to_string()
-        })
-    } else {
-        None
-    };
-
-    Ok(Json(TaskListResponse { data: events, has_more, next_cursor, total: Some(total as i64) }))
+    Ok(Json(TaskListResponse { data: events, has_more, next_cursor, total: None }))
 }
 
 #[utoipa::path(get, path = "/api/v1/tasks/{task_id}", tag = "tasks",
@@ -133,6 +114,17 @@ pub async fn retry_task(
 
     let new_task_id = Uuid::new_v4().to_string();
 
+    let original_task =
+        db::clickhouse::task_events::get_task_latest(&state.ch, user.tenant_id, &task_id).await?;
+
+    let (parent_id, root_id) = match &original_task {
+        Some(t) => (
+            Some(task_id.clone()),
+            Some(t.root_id.clone().unwrap_or_else(|| task_id.clone())),
+        ),
+        None => (Some(task_id.clone()), Some(task_id.clone())),
+    };
+
     if let Some(config) = find_active_broker(&state, user.tenant_id).await {
         match crate::broker_conn::commands::publish_task(
             &config.broker_type,
@@ -142,6 +134,8 @@ pub async fn retry_task(
             &req.args,
             &req.kwargs,
             &req.queue,
+            parent_id.as_deref(),
+            root_id.as_deref(),
         )
         .await
         {
@@ -199,6 +193,25 @@ pub async fn revoke_task(
     Err(AppError::BadRequest("No active broker available".into()))
 }
 
+fn parse_cursor_params(params: &TaskListParams) -> (u64, Option<i64>) {
+    let limit = params.limit.unwrap_or(50).clamp(1, 200);
+    let cursor_ms = params.cursor.as_deref().and_then(|c| c.parse().ok());
+    (limit, cursor_ms)
+}
+
+fn paginate<T>(
+    rows: &mut Vec<T>,
+    limit: u64,
+    cursor_fn: impl Fn(&T) -> String,
+) -> (bool, Option<String>) {
+    let has_more = rows.len() > limit as usize;
+    if has_more {
+        rows.truncate(limit as usize);
+    }
+    let next_cursor = if has_more { rows.last().map(&cursor_fn) } else { None };
+    (has_more, next_cursor)
+}
+
 /// Find an active broker config for a tenant.
 async fn find_active_broker(
     state: &AppState,
@@ -211,9 +224,42 @@ async fn find_active_broker(
         .find(|c| c.is_active && c.status == "connected")
 }
 
+#[utoipa::path(get, path = "/api/v1/tasks/summary", tag = "tasks",
+    params(TaskListParams),
+    responses((status = 200, description = "Task-centric summary", body = TaskSummaryListResponse))
+)]
+pub async fn list_task_summary(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+    Query(params): Query<TaskListParams>,
+) -> Result<Json<TaskSummaryListResponse>, AppError> {
+    auth::rbac::check_permission(&user, "tasks_read")?;
+
+    let (limit, cursor_ms) = parse_cursor_params(&params);
+
+    let mut rows = db::clickhouse::aggregations::get_task_summary(
+        &state.ch,
+        user.tenant_id,
+        limit + 1,
+        params.task_name.as_deref(),
+        params.state.as_deref(),
+        params.queue.as_deref(),
+        cursor_ms,
+    )
+    .await?;
+
+    let (has_more, next_cursor) = paginate(&mut rows, limit, |r| {
+        let ms = r.timestamp.unix_timestamp() * 1000 + r.timestamp.millisecond() as i64;
+        ms.to_string()
+    });
+
+    Ok(Json(TaskSummaryListResponse { data: rows, has_more, next_cursor }))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/tasks", get(list_tasks))
+        .route("/tasks/summary", get(list_task_summary))
         .route("/tasks/{task_id}", get(get_task))
         .route("/tasks/{task_id}/timeline", get(get_task_timeline))
         .route("/tasks/{task_id}/retry", post(retry_task))

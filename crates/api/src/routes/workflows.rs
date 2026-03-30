@@ -9,7 +9,17 @@ use auth::middleware::CurrentUser;
 use common::AppError;
 use engine::dag_resolver::{self, DagNode, WorkflowDag};
 
-async fn get_workflow(
+#[utoipa::path(
+    get,
+    path = "/api/v1/workflows/{root_id}",
+    tag = "workflows",
+    params(("root_id" = String, Path, description = "Root task ID")),
+    responses(
+        (status = 200, description = "Workflow DAG", body = WorkflowDag),
+        (status = 404, description = "Workflow not found")
+    )
+)]
+pub async fn get_workflow(
     State(state): State<AppState>,
     Extension(user): Extension<CurrentUser>,
     Path(root_id): Path<String>,

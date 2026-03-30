@@ -7,7 +7,8 @@ use serde::Deserialize;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::routes::responses::{
-    OverviewResponse, QueueMetricsResponse, StringListResponse, ThroughputResponse,
+    FailureGroupsResponse, OverviewResponse, QueueMetricsResponse, QueueOverviewResponse,
+    StringListResponse, TaskNameStatsResponse, ThroughputResponse,
 };
 use crate::state::AppState;
 use auth::middleware::CurrentUser;
@@ -139,6 +140,71 @@ pub async fn queue_names(
     Ok(Json(StringListResponse { data: names }))
 }
 
+#[derive(Deserialize, ToSchema, IntoParams)]
+pub struct FailureGroupsParams {
+    pub from_minutes: Option<u64>,
+    pub limit: Option<u64>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/metrics/failure-groups",
+    tag = "metrics",
+    params(FailureGroupsParams),
+    responses((status = 200, description = "Success", body = FailureGroupsResponse))
+)]
+pub async fn failure_groups(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+    Query(params): Query<FailureGroupsParams>,
+) -> Result<Json<FailureGroupsResponse>, AppError> {
+    auth::rbac::check_permission(&user, "metrics_read")?;
+    let from = params.from_minutes.unwrap_or(60);
+    let limit = params.limit.unwrap_or(50).clamp(1, 200);
+    let data =
+        db::clickhouse::aggregations::get_failure_groups(&state.ch, user.tenant_id, from, limit)
+            .await?;
+    Ok(Json(FailureGroupsResponse { data }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/metrics/task-name-stats",
+    tag = "metrics",
+    params(MetricsParams),
+    responses((status = 200, description = "Success", body = TaskNameStatsResponse))
+)]
+pub async fn task_name_stats(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+    Query(params): Query<MetricsParams>,
+) -> Result<Json<TaskNameStatsResponse>, AppError> {
+    auth::rbac::check_permission(&user, "metrics_read")?;
+    let from = params.from_minutes.unwrap_or(60);
+    let data =
+        db::clickhouse::aggregations::get_task_name_stats(&state.ch, user.tenant_id, from).await?;
+    Ok(Json(TaskNameStatsResponse { data }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/metrics/queue-overview",
+    tag = "metrics",
+    params(MetricsParams),
+    responses((status = 200, description = "Success", body = QueueOverviewResponse))
+)]
+pub async fn queue_overview(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+    Query(params): Query<MetricsParams>,
+) -> Result<Json<QueueOverviewResponse>, AppError> {
+    auth::rbac::check_permission(&user, "metrics_read")?;
+    let from = params.from_minutes.unwrap_or(60);
+    let data =
+        db::clickhouse::aggregations::get_queue_overview(&state.ch, user.tenant_id, from).await?;
+    Ok(Json(QueueOverviewResponse { data }))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/metrics/overview", get(overview))
@@ -146,4 +212,7 @@ pub fn router() -> Router<AppState> {
         .route("/metrics/queues", get(queue_metrics))
         .route("/metrics/task-names", get(task_names))
         .route("/metrics/queue-names", get(queue_names))
+        .route("/metrics/failure-groups", get(failure_groups))
+        .route("/metrics/task-name-stats", get(task_name_stats))
+        .route("/metrics/queue-overview", get(queue_overview))
 }

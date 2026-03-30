@@ -6,7 +6,10 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use db::clickhouse::aggregations::{QueueMetricsRow, TaskMetricsRow};
+use db::clickhouse::aggregations::{
+    FailureGroupRow, QueueMetricsRow, QueueOverviewRow, TaskMetricsRow, TaskNameStatsRow,
+    TaskSummaryRow, WorkerTaskStatsRow,
+};
 use db::clickhouse::task_events::TaskEventRow;
 use db::clickhouse::worker_events::WorkerEventRow;
 use db::postgres::models::{AlertHistoryRow, AlertRule, ApiKey, BrokerConfig, Role};
@@ -76,6 +79,32 @@ pub struct WorkerDetailResponse {
     pub worker_id: String,
     pub current_state: Option<WorkerState>,
     pub recent_events: Vec<WorkerEventRow>,
+}
+
+/// Per-worker task stats (pending, running, done, failed) from last 24h.
+#[derive(Serialize, ToSchema)]
+pub struct WorkerTaskStatsResponse {
+    pub data: Vec<WorkerTaskStatsRow>,
+}
+
+/// Per-worker heartbeat health with real-time TTL and historical gap analysis.
+#[derive(Serialize, ToSchema)]
+pub struct WorkerHealthResponse {
+    pub data: Vec<WorkerHealthRow>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct WorkerHealthRow {
+    pub worker_id: String,
+    pub heartbeat_ttl: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_heartbeat: Option<i64>,
+    pub heartbeat_count: u64,
+    pub max_gap_secs: f64,
+    pub avg_gap_secs: f64,
+    pub load_avg: f64,
+    pub active_tasks: u32,
+    pub status: String,
 }
 
 // ─── Metrics ───────────────────────────────────────────
@@ -261,4 +290,29 @@ impl Default for WebhookDefaults {
     fn default() -> Self {
         Self { timeout_seconds: 10, retry_count: 1 }
     }
+}
+
+// ─── Extended Metrics ──────────────────────────────────
+
+#[derive(Serialize, ToSchema)]
+pub struct TaskSummaryListResponse {
+    pub data: Vec<TaskSummaryRow>,
+    pub has_more: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct FailureGroupsResponse {
+    pub data: Vec<FailureGroupRow>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct TaskNameStatsResponse {
+    pub data: Vec<TaskNameStatsRow>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct QueueOverviewResponse {
+    pub data: Vec<QueueOverviewRow>,
 }
