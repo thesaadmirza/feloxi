@@ -271,7 +271,7 @@ async fn run_alert_evaluation(
                         .await
                     }
                     AlertChannel::Email { to } => {
-                        let smtp_cfg = load_tenant_smtp(&state, tid).await;
+                        let smtp_cfg = load_tenant_smtp(state, tid).await;
                         alerting::channels::email::send_email_alert(to, &alert, &smtp_cfg).await
                     }
                 };
