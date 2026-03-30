@@ -193,29 +193,43 @@ pub async fn get_task_timeline(
 
 /// Merged SELECT that combines data across all events for a task_id.
 /// Uses argMax for latest-wins fields and argMaxIf for first-non-empty fields.
+/// Inner SELECT that merges across all events for a task_id.
+/// Uses a subquery pattern: callers wrap raw rows in a subquery first,
+/// then apply this SELECT + GROUP BY on the result to avoid ClickHouse 24.12
+/// alias-resolution issues (aggregates like `max(ts)` clashing with column names).
 const MERGED_TASK_SELECT: &str = "\
-    any(tenant_id) AS tenant_id, \
-    argMax(event_id, timestamp) AS event_id, \
+    any(tid) AS tenant_id, \
+    argMax(eid, ts) AS event_id, \
     task_id, \
-    CAST(argMaxIf(task_name, timestamp, task_name != '') AS String) AS task_name, \
-    CAST(argMaxIf(queue, timestamp, queue != '') AS String) AS queue, \
-    argMaxIf(worker_id, timestamp, worker_id != '') AS worker_id, \
-    CAST(argMax(state, timestamp) AS String) AS state, \
-    CAST(argMax(event_type, timestamp) AS String) AS event_type, \
-    max(timestamp) AS timestamp, \
-    argMaxIf(args, timestamp, args != '') AS args, \
-    argMaxIf(kwargs, timestamp, kwargs != '') AS kwargs, \
-    argMaxIf(result, timestamp, result != '') AS result, \
-    argMaxIf(exception, timestamp, exception != '') AS exception, \
-    argMaxIf(traceback, timestamp, traceback != '') AS traceback, \
-    argMax(runtime, timestamp) AS runtime, \
-    max(retries) AS retries, \
-    argMaxIf(root_id, timestamp, root_id IS NOT NULL AND root_id != '') AS root_id, \
-    argMaxIf(parent_id, timestamp, parent_id IS NOT NULL AND parent_id != '') AS parent_id, \
-    argMaxIf(group_id, timestamp, group_id IS NOT NULL AND group_id != '') AS group_id, \
-    argMaxIf(chord_id, timestamp, chord_id IS NOT NULL AND chord_id != '') AS chord_id, \
-    any(agent_id) AS agent_id, \
-    CAST(argMaxIf(broker_type, timestamp, broker_type != '') AS String) AS broker_type";
+    CAST(argMaxIf(tn, ts, tn != '') AS String) AS task_name, \
+    CAST(argMaxIf(q, ts, q != '') AS String) AS queue, \
+    argMaxIf(wid, ts, wid != '') AS worker_id, \
+    CAST(argMax(st, ts) AS String) AS state, \
+    CAST(argMax(et, ts) AS String) AS event_type, \
+    max(ts) AS timestamp, \
+    argMaxIf(a, ts, a != '') AS args, \
+    argMaxIf(kw, ts, kw != '') AS kwargs, \
+    argMaxIf(res, ts, res != '') AS result, \
+    argMaxIf(exc, ts, exc != '') AS exception, \
+    argMaxIf(tb, ts, tb != '') AS traceback, \
+    argMax(rt, ts) AS runtime, \
+    max(retr) AS retries, \
+    argMaxIf(rid, ts, rid IS NOT NULL AND rid != '') AS root_id, \
+    argMaxIf(pid, ts, pid IS NOT NULL AND pid != '') AS parent_id, \
+    argMaxIf(gid, ts, gid IS NOT NULL AND gid != '') AS group_id, \
+    argMaxIf(cid, ts, cid IS NOT NULL AND cid != '') AS chord_id, \
+    any(aid) AS agent_id, \
+    CAST(argMaxIf(bt, ts, bt != '') AS String) AS broker_type";
+
+/// Subquery that renames columns to avoid alias collisions in MERGED_TASK_SELECT.
+const MERGED_TASK_FROM: &str = "\
+    (SELECT tenant_id AS tid, event_id AS eid, task_id, \
+    task_name AS tn, queue AS q, worker_id AS wid, state AS st, \
+    event_type AS et, timestamp AS ts, args AS a, kwargs AS kw, \
+    result AS res, exception AS exc, traceback AS tb, runtime AS rt, \
+    retries AS retr, root_id AS rid, parent_id AS pid, group_id AS gid, \
+    chord_id AS cid, agent_id AS aid, broker_type AS bt \
+    FROM task_events WHERE ";
 
 /// Get a merged view of a single task, combining fields from all its events.
 pub async fn get_task_latest(
@@ -224,8 +238,9 @@ pub async fn get_task_latest(
     task_id: &str,
 ) -> Result<Option<TaskEventRow>, AppError> {
     let query = format!(
-        "SELECT {MERGED_TASK_SELECT} FROM task_events \
-         WHERE tenant_id = ? AND task_id = ? GROUP BY task_id"
+        "SELECT {MERGED_TASK_SELECT} FROM \
+         {MERGED_TASK_FROM} tenant_id = ? AND task_id = ?) \
+         GROUP BY task_id"
     );
     let rows = client
         .query(&query)
@@ -246,9 +261,9 @@ pub async fn get_workflow_tasks(
     root_id: &str,
 ) -> Result<Vec<TaskEventRow>, AppError> {
     let query = format!(
-        "SELECT {MERGED_TASK_SELECT} FROM task_events \
-         WHERE tenant_id = ? AND (root_id = ? OR task_id = ?) \
-         GROUP BY task_id ORDER BY max(timestamp) ASC"
+        "SELECT {MERGED_TASK_SELECT} FROM \
+         {MERGED_TASK_FROM} tenant_id = ? AND (root_id = ? OR task_id = ?)) \
+         GROUP BY task_id ORDER BY timestamp ASC"
     );
     let rows = client
         .query(&query)
