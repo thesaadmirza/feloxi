@@ -1,16 +1,16 @@
 import type { components } from "@/lib/api/v1";
 
-type S = components["schemas"];
+type Schemas = components["schemas"];
 
-export type AuthResponse = S["AuthResponse"];
-export type OrgPickerResponse = S["OrgPickerResponse"];
-export type OrgSummary = S["OrgSummary"];
-export type UserInfo = S["UserInfo"];
-export type RegisterRequest = S["RegisterRequest"];
-export type LoginRequest = S["LoginRequest"];
+export type AuthResponse = Schemas["AuthResponse"];
+export type OrgPickerResponse = Schemas["OrgPickerResponse"];
+export type OrgSummary = Schemas["OrgSummary"];
+export type UserInfo = Schemas["UserInfo"];
+export type RegisterRequest = Schemas["RegisterRequest"];
+export type LoginRequest = Schemas["LoginRequest"];
 export type LoginResponse = AuthResponse | OrgPickerResponse;
 
-export type TaskEvent = S["TaskEventRow"];
+export type TaskEvent = Schemas["TaskEventRow"];
 
 export type TaskState =
   | "PENDING"
@@ -22,31 +22,42 @@ export type TaskState =
   | "REVOKED"
   | "REJECTED";
 
-export type TaskListParams = S["TaskListParams"];
-export type RetryTaskRequest = S["RetryRequest"];
+export type TaskListParams = Schemas["TaskListParams"];
+export type RetryTaskRequest = Schemas["RetryRequest"];
 
-export type WorkerEvent = S["WorkerEventRow"];
-export type WorkerState = S["WorkerState"];
+export type WorkerEvent = Schemas["WorkerEventRow"];
+export type WorkerState = Schemas["WorkerState"];
+export type WorkerTaskStats = Schemas["WorkerTaskStatsRow"];
+export type WorkerHealthRow = Schemas["WorkerHealthRow"];
 
-export type AlertCondition = S["AlertCondition"];
-export type AlertChannel = S["AlertChannel"];
-export type ChannelDeliveryStatus = S["ChannelDeliveryStatus"];
-export type AlertRule = S["AlertRule"];
+export type AlertCondition = Schemas["AlertCondition"];
+export type AlertChannel = Schemas["AlertChannel"];
+export type ChannelDeliveryStatus = Schemas["ChannelDeliveryStatus"];
+export type AlertRule = Schemas["AlertRule"];
 
-export type AlertHistory = S["AlertHistoryRow"] & {
+export type AlertHistory = Schemas["AlertHistoryRow"] & {
   rule_name?: string;
 };
 
-export type OverviewMetrics = S["OverviewResponse"];
-export type TaskMetricsRow = S["TaskMetricsRow"];
+export type OverviewMetrics = Schemas["OverviewResponse"];
+export type TaskMetricsRow = Schemas["TaskMetricsRow"];
 
-export type ApiKey = S["ApiKey"];
+export type ApiKey = Schemas["ApiKey"];
 
-export type BrokerConfig = S["BrokerConfig"];
-export type BrokerStats = S["BrokerStats"];
+export type BrokerConfig = Schemas["BrokerConfig"];
+export type BrokerStats = Schemas["BrokerStats"];
 
-export type NotificationSettings = S["NotificationSettings"];
-export type SmtpSettings = S["SmtpSettings"];
-export type WebhookDefaults = S["WebhookDefaults"];
+export type NotificationSettings = Schemas["NotificationSettings"];
+export type SmtpSettings = Schemas["SmtpSettings"];
+export type WebhookDefaults = Schemas["WebhookDefaults"];
+
+export type TaskSummaryRow = Schemas["TaskSummaryRow"];
+export type FailureGroupRow = Schemas["FailureGroupRow"];
+export type TaskNameStatsRow = Schemas["TaskNameStatsRow"];
+export type QueueOverviewRow = Schemas["QueueOverviewRow"];
+
+export type DagNode = Schemas["DagNode"];
+export type DagEdge = Schemas["DagEdge"];
+export type WorkflowDag = Schemas["WorkflowDag"];
 
 
