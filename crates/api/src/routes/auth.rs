@@ -44,19 +44,14 @@ fn auth_cookies(access_token: &str, refresh_token: &str) -> HeaderMap {
 
 /// Build Set-Cookie headers that clear auth cookies (for logout).
 fn clear_auth_cookies() -> HeaderMap {
+    let secure = if is_secure_context() { "; Secure" } else { "" };
     let mut headers = HeaderMap::new();
-    headers.append(
-        SET_COOKIE,
-        "fp_access=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax"
-            .parse()
-            .expect("static clear-access cookie is a valid HeaderValue"),
+    let access = format!("fp_access=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax{secure}");
+    headers.append(SET_COOKIE, access.parse().expect("clear-access cookie is valid"));
+    let refresh = format!(
+        "fp_refresh=; HttpOnly; Path=/api/v1/auth; Max-Age=0; SameSite=Lax{secure}"
     );
-    headers.append(
-        SET_COOKIE,
-        "fp_refresh=; HttpOnly; Path=/api/v1/auth; Max-Age=0; SameSite=Lax"
-            .parse()
-            .expect("static clear-refresh cookie is a valid HeaderValue"),
-    );
+    headers.append(SET_COOKIE, refresh.parse().expect("clear-refresh cookie is valid"));
     headers
 }
 
