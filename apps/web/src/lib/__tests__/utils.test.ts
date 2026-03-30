@@ -5,7 +5,6 @@ import {
   formatNumber,
   formatPercent,
   truncateId,
-  taskStateBadgeClass,
   timeAgo,
 } from "../utils";
 
@@ -218,38 +217,6 @@ describe("truncateId()", () => {
   it("handles UUID-like strings", () => {
     const uuid = "550e8400-e29b-41d4-a716-446655440000";
     expect(truncateId(uuid)).toBe("550e8400...");
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// taskStateBadgeClass()
-// ─────────────────────────────────────────────────────────────────────────────
-describe("taskStateBadgeClass()", () => {
-  const states = [
-    "PENDING",
-    "RECEIVED",
-    "STARTED",
-    "SUCCESS",
-    "FAILURE",
-    "RETRY",
-    "REVOKED",
-    "REJECTED",
-  ];
-
-  for (const state of states) {
-    it(`returns correct class for ${state}`, () => {
-      expect(taskStateBadgeClass(state)).toBe(
-        `badge-${state.toLowerCase()}`
-      );
-    });
-  }
-
-  it("handles already lowercase input", () => {
-    expect(taskStateBadgeClass("pending")).toBe("badge-pending");
-  });
-
-  it("handles mixed case input", () => {
-    expect(taskStateBadgeClass("Success")).toBe("badge-success");
   });
 });
 
