@@ -312,6 +312,7 @@ pub async fn amqp_shutdown_worker(connection_url: &str, hostname: &str) -> Resul
 // ─── Unified API ─────────────────────────────────────────────────────────────
 
 /// Publish a task to the correct broker based on type.
+#[allow(clippy::too_many_arguments)]
 pub async fn publish_task(
     broker_type: &str,
     connection_url: &str,
