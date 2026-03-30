@@ -93,6 +93,29 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+async fn load_tenant_smtp(
+    state: &AppState,
+    tenant_id: Uuid,
+) -> alerting::channels::email::SmtpConfig {
+    let tenant = match db::postgres::tenants::get_tenant_by_id(&state.pg, tenant_id).await {
+        Ok(t) => t,
+        Err(_) => return alerting::channels::email::SmtpConfig::default(),
+    };
+    let notif: routes::responses::NotificationSettings = tenant
+        .settings
+        .get("notifications")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+    alerting::channels::email::SmtpConfig {
+        host: notif.smtp.host,
+        port: notif.smtp.port,
+        username: notif.smtp.username,
+        password: notif.smtp.password,
+        from_address: notif.smtp.from_address,
+        tls: notif.smtp.tls,
+    }
+}
+
 fn spawn_background_tasks(state: AppState) {
     // Alert evaluation engine (every 60s).
     let s = state.clone();
@@ -248,7 +271,7 @@ async fn run_alert_evaluation(
                         .await
                     }
                     AlertChannel::Email { to } => {
-                        let smtp_cfg = alerting::channels::email::SmtpConfig::default();
+                        let smtp_cfg = load_tenant_smtp(&state, tid).await;
                         alerting::channels::email::send_email_alert(to, &alert, &smtp_cfg).await
                     }
                 };
@@ -302,11 +325,20 @@ async fn build_evaluation_context(
         ctx.recent_failures = stats.failure_count;
     }
 
-    // Check online workers for offline detection
+    // Only flag worker-offline if the tenant has active brokers (avoids false positives
+    // for tenants that have never connected any workers)
     if let Ok(online) = db::redis::cache::get_online_workers(&state.redis, tenant_id).await {
-        // Workers went offline = 0 if there are online workers, handled at condition level
         if online.is_empty() {
-            ctx.workers_went_offline = 1;
+            let has_active_broker = db::postgres::broker_configs::list_broker_configs(
+                &state.pg, tenant_id,
+            )
+            .await
+            .map(|configs| configs.iter().any(|c| c.is_active))
+            .unwrap_or(false);
+
+            if has_active_broker {
+                ctx.workers_went_offline = 1;
+            }
         }
     }
 

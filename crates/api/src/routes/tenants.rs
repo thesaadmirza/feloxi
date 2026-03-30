@@ -195,6 +195,10 @@ pub async fn update_retention(
 ) -> Result<Json<RetentionResponse>, AppError> {
     auth::rbac::check_permission(&user, "settings_write")?;
 
+    if input.task_events_days < 1 || input.worker_events_days < 1 || input.alert_history_days < 1 {
+        return Err(AppError::Validation("Retention days must be at least 1".into()));
+    }
+
     let resources = [
         ("task_events", input.task_events_days),
         ("worker_events", input.worker_events_days),

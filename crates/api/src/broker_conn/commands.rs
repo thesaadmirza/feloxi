@@ -401,7 +401,11 @@ async fn connect_amqp(url: &str) -> Result<lapin::Connection, String> {
 }
 
 pub(crate) fn parse_redis_db(url: &str) -> u32 {
-    url.rsplit('/').next().and_then(|s| s.parse::<u32>().ok()).unwrap_or(0)
+    url.rsplit('/')
+        .next()
+        .map(|s| s.split('?').next().unwrap_or(s))
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(0)
 }
 
 #[cfg(test)]

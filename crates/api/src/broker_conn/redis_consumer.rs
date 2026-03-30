@@ -429,6 +429,7 @@ async fn discover_celery_queues(client: &Pool) -> Vec<String> {
         queues.push("celeryev".to_string());
     }
 
+    queues.sort();
     queues.dedup();
     queues
 }

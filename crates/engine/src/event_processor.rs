@@ -51,8 +51,10 @@ pub fn normalize_worker_event(
     raw: &RawWorkerEvent,
 ) -> WorkerEventRow {
     let ts_secs = raw.timestamp as i64;
+    let ts_nanos = ((raw.timestamp - ts_secs as f64) * 1_000_000_000.0) as i64;
     let timestamp = time::OffsetDateTime::from_unix_timestamp(ts_secs)
-        .unwrap_or(time::OffsetDateTime::now_utc());
+        .unwrap_or(time::OffsetDateTime::now_utc())
+        + time::Duration::nanoseconds(ts_nanos);
 
     WorkerEventRow {
         tenant_id,
