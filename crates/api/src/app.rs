@@ -39,15 +39,22 @@ pub fn create_router(state: AppState) -> Router {
     // WebSocket routes
     let ws_routes = Router::new().route("/ws/dashboard", get(ws::handler::dashboard_ws));
 
-    // OpenAPI spec + Swagger UI (served at root: / and /openapi.json)
-    let openapi_routes = Router::new()
-        .merge(utoipa_swagger_ui::SwaggerUi::new("/").url("/openapi.json", ApiDoc::openapi()));
-
     // Combine all routes
-    Router::new()
+    let mut app = Router::new()
         .nest("/api/v1", api_v1)
-        .merge(ws_routes)
-        .merge(openapi_routes)
+        .merge(ws_routes);
+
+    // OpenAPI spec + Swagger UI (disabled when DISABLE_SWAGGER=true)
+    let disable_swagger = std::env::var("DISABLE_SWAGGER")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+    if !disable_swagger {
+        app = app.merge(
+            utoipa_swagger_ui::SwaggerUi::new("/").url("/openapi.json", ApiDoc::openapi()),
+        );
+    }
+
+    app
         .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
         .layer({

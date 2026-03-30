@@ -10,22 +10,29 @@ use utoipa::ToSchema;
 use crate::state::AppState;
 use common::AppError;
 
+fn is_secure_context() -> bool {
+    std::env::var("CORS_ORIGIN")
+        .map(|v| v.contains("https://"))
+        .unwrap_or(false)
+}
+
 /// Build Set-Cookie headers for access + refresh tokens (HttpOnly, SameSite=Lax).
 fn auth_cookies(access_token: &str, refresh_token: &str) -> HeaderMap {
+    let secure = if is_secure_context() { "; Secure" } else { "" };
     let mut headers = HeaderMap::new();
 
-    // Access token cookie: HttpOnly, 15 min TTL, SameSite=Lax
-    let access_cookie =
-        format!("fp_access={}; HttpOnly; Path=/; Max-Age=900; SameSite=Lax", access_token);
+    let access_cookie = format!(
+        "fp_access={}; HttpOnly; Path=/; Max-Age=900; SameSite=Lax{}",
+        access_token, secure
+    );
     headers.append(
         SET_COOKIE,
         access_cookie.parse().expect("access token cookie is a valid HeaderValue"),
     );
 
-    // Refresh token cookie: HttpOnly, 30 day TTL, SameSite=Lax, restricted path
     let refresh_cookie = format!(
-        "fp_refresh={}; HttpOnly; Path=/api/v1/auth; Max-Age=2592000; SameSite=Lax",
-        refresh_token
+        "fp_refresh={}; HttpOnly; Path=/api/v1/auth; Max-Age=2592000; SameSite=Lax{}",
+        refresh_token, secure
     );
     headers.append(
         SET_COOKIE,
@@ -404,7 +411,15 @@ pub async fn refresh(
 #[utoipa::path(post, path = "/api/v1/auth/logout", tag = "auth",
     responses((status = 200, description = "Logged out"))
 )]
-pub async fn logout() -> (HeaderMap, Json<serde_json::Value>) {
+pub async fn logout(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> (HeaderMap, Json<serde_json::Value>) {
+    // Best-effort: revoke refresh tokens if the user is authenticated
+    if let Ok(claims) = verify_request(&state, &headers).await {
+        let _ =
+            db::postgres::refresh_tokens::revoke_all_for_user(&state.pg, claims.sub).await;
+    }
     (clear_auth_cookies(), Json(serde_json::json!({ "ok": true })))
 }
 
