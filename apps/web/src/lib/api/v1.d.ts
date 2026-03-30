@@ -326,6 +326,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/metrics/failure-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["failure_groups"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/metrics/overview": {
         parameters: {
             query?: never;
@@ -358,6 +374,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/metrics/queue-overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["queue_overview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/metrics/queues": {
         parameters: {
             query?: never;
@@ -366,6 +398,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["queue_metrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/metrics/task-name-stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["task_name_stats"];
         put?: never;
         post?: never;
         delete?: never;
@@ -534,6 +582,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tasks/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_task_summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tasks/{task_id}": {
         parameters: {
             query?: never;
@@ -662,6 +726,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workers/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["worker_health"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workers/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["worker_task_stats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workers/{worker_id}": {
         parameters: {
             query?: never;
@@ -688,6 +784,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["shutdown_worker"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflows/{root_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_workflow"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -941,6 +1053,48 @@ export interface components {
             name: string;
             permissions: string[];
         };
+        /** @description An edge in the workflow DAG. */
+        DagEdge: {
+            edge_type: components["schemas"]["EdgeType"];
+            source: string;
+            target: string;
+        };
+        /** @description A node in the task workflow DAG. */
+        DagNode: {
+            chord_id?: string | null;
+            group_id?: string | null;
+            parent_id?: string | null;
+            queue: string;
+            /** Format: double */
+            runtime?: number | null;
+            state: string;
+            task_id: string;
+            task_name: string;
+            worker_id: string;
+        };
+        /** @enum {string} */
+        EdgeType: "chain" | "group" | "chord" | "callback";
+        FailureGroupRow: {
+            /** Format: int64 */
+            count: number;
+            exception: string;
+            /** Format: int64 */
+            first_seen: number;
+            /** Format: int64 */
+            last_seen: number;
+            latest_task_id: string;
+            latest_traceback: string;
+            task_names: string[];
+        };
+        FailureGroupsParams: {
+            /** Format: int64 */
+            from_minutes?: number | null;
+            /** Format: int64 */
+            limit?: number | null;
+        };
+        FailureGroupsResponse: {
+            data: components["schemas"]["FailureGroupRow"][];
+        };
         HealthResponse: {
             status: string;
             version: string;
@@ -1050,6 +1204,22 @@ export interface components {
             queue: string;
             /** Format: uuid */
             tenant_id: string;
+        };
+        QueueOverviewResponse: {
+            data: components["schemas"]["QueueOverviewRow"][];
+        };
+        QueueOverviewRow: {
+            /** Format: double */
+            avg_runtime: number;
+            /** Format: int64 */
+            backlog: number;
+            /** Format: int64 */
+            completed: number;
+            /** Format: int64 */
+            enqueued: number;
+            /** Format: int64 */
+            failed: number;
+            queue: string;
         };
         RegisterRequest: {
             display_name?: string | null;
@@ -1198,6 +1368,51 @@ export interface components {
             /** Format: int64 */
             wait_time_samples: number;
         };
+        TaskNameStatsResponse: {
+            data: components["schemas"]["TaskNameStatsRow"][];
+        };
+        TaskNameStatsRow: {
+            /** Format: double */
+            avg_runtime: number;
+            /** Format: double */
+            avg_wait: number;
+            /** Format: int64 */
+            failure: number;
+            /** Format: double */
+            max_runtime: number;
+            /** Format: double */
+            p95_runtime: number;
+            /** Format: double */
+            p99_runtime: number;
+            /** Format: int64 */
+            retry: number;
+            /** Format: int64 */
+            success: number;
+            task_name: string;
+            /** Format: int64 */
+            total: number;
+        };
+        TaskSummaryListResponse: {
+            data: components["schemas"]["TaskSummaryRow"][];
+            has_more: boolean;
+            next_cursor?: string | null;
+        };
+        TaskSummaryRow: {
+            exception: string;
+            queue: string;
+            /** Format: int32 */
+            retries: number;
+            /** Format: double */
+            runtime: number;
+            state: string;
+            task_id: string;
+            task_name: string;
+            /** Format: int64 */
+            timestamp: number;
+            /** Format: double */
+            wait_seconds: number;
+            worker_id: string;
+        };
         /** @description Task event timeline (all state transitions for a single task). */
         TaskTimelineResponse: {
             timeline: components["schemas"]["TaskEventRow"][];
@@ -1315,6 +1530,51 @@ export interface components {
             timestamp: number;
             worker_id: string;
         };
+        WorkerHealthParams: {
+            /**
+             * Format: int64
+             * @description Lookback period in hours (default: 1)
+             */
+            hours?: number | null;
+        };
+        /** @description Per-worker heartbeat health with real-time TTL and historical gap analysis. */
+        WorkerHealthResponse: {
+            data: components["schemas"]["WorkerHealthRow"][];
+        };
+        WorkerHealthRow: {
+            /** Format: int32 */
+            active_tasks: number;
+            /** Format: double */
+            avg_gap_secs: number;
+            /** Format: int64 */
+            heartbeat_count: number;
+            /** Format: int64 */
+            heartbeat_ttl: number;
+            /** Format: int64 */
+            last_heartbeat?: number | null;
+            /** Format: double */
+            load_avg: number;
+            /** Format: double */
+            max_gap_secs: number;
+            status: string;
+            worker_id: string;
+        };
+        /** @description Per-worker heartbeat health metrics (last N hours from sampled heartbeats). */
+        WorkerHeartbeatHealthRow: {
+            /** Format: int32 */
+            active_tasks: number;
+            /** Format: double */
+            avg_gap_secs: number;
+            /** Format: int64 */
+            heartbeat_count: number;
+            /** Format: int64 */
+            last_heartbeat: number;
+            /** Format: double */
+            load_avg: number;
+            /** Format: double */
+            max_gap_secs: number;
+            worker_id: string;
+        };
         WorkerListParams: {
             /** Format: int64 */
             limit?: number | null;
@@ -1345,6 +1605,36 @@ export interface components {
             sw_ident: string;
             sw_ver: string;
             worker_id: string;
+        };
+        /** @description Per-worker task stats (pending, running, done, failed) from last 24h. */
+        WorkerTaskStatsResponse: {
+            data: components["schemas"]["WorkerTaskStatsRow"][];
+        };
+        /** @description Per-worker task stats aggregated from task_events (last 24 hours). */
+        WorkerTaskStatsRow: {
+            /** Format: double */
+            avg_runtime: number;
+            /** Format: int64 */
+            failed: number;
+            /** Format: int64 */
+            pending: number;
+            /** Format: int64 */
+            retried: number;
+            /** Format: int64 */
+            revoked: number;
+            /** Format: int64 */
+            started: number;
+            /** Format: int64 */
+            succeeded: number;
+            /** Format: int64 */
+            total: number;
+            worker_id: string;
+        };
+        /** @description Complete workflow DAG. */
+        WorkflowDag: {
+            edges: components["schemas"]["DagEdge"][];
+            nodes: components["schemas"]["DagNode"][];
+            root_id: string;
         };
     };
     responses: never;
@@ -1968,6 +2258,29 @@ export interface operations {
             };
         };
     };
+    failure_groups: {
+        parameters: {
+            query?: {
+                from_minutes?: number | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FailureGroupsResponse"];
+                };
+            };
+        };
+    };
     overview: {
         parameters: {
             query?: {
@@ -2013,6 +2326,31 @@ export interface operations {
             };
         };
     };
+    queue_overview: {
+        parameters: {
+            query?: {
+                from_minutes?: number | null;
+                queue?: string | null;
+                /** @description Filter by broker/agent ID (for per-broker throughput charts). */
+                agent_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueOverviewResponse"];
+                };
+            };
+        };
+    };
     queue_metrics: {
         parameters: {
             query?: {
@@ -2034,6 +2372,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["QueueMetricsResponse"];
+                };
+            };
+        };
+    };
+    task_name_stats: {
+        parameters: {
+            query?: {
+                from_minutes?: number | null;
+                queue?: string | null;
+                /** @description Filter by broker/agent ID (for per-broker throughput charts). */
+                agent_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskNameStatsResponse"];
                 };
             };
         };
@@ -2301,6 +2664,32 @@ export interface operations {
             };
         };
     };
+    list_task_summary: {
+        parameters: {
+            query?: {
+                state?: string | null;
+                task_name?: string | null;
+                queue?: string | null;
+                limit?: number | null;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Task-centric summary */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskSummaryListResponse"];
+                };
+            };
+        };
+    };
     get_task: {
         parameters: {
             query?: never;
@@ -2501,6 +2890,49 @@ export interface operations {
             };
         };
     };
+    worker_health: {
+        parameters: {
+            query?: {
+                /** @description Lookback period in hours (default: 1) */
+                hours?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-worker heartbeat health */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkerHealthResponse"];
+                };
+            };
+        };
+    };
+    worker_task_stats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-worker task stats (24h) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkerTaskStatsResponse"];
+                };
+            };
+        };
+    };
     get_worker: {
         parameters: {
             query?: never;
@@ -2544,6 +2976,36 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["CommandResponse"];
                 };
+            };
+        };
+    };
+    get_workflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Root task ID */
+                root_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workflow DAG */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDag"];
+                };
+            };
+            /** @description Workflow not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

@@ -746,6 +746,54 @@
         }
       }
     },
+    "/api/v1/metrics/failure-groups": {
+      "get": {
+        "tags": [
+          "metrics"
+        ],
+        "operationId": "failure_groups",
+        "parameters": [
+          {
+            "name": "from_minutes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FailureGroupsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/metrics/overview": {
       "get": {
         "tags": [
@@ -825,6 +873,65 @@
         }
       }
     },
+    "/api/v1/metrics/queue-overview": {
+      "get": {
+        "tags": [
+          "metrics"
+        ],
+        "operationId": "queue_overview",
+        "parameters": [
+          {
+            "name": "from_minutes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "queue",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "query",
+            "description": "Filter by broker/agent ID (for per-broker throughput charts).",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueueOverviewResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/metrics/queues": {
       "get": {
         "tags": [
@@ -877,6 +984,65 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/QueueMetricsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/metrics/task-name-stats": {
+      "get": {
+        "tags": [
+          "metrics"
+        ],
+        "operationId": "task_name_stats",
+        "parameters": [
+          {
+            "name": "from_minutes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "queue",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "query",
+            "description": "Filter by broker/agent ID (for per-broker throughput charts).",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskNameStatsResponse"
                 }
               }
             }
@@ -1246,6 +1412,85 @@
         }
       }
     },
+    "/api/v1/tasks/summary": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "operationId": "list_task_summary",
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "task_name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "queue",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task-centric summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskSummaryListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks/{task_id}": {
       "get": {
         "tags": [
@@ -1512,6 +1757,62 @@
         }
       }
     },
+    "/api/v1/workers/health": {
+      "get": {
+        "tags": [
+          "workers"
+        ],
+        "operationId": "worker_health",
+        "parameters": [
+          {
+            "name": "hours",
+            "in": "query",
+            "description": "Lookback period in hours (default: 1)",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Per-worker heartbeat health",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerHealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workers/stats": {
+      "get": {
+        "tags": [
+          "workers"
+        ],
+        "operationId": "worker_task_stats",
+        "responses": {
+          "200": {
+            "description": "Per-worker task stats (24h)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerTaskStatsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workers/{worker_id}": {
       "get": {
         "tags": [
@@ -1570,6 +1871,40 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/workflows/{root_id}": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "operationId": "get_workflow",
+        "parameters": [
+          {
+            "name": "root_id",
+            "in": "path",
+            "description": "Root task ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Workflow DAG",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowDag"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Workflow not found"
           }
         }
       }
@@ -2468,6 +2803,167 @@
           }
         }
       },
+      "DagEdge": {
+        "type": "object",
+        "description": "An edge in the workflow DAG.",
+        "required": [
+          "source",
+          "target",
+          "edge_type"
+        ],
+        "properties": {
+          "edge_type": {
+            "$ref": "#/components/schemas/EdgeType"
+          },
+          "source": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          }
+        }
+      },
+      "DagNode": {
+        "type": "object",
+        "description": "A node in the task workflow DAG.",
+        "required": [
+          "task_id",
+          "task_name",
+          "state",
+          "queue",
+          "worker_id"
+        ],
+        "properties": {
+          "chord_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "group_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "queue": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "state": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "task_name": {
+            "type": "string"
+          },
+          "worker_id": {
+            "type": "string"
+          }
+        }
+      },
+      "EdgeType": {
+        "type": "string",
+        "enum": [
+          "chain",
+          "group",
+          "chord",
+          "callback"
+        ]
+      },
+      "FailureGroupRow": {
+        "type": "object",
+        "required": [
+          "exception",
+          "count",
+          "first_seen",
+          "last_seen",
+          "task_names",
+          "latest_task_id",
+          "latest_traceback"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "exception": {
+            "type": "string"
+          },
+          "first_seen": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "last_seen": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "latest_task_id": {
+            "type": "string"
+          },
+          "latest_traceback": {
+            "type": "string"
+          },
+          "task_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "FailureGroupsParams": {
+        "type": "object",
+        "properties": {
+          "from_minutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "FailureGroupsResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FailureGroupRow"
+            }
+          }
+        }
+      },
       "HealthResponse": {
         "type": "object",
         "required": [
@@ -2805,6 +3301,59 @@
           "tenant_id": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "QueueOverviewResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueueOverviewRow"
+            }
+          }
+        }
+      },
+      "QueueOverviewRow": {
+        "type": "object",
+        "required": [
+          "queue",
+          "enqueued",
+          "completed",
+          "failed",
+          "backlog",
+          "avg_runtime"
+        ],
+        "properties": {
+          "avg_runtime": {
+            "type": "number",
+            "format": "double"
+          },
+          "backlog": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "completed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "enqueued": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "queue": {
+            "type": "string"
           }
         }
       },
@@ -3296,6 +3845,156 @@
           }
         }
       },
+      "TaskNameStatsResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskNameStatsRow"
+            }
+          }
+        }
+      },
+      "TaskNameStatsRow": {
+        "type": "object",
+        "required": [
+          "task_name",
+          "total",
+          "success",
+          "failure",
+          "retry",
+          "avg_runtime",
+          "p95_runtime",
+          "p99_runtime",
+          "avg_wait",
+          "max_runtime"
+        ],
+        "properties": {
+          "avg_runtime": {
+            "type": "number",
+            "format": "double"
+          },
+          "avg_wait": {
+            "type": "number",
+            "format": "double"
+          },
+          "failure": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "max_runtime": {
+            "type": "number",
+            "format": "double"
+          },
+          "p95_runtime": {
+            "type": "number",
+            "format": "double"
+          },
+          "p99_runtime": {
+            "type": "number",
+            "format": "double"
+          },
+          "retry": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "success": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "task_name": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "TaskSummaryListResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "has_more"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskSummaryRow"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "TaskSummaryRow": {
+        "type": "object",
+        "required": [
+          "task_id",
+          "task_name",
+          "queue",
+          "worker_id",
+          "state",
+          "timestamp",
+          "runtime",
+          "retries",
+          "exception",
+          "wait_seconds"
+        ],
+        "properties": {
+          "exception": {
+            "type": "string"
+          },
+          "queue": {
+            "type": "string"
+          },
+          "retries": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "runtime": {
+            "type": "number",
+            "format": "double"
+          },
+          "state": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "task_name": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "wait_seconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "worker_id": {
+            "type": "string"
+          }
+        }
+      },
       "TaskTimelineResponse": {
         "type": "object",
         "description": "Task event timeline (all state transitions for a single task).",
@@ -3710,6 +4409,133 @@
           }
         }
       },
+      "WorkerHealthParams": {
+        "type": "object",
+        "properties": {
+          "hours": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Lookback period in hours (default: 1)",
+            "minimum": 0
+          }
+        }
+      },
+      "WorkerHealthResponse": {
+        "type": "object",
+        "description": "Per-worker heartbeat health with real-time TTL and historical gap analysis.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkerHealthRow"
+            }
+          }
+        }
+      },
+      "WorkerHealthRow": {
+        "type": "object",
+        "required": [
+          "worker_id",
+          "heartbeat_ttl",
+          "heartbeat_count",
+          "max_gap_secs",
+          "avg_gap_secs",
+          "load_avg",
+          "active_tasks",
+          "status"
+        ],
+        "properties": {
+          "active_tasks": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "avg_gap_secs": {
+            "type": "number",
+            "format": "double"
+          },
+          "heartbeat_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "heartbeat_ttl": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "last_heartbeat": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "load_avg": {
+            "type": "number",
+            "format": "double"
+          },
+          "max_gap_secs": {
+            "type": "number",
+            "format": "double"
+          },
+          "status": {
+            "type": "string"
+          },
+          "worker_id": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkerHeartbeatHealthRow": {
+        "type": "object",
+        "description": "Per-worker heartbeat health metrics (last N hours from sampled heartbeats).",
+        "required": [
+          "worker_id",
+          "last_heartbeat",
+          "heartbeat_count",
+          "max_gap_secs",
+          "avg_gap_secs",
+          "load_avg",
+          "active_tasks"
+        ],
+        "properties": {
+          "active_tasks": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "avg_gap_secs": {
+            "type": "number",
+            "format": "double"
+          },
+          "heartbeat_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "last_heartbeat": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "load_avg": {
+            "type": "number",
+            "format": "double"
+          },
+          "max_gap_secs": {
+            "type": "number",
+            "format": "double"
+          },
+          "worker_id": {
+            "type": "string"
+          }
+        }
+      },
       "WorkerListParams": {
         "type": "object",
         "properties": {
@@ -3825,6 +4651,106 @@
             "type": "string"
           }
         }
+      },
+      "WorkerTaskStatsResponse": {
+        "type": "object",
+        "description": "Per-worker task stats (pending, running, done, failed) from last 24h.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkerTaskStatsRow"
+            }
+          }
+        }
+      },
+      "WorkerTaskStatsRow": {
+        "type": "object",
+        "description": "Per-worker task stats aggregated from task_events (last 24 hours).",
+        "required": [
+          "worker_id",
+          "pending",
+          "started",
+          "succeeded",
+          "failed",
+          "retried",
+          "revoked",
+          "total",
+          "avg_runtime"
+        ],
+        "properties": {
+          "avg_runtime": {
+            "type": "number",
+            "format": "double"
+          },
+          "failed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "pending": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "retried": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "revoked": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "started": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "succeeded": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "worker_id": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkflowDag": {
+        "type": "object",
+        "description": "Complete workflow DAG.",
+        "required": [
+          "root_id",
+          "nodes",
+          "edges"
+        ],
+        "properties": {
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DagEdge"
+            }
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DagNode"
+            }
+          },
+          "root_id": {
+            "type": "string"
+          }
+        }
       }
     }
   },
@@ -3864,6 +4790,10 @@
     {
       "name": "setup",
       "description": "Instance setup and configuration status"
+    },
+    {
+      "name": "workflows",
+      "description": "Task workflow and chain tracking"
     }
   ]
 }
