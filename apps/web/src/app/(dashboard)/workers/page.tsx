@@ -570,6 +570,8 @@ export default function WorkersPage() {
         })
       );
       refetch();
+    } catch (err) {
+      console.error("Shutdown failed:", err);
     } finally {
       setShuttingDown(null);
     }

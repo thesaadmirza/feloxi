@@ -219,7 +219,7 @@ export default function TaskDetailPage() {
       } catch {
         kwargs = {};
       }
-      await unwrap(fetchClient.POST("/api/v1/tasks/{task_id}/retry", {
+      const result = await unwrap(fetchClient.POST("/api/v1/tasks/{task_id}/retry", {
         params: { path: { task_id: task.task_id } },
         body: {
           task_name: task.task_name,
@@ -227,13 +227,14 @@ export default function TaskDetailPage() {
           kwargs,
           queue: task.queue,
         },
-      })).then((result) => {
-        if (result.task_id) {
-          router.push(`/tasks/${result.task_id}`);
-        } else {
-          refetch();
-        }
-      });
+      }));
+      if (result.task_id) {
+        router.push(`/tasks/${result.task_id}`);
+      } else {
+        refetch();
+      }
+    } catch (err) {
+      console.error("Retry failed:", err);
     } finally {
       setRetrying(false);
     }
@@ -247,6 +248,8 @@ export default function TaskDetailPage() {
         params: { path: { task_id: task.task_id } },
       }));
       refetch();
+    } catch (err) {
+      console.error("Revoke failed:", err);
     } finally {
       setRevoking(false);
     }
