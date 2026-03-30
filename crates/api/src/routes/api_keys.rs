@@ -88,7 +88,7 @@ pub async fn revoke_key(
     Path(key_id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     auth::rbac::check_permission(&user, "api_keys_manage")?;
-    db::postgres::api_keys::revoke_api_key(&state.pg, key_id).await?;
+    db::postgres::api_keys::revoke_api_key(&state.pg, user.tenant_id, key_id).await?;
     Ok(Json(serde_json::json!({ "revoked": true })))
 }
 

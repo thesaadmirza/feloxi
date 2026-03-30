@@ -8,13 +8,11 @@ pub fn generate_api_key() -> (String, String) {
     (raw, prefix)
 }
 
-/// Hash an API key for storage (SHA-256).
+/// Hash an API key for storage using SHA-256.
 pub fn hash_api_key(key: &str) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut hasher = DefaultHasher::new();
-    key.hash(&mut hasher);
-    format!("{:x}", hasher.finish())
+    use sha2::{Digest, Sha256};
+    let hash = Sha256::digest(key.as_bytes());
+    format!("{:x}", hash)
 }
 
 /// Verify an API key against a stored hash.

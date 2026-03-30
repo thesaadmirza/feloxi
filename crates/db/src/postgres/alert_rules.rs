@@ -65,6 +65,7 @@ pub async fn list_enabled_alert_rules(
 
 pub async fn update_alert_rule(
     pool: &PgPool,
+    tenant_id: Uuid,
     id: Uuid,
     name: &str,
     description: Option<&str>,
@@ -76,13 +77,14 @@ pub async fn update_alert_rule(
     let rule = sqlx::query_as::<_, AlertRule>(
         r#"
         UPDATE alert_rules
-        SET name = $2, description = $3, condition = $4, channels = $5,
-            cooldown_secs = $6, is_enabled = $7, updated_at = NOW()
-        WHERE id = $1
+        SET name = $3, description = $4, condition = $5, channels = $6,
+            cooldown_secs = $7, is_enabled = $8, updated_at = NOW()
+        WHERE id = $1 AND tenant_id = $2
         RETURNING *
         "#,
     )
     .bind(id)
+    .bind(tenant_id)
     .bind(name)
     .bind(description)
     .bind(Json(condition))
@@ -94,8 +96,12 @@ pub async fn update_alert_rule(
     Ok(rule)
 }
 
-pub async fn delete_alert_rule(pool: &PgPool, id: Uuid) -> Result<(), AppError> {
-    sqlx::query("DELETE FROM alert_rules WHERE id = $1").bind(id).execute(pool).await?;
+pub async fn delete_alert_rule(pool: &PgPool, tenant_id: Uuid, id: Uuid) -> Result<(), AppError> {
+    sqlx::query("DELETE FROM alert_rules WHERE id = $1 AND tenant_id = $2")
+        .bind(id)
+        .bind(tenant_id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 

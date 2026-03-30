@@ -116,6 +116,7 @@ pub async fn update_rule(
 
     let rule = db::postgres::alert_rules::update_alert_rule(
         &state.pg,
+        user.tenant_id,
         rule_id,
         &req.name,
         req.description.as_deref(),
@@ -142,7 +143,7 @@ pub async fn delete_rule(
     Path(rule_id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     auth::rbac::check_permission(&user, "alerts_write")?;
-    db::postgres::alert_rules::delete_alert_rule(&state.pg, rule_id).await?;
+    db::postgres::alert_rules::delete_alert_rule(&state.pg, user.tenant_id, rule_id).await?;
     Ok(Json(serde_json::json!({ "deleted": true })))
 }
 

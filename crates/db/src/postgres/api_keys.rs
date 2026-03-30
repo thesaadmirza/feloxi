@@ -45,9 +45,10 @@ pub async fn list_api_keys(pool: &PgPool, tenant_id: Uuid) -> Result<Vec<ApiKey>
     Ok(keys)
 }
 
-pub async fn revoke_api_key(pool: &PgPool, id: Uuid) -> Result<(), AppError> {
-    sqlx::query("UPDATE api_keys SET is_active = false WHERE id = $1")
+pub async fn revoke_api_key(pool: &PgPool, tenant_id: Uuid, id: Uuid) -> Result<(), AppError> {
+    sqlx::query("UPDATE api_keys SET is_active = false WHERE id = $1 AND tenant_id = $2")
         .bind(id)
+        .bind(tenant_id)
         .execute(pool)
         .await?;
     Ok(())

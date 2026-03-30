@@ -96,7 +96,7 @@ impl AppConfig {
             redis_url: std::env::var("REDIS_URL")
                 .unwrap_or_else(|_| "redis://localhost:6379".into()),
             jwt_secret: std::env::var("JWT_SECRET")
-                .unwrap_or_else(|_| "dev-secret-change-in-production".into()),
+                .expect("JWT_SECRET must be set (min 32 characters)"),
             cors_origin: std::env::var("CORS_ORIGIN")
                 .unwrap_or_else(|_| "http://localhost:3000".into()),
             allow_signup: std::env::var("ALLOW_SIGNUP")
