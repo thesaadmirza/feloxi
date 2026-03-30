@@ -57,7 +57,12 @@ pub fn parse_celery_event(event_type: &str, body: &serde_json::Value) -> Option<
         task_name,
         event_type: event_type.to_string(),
         timestamp,
-        queue: body.get("queue").and_then(|v| v.as_str()).map(String::from),
+        queue: body
+            .get("queue")
+            .or_else(|| body.get("routing_key"))
+            .or_else(|| body.pointer("/delivery_info/routing_key"))
+            .and_then(|v| v.as_str())
+            .map(String::from),
         worker_id: body.get("hostname").and_then(|v| v.as_str()).map(String::from),
         state: None, // Derived from event_type by normalize_task_event
         args: body.get("args").map(|v| v.to_string()),
