@@ -97,6 +97,7 @@ export default function TasksPage() {
   const [nameInput, setNameInput] = useState(nameFilter);
   const [retrying, setRetrying] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ type: "retry" | "revoke"; task: TaskEvent } | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [cursor, setCursor] = useState<string | undefined>(undefined);
@@ -445,7 +446,7 @@ export default function TasksPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
-                          onClick={(e) => handleRetry(e, task as TaskEvent)}
+                          onClick={(e) => { e.stopPropagation(); setConfirmAction({ type: "retry", task: task as TaskEvent }); }}
                           disabled={retrying === task.task_id}
                           title="Retry task"
                           className="flex items-center gap-1 px-2 py-1 rounded bg-secondary hover:bg-secondary/70 text-xs text-foreground transition disabled:opacity-50"
@@ -458,7 +459,7 @@ export default function TasksPage() {
                           Retry
                         </button>
                         <button
-                          onClick={(e) => handleRevoke(e, task as TaskEvent)}
+                          onClick={(e) => { e.stopPropagation(); setConfirmAction({ type: "revoke", task: task as TaskEvent }); }}
                           disabled={revoking === task.task_id}
                           title="Revoke task"
                           className="flex items-center gap-1 px-2 py-1 rounded bg-destructive/20 hover:bg-destructive/30 text-xs text-destructive transition disabled:opacity-50"
@@ -490,6 +491,51 @@ export default function TasksPage() {
           />
         )}
       </div>
+
+      {confirmAction && (
+        <>
+          <div className="fixed inset-0 bg-black/60 z-40" onClick={() => setConfirmAction(null)} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="bg-card border border-border rounded-xl p-6 max-w-sm w-full shadow-xl">
+              <h3 className="text-lg font-semibold text-foreground mb-2">
+                {confirmAction.type === "retry" ? "Retry Task" : "Revoke Task"}
+              </h3>
+              <p className="text-sm text-muted-foreground mb-1">
+                {confirmAction.type === "retry"
+                  ? "This will publish a new copy of this task to the broker queue."
+                  : "This will broadcast a revoke command to all workers. The task will be terminated if currently running."}
+              </p>
+              <p className="text-xs text-muted-foreground mb-4 font-mono truncate">
+                {confirmAction.task.task_name} — {confirmAction.task.task_id}
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setConfirmAction(null)}
+                  className="px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-secondary transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    const { type, task } = confirmAction;
+                    setConfirmAction(null);
+                    const fakeEvent = { stopPropagation: () => {} } as React.MouseEvent;
+                    if (type === "retry") handleRetry(fakeEvent, task);
+                    else handleRevoke(fakeEvent, task);
+                  }}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
+                    confirmAction.type === "revoke"
+                      ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      : "bg-primary text-primary-foreground hover:bg-primary/90"
+                  }`}
+                >
+                  {confirmAction.type === "retry" ? "Retry" : "Revoke"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
