@@ -11,6 +11,12 @@ type TaskUpdatePayload = {
   timestamp: number;
 };
 
+type TaskBatchUpdatePayload = {
+  type: "TaskBatchUpdate";
+  count: number;
+  latest: TaskUpdatePayload[];
+};
+
 type WorkerUpdatePayload = {
   type: "WorkerUpdate";
   worker_id: string;
@@ -39,6 +45,7 @@ type MetricsSummaryPayload = {
 
 type EventPayload =
   | TaskUpdatePayload
+  | TaskBatchUpdatePayload
   | WorkerUpdatePayload
   | AlertFiredPayload
   | MetricsSummaryPayload;
@@ -48,6 +55,7 @@ type ConnectionState = "disconnected" | "connecting" | "connected";
 type WsStore = {
   connectionState: ConnectionState;
   recentTasks: TaskUpdatePayload[];
+  totalTaskCount: number;
   workerStates: Map<string, WorkerUpdatePayload>;
   recentAlerts: AlertFiredPayload[];
   latestMetrics: MetricsSummaryPayload | null;
@@ -62,10 +70,75 @@ const RECONNECT_DELAY = 3000;
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let pingInterval: ReturnType<typeof setInterval> | null = null;
+let rafHandle: number | null = null;
+let pendingUpdates: Partial<WsStore>[] = [];
+
+function flushPendingUpdates(
+  set: (partial: Partial<WsStore> | ((state: WsStore) => Partial<WsStore>)) => void,
+  get: () => WsStore
+) {
+  rafHandle = null;
+  if (pendingUpdates.length === 0) return;
+
+  const updates = pendingUpdates;
+  pendingUpdates = [];
+
+  const state = get();
+  let recentTasks = state.recentTasks;
+  let totalTaskCount = state.totalTaskCount;
+  let workerStates = state.workerStates;
+  let recentAlerts = state.recentAlerts;
+  let latestMetrics = state.latestMetrics;
+  let hasWorkerChange = false;
+
+  for (const update of updates) {
+    if (update.recentTasks) {
+      recentTasks = update.recentTasks;
+    }
+    if (update.totalTaskCount !== undefined) {
+      totalTaskCount = update.totalTaskCount;
+    }
+    if (update.workerStates) {
+      workerStates = update.workerStates;
+      hasWorkerChange = true;
+    }
+    if (update.recentAlerts) {
+      recentAlerts = update.recentAlerts;
+    }
+    if (update.latestMetrics !== undefined) {
+      latestMetrics = update.latestMetrics;
+    }
+  }
+
+  const merged: Partial<WsStore> = {
+    recentTasks,
+    totalTaskCount,
+    recentAlerts,
+    latestMetrics,
+  };
+
+  if (hasWorkerChange) {
+    merged.workerStates = workerStates;
+  }
+
+  set(merged);
+}
+
+function scheduleUpdate(
+  update: Partial<WsStore>,
+  set: (partial: Partial<WsStore> | ((state: WsStore) => Partial<WsStore>)) => void,
+  get: () => WsStore
+) {
+  pendingUpdates.push(update);
+  if (rafHandle === null) {
+    rafHandle = requestAnimationFrame(() => flushPendingUpdates(set, get));
+  }
+}
 
 export const useWsStore = create<WsStore>((set, get) => ({
   connectionState: "disconnected",
   recentTasks: [],
+  totalTaskCount: 0,
   workerStates: new Map(),
   recentAlerts: [],
   latestMetrics: null,
@@ -96,7 +169,7 @@ export const useWsStore = create<WsStore>((set, get) => ({
           handleEvent(msg.payload as EventPayload, set, get);
         }
       } catch {
-        /* ignore malformed messages */
+        /* ignore malformed */
       }
     };
 
@@ -126,6 +199,11 @@ function cleanup() {
     clearInterval(pingInterval);
     pingInterval = null;
   }
+  if (rafHandle !== null) {
+    cancelAnimationFrame(rafHandle);
+    rafHandle = null;
+    pendingUpdates = [];
+  }
   if (ws) {
     ws.onclose = null;
     ws.onerror = null;
@@ -148,34 +226,50 @@ function scheduleReconnect(get: () => WsStore) {
 function handleEvent(
   payload: EventPayload,
   set: (partial: Partial<WsStore> | ((state: WsStore) => Partial<WsStore>)) => void,
-  _get: () => WsStore
+  get: () => WsStore
 ) {
   switch (payload.type) {
     case "TaskUpdate":
-      set((state) => ({
-        recentTasks: [payload, ...state.recentTasks].slice(0, MAX_RECENT_TASKS),
-      }));
+      scheduleUpdate(
+        {
+          recentTasks: [payload, ...get().recentTasks].slice(0, MAX_RECENT_TASKS),
+          totalTaskCount: get().totalTaskCount + 1,
+        },
+        set,
+        get
+      );
       break;
 
-    case "WorkerUpdate":
-      set((state) => {
-        const updated = new Map(state.workerStates);
-        updated.set(payload.worker_id, payload);
-        return { workerStates: updated };
-      });
+    case "TaskBatchUpdate":
+      scheduleUpdate(
+        {
+          recentTasks: [...payload.latest, ...get().recentTasks].slice(0, MAX_RECENT_TASKS),
+          totalTaskCount: get().totalTaskCount + payload.count,
+        },
+        set,
+        get
+      );
       break;
+
+    case "WorkerUpdate": {
+      const updated = new Map(get().workerStates);
+      updated.set(payload.worker_id, payload);
+      scheduleUpdate({ workerStates: updated }, set, get);
+      break;
+    }
 
     case "AlertFired":
-      set((state) => ({
-        recentAlerts: [payload, ...state.recentAlerts].slice(
-          0,
-          MAX_RECENT_ALERTS
-        ),
-      }));
+      scheduleUpdate(
+        {
+          recentAlerts: [payload, ...get().recentAlerts].slice(0, MAX_RECENT_ALERTS),
+        },
+        set,
+        get
+      );
       break;
 
     case "MetricsSummary":
-      set({ latestMetrics: payload });
+      scheduleUpdate({ latestMetrics: payload }, set, get);
       break;
   }
 }
