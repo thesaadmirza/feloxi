@@ -6,9 +6,11 @@ use axum::{
     response::IntoResponse,
 };
 use futures::{SinkExt, StreamExt};
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
+use std::time::Duration;
+use tokio::time::interval;
 
-use crate::state::{AppState, TenantEvent};
+use crate::state::{AppState, EventPayload, TenantEvent};
 use crate::ws::subscriptions::{SubscriptionTopic, WsClientCommand, WsServerMessage};
 
 #[derive(serde::Deserialize, Default)]
@@ -57,15 +59,21 @@ async fn handle_dashboard_socket(socket: WebSocket, state: AppState, tenant_id: 
     let mut event_rx = state.event_tx.subscribe();
     let mut subscriptions: HashSet<SubscriptionTopic> = HashSet::new();
 
-    // Default: subscribe to everything
     subscriptions.insert(SubscriptionTopic::AllTasks);
     subscriptions.insert(SubscriptionTopic::AllWorkers);
     subscriptions.insert(SubscriptionTopic::Alerts);
     subscriptions.insert(SubscriptionTopic::MetricsSummary);
 
+    let mut flush_interval = interval(Duration::from_secs(1));
+    flush_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    const TASK_LATEST_CAP: usize = 5;
+    let mut task_count: u64 = 0;
+    let mut task_latest: VecDeque<serde_json::Value> = VecDeque::with_capacity(TASK_LATEST_CAP);
+    let mut other_batch: Vec<serde_json::Value> = Vec::with_capacity(16);
+
     loop {
         tokio::select! {
-            // Handle messages from the client
             msg = receiver.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
@@ -97,31 +105,60 @@ async fn handle_dashboard_socket(socket: WebSocket, state: AppState, tenant_id: 
                     _ => {}
                 }
             }
-            // Forward matching events from broadcast channel
             event = event_rx.recv() => {
                 match event {
                     Ok(tenant_event) => {
                         if tenant_event.tenant_id != tenant_id {
                             continue;
                         }
-
-                        // Check if event matches any subscription
                         if !matches_any_subscription(&tenant_event, &subscriptions) {
                             continue;
                         }
-
-                        let msg = WsServerMessage::Event {
-                            payload: serde_json::to_value(&tenant_event.payload).unwrap_or_default(),
-                        };
-                        let json = serde_json::to_string(&msg).unwrap_or_default();
-                        if sender.send(Message::Text(json.into())).await.is_err() {
-                            break;
+                        if matches!(tenant_event.payload, EventPayload::TaskUpdate { .. }) {
+                            task_count += 1;
+                            let value = serde_json::to_value(&tenant_event.payload).unwrap_or_default();
+                            if task_latest.len() >= TASK_LATEST_CAP {
+                                task_latest.pop_front();
+                            }
+                            task_latest.push_back(value);
+                        } else {
+                            let value = serde_json::to_value(&tenant_event.payload).unwrap_or_default();
+                            other_batch.push(value);
                         }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                         tracing::warn!("Dashboard WS lagged by {n} events");
                     }
                     Err(_) => break,
+                }
+            }
+            _ = flush_interval.tick() => {
+                if task_count == 0 && other_batch.is_empty() {
+                    continue;
+                }
+
+                for payload in other_batch.drain(..) {
+                    let msg = WsServerMessage::Event { payload };
+                    let json = serde_json::to_string(&msg).unwrap_or_default();
+                    if sender.send(Message::Text(json.into())).await.is_err() {
+                        return;
+                    }
+                }
+
+                if task_count > 0 {
+                    let batch_msg = WsServerMessage::Event {
+                        payload: serde_json::json!({
+                            "type": "TaskBatchUpdate",
+                            "count": task_count,
+                            "latest": task_latest,
+                        }),
+                    };
+                    task_count = 0;
+                    task_latest.clear();
+                    let json = serde_json::to_string(&batch_msg).unwrap_or_default();
+                    if sender.send(Message::Text(json.into())).await.is_err() {
+                        return;
+                    }
                 }
             }
         }
