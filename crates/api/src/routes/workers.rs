@@ -195,12 +195,9 @@ pub async fn worker_health(
         .await
         .map_err(|e| AppError::Database(e.to_string()))?;
 
-    let ch_health = db::clickhouse::aggregations::get_worker_heartbeat_health(
-        &state.ch,
-        user.tenant_id,
-        hours,
-    )
-    .await?;
+    let ch_health =
+        db::clickhouse::aggregations::get_worker_heartbeat_health(&state.ch, user.tenant_id, hours)
+            .await?;
 
     let ch_map: std::collections::HashMap<String, _> =
         ch_health.into_iter().map(|r| (r.worker_id.clone(), r)).collect();

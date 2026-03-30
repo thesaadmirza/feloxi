@@ -160,9 +160,8 @@ pub async fn should_sample_heartbeat(
 ) -> Result<bool, Error> {
     let key = keys::worker_hb_sampled(tenant_id, worker_id);
     // SET NX with 30s expiry — returns Some("OK") if newly set, None if key existed
-    let result: Option<String> = pool
-        .set(&key, "1", Some(Expiration::EX(30)), Some(SetOptions::NX), false)
-        .await?;
+    let result: Option<String> =
+        pool.set(&key, "1", Some(Expiration::EX(30)), Some(SetOptions::NX), false).await?;
     Ok(result.is_some())
 }
 

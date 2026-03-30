@@ -7,7 +7,9 @@ use serde::Deserialize;
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use crate::routes::responses::{CommandResponse, TaskListResponse, TaskSummaryListResponse, TaskTimelineResponse};
+use crate::routes::responses::{
+    CommandResponse, TaskListResponse, TaskSummaryListResponse, TaskTimelineResponse,
+};
 use crate::state::AppState;
 use auth::middleware::CurrentUser;
 use common::AppError;
@@ -118,10 +120,9 @@ pub async fn retry_task(
         db::clickhouse::task_events::get_task_latest(&state.ch, user.tenant_id, &task_id).await?;
 
     let (parent_id, root_id) = match &original_task {
-        Some(t) => (
-            Some(task_id.clone()),
-            Some(t.root_id.clone().unwrap_or_else(|| task_id.clone())),
-        ),
+        Some(t) => {
+            (Some(task_id.clone()), Some(t.root_id.clone().unwrap_or_else(|| task_id.clone())))
+        }
         None => (Some(task_id.clone()), Some(task_id.clone())),
     };
 

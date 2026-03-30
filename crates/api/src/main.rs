@@ -329,12 +329,11 @@ async fn build_evaluation_context(
     // for tenants that have never connected any workers)
     if let Ok(online) = db::redis::cache::get_online_workers(&state.redis, tenant_id).await {
         if online.is_empty() {
-            let has_active_broker = db::postgres::broker_configs::list_broker_configs(
-                &state.pg, tenant_id,
-            )
-            .await
-            .map(|configs| configs.iter().any(|c| c.is_active))
-            .unwrap_or(false);
+            let has_active_broker =
+                db::postgres::broker_configs::list_broker_configs(&state.pg, tenant_id)
+                    .await
+                    .map(|configs| configs.iter().any(|c| c.is_active))
+                    .unwrap_or(false);
 
             if has_active_broker {
                 ctx.workers_went_offline = 1;

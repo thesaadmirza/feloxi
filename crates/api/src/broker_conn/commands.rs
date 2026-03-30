@@ -203,7 +203,10 @@ pub async fn amqp_publish_task(
             let mut headers = lapin::types::FieldTable::default();
             headers.insert("task".into(), lapin::types::AMQPValue::LongString(task_name.into()));
             headers.insert("id".into(), lapin::types::AMQPValue::LongString(task_id.into()));
-            headers.insert("root_id".into(), lapin::types::AMQPValue::LongString(root_id.unwrap_or(task_id).into()));
+            headers.insert(
+                "root_id".into(),
+                lapin::types::AMQPValue::LongString(root_id.unwrap_or(task_id).into()),
+            );
             if let Some(pid) = parent_id {
                 headers.insert("parent_id".into(), lapin::types::AMQPValue::LongString(pid.into()));
             }
@@ -322,10 +325,30 @@ pub async fn publish_task(
 ) -> Result<(), String> {
     match broker_type {
         "redis" => {
-            redis_publish_task(connection_url, task_name, task_id, args, kwargs, queue, parent_id, root_id).await
+            redis_publish_task(
+                connection_url,
+                task_name,
+                task_id,
+                args,
+                kwargs,
+                queue,
+                parent_id,
+                root_id,
+            )
+            .await
         }
         "rabbitmq" | "amqp" => {
-            amqp_publish_task(connection_url, task_name, task_id, args, kwargs, queue, parent_id, root_id).await
+            amqp_publish_task(
+                connection_url,
+                task_name,
+                task_id,
+                args,
+                kwargs,
+                queue,
+                parent_id,
+                root_id,
+            )
+            .await
         }
         other => Err(format!("Unsupported broker type: {other}")),
     }

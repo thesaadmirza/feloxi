@@ -11,9 +11,7 @@ use crate::state::AppState;
 use common::AppError;
 
 fn is_secure_context() -> bool {
-    std::env::var("CORS_ORIGIN")
-        .map(|v| v.contains("https://"))
-        .unwrap_or(false)
+    std::env::var("CORS_ORIGIN").map(|v| v.contains("https://")).unwrap_or(false)
 }
 
 /// Build Set-Cookie headers for access + refresh tokens (HttpOnly, SameSite=Lax).
@@ -48,9 +46,8 @@ fn clear_auth_cookies() -> HeaderMap {
     let mut headers = HeaderMap::new();
     let access = format!("fp_access=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax{secure}");
     headers.append(SET_COOKIE, access.parse().expect("clear-access cookie is valid"));
-    let refresh = format!(
-        "fp_refresh=; HttpOnly; Path=/api/v1/auth; Max-Age=0; SameSite=Lax{secure}"
-    );
+    let refresh =
+        format!("fp_refresh=; HttpOnly; Path=/api/v1/auth; Max-Age=0; SameSite=Lax{secure}");
     headers.append(SET_COOKIE, refresh.parse().expect("clear-refresh cookie is valid"));
     headers
 }
@@ -412,8 +409,7 @@ pub async fn logout(
 ) -> (HeaderMap, Json<serde_json::Value>) {
     // Best-effort: revoke refresh tokens if the user is authenticated
     if let Ok(claims) = verify_request(&state, &headers).await {
-        let _ =
-            db::postgres::refresh_tokens::revoke_all_for_user(&state.pg, claims.sub).await;
+        let _ = db::postgres::refresh_tokens::revoke_all_for_user(&state.pg, claims.sub).await;
     }
     (clear_auth_cookies(), Json(serde_json::json!({ "ok": true })))
 }

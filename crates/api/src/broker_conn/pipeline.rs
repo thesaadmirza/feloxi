@@ -109,19 +109,16 @@ pub async fn ingest_raw_worker_events(
                 )
                 .await
                 {
-                    rows_to_store.push(
-                        engine::event_processor::normalize_worker_event(
-                            tenant_id, source_id, event,
-                        ),
-                    );
+                    rows_to_store.push(engine::event_processor::normalize_worker_event(
+                        tenant_id, source_id, event,
+                    ));
                 }
             }
         }
 
         if !rows_to_store.is_empty() {
             if let Err(e) =
-                db::clickhouse::worker_events::insert_worker_events(&state.ch, &rows_to_store)
-                    .await
+                db::clickhouse::worker_events::insert_worker_events(&state.ch, &rows_to_store).await
             {
                 tracing::error!(?e, "Failed to insert worker events into ClickHouse");
             }
