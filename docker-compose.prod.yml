@@ -12,6 +12,7 @@ services:
   api:
     environment:
       - RUST_LOG=api=info,tower_http=warn
+      - DISABLE_SWAGGER=true
     deploy:
       resources:
         limits:
