@@ -342,9 +342,7 @@ pub async fn get_task_summary(
     queue: Option<&str>,
     cursor_ms: Option<i64>,
 ) -> Result<Vec<TaskSummaryRow>, AppError> {
-    // Use a LIMIT BY approach: fetch the latest row per task_id efficiently
-    // rather than GROUP BY across millions of rows.
-    let fetch_limit = limit + 1; // +1 for has_more detection
+    let fetch_limit = limit;
 
     let mut query = String::from(
         r#"SELECT
