@@ -84,7 +84,7 @@ The backend is a Cargo workspace with 6 crates:
 | `api` | Binary | Axum HTTP server, route handlers, broker connection manager, WebSocket endpoint (`/ws/dashboard`), alert evaluation scheduler, retention enforcement loop |
 | `engine` | Library | Event normalization (Celery event types → task states), metrics computation, DAG resolution for task workflows, beat monitoring, worker/task state management |
 | `auth` | Library | JWT creation/validation (HS256, 15min TTL), RBAC permission checking, refresh token rotation (SHA-256, 30-day TTL), HttpOnly cookie management |
-| `db` | Library | Database access layer — SQLx for PostgreSQL, `clickhouse` crate for ClickHouse (RowBinary protocol), `fred` for Redis |
+| `db` | Library | Database access layer — SQLx for PostgreSQL, `clickhouse` crate for ClickHouse, `fred` for Redis |
 | `alerting` | Library | 10 alert condition types, notification dispatch to 4 channels (Slack, email via lettre, webhook, PagerDuty), per-rule cooldown throttling |
 | `common` | Library | Shared types (AppError, BrokerType, CollectorType), error handling helpers, utility functions |
 
