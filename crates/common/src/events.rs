@@ -49,7 +49,7 @@ pub struct RawWorkerEvent {
 /// and a JSON body containing task metadata.
 pub fn parse_celery_event(event_type: &str, body: &serde_json::Value) -> Option<RawTaskEvent> {
     let task_id = body.get("uuid")?.as_str()?.to_string();
-    let task_name = body.get("name").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+    let task_name = body.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let timestamp = body.get("timestamp")?.as_f64()?;
 
     Some(RawTaskEvent {
