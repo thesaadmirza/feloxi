@@ -4,7 +4,7 @@ import { useState, useMemo, useCallback } from "react";
 import Link from "next/link";
 import type { DagNode, DagEdge } from "@/types/api";
 import { getStateColor, EDGE_TYPE_COLORS, DAG_LAYOUT } from "@/lib/constants";
-import { formatDuration, truncateId } from "@/lib/utils";
+import { formatDuration, truncateId, displayTaskName } from "@/lib/utils";
 
 type LayoutNode = DagNode & {
   x: number;
@@ -141,9 +141,10 @@ function DagNodeCard({
           fontWeight={600}
           className="cursor-pointer hover:underline"
         >
-          {node.task_name.length > 24
-            ? `${node.task_name.slice(0, 24)}…`
-            : node.task_name}
+          {(() => {
+            const name = displayTaskName(node.task_name);
+            return name.length > 24 ? `${name.slice(0, 24)}…` : name;
+          })()}
         </text>
       </Link>
       <text

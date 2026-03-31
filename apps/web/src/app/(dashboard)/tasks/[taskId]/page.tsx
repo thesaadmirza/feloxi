@@ -18,7 +18,7 @@ import {
   Server,
 } from "lucide-react";
 import { $api, fetchClient, unwrap } from "@/lib/api";
-import { formatDuration, truncateId } from "@/lib/utils";
+import { formatDuration, truncateId, displayTaskName } from "@/lib/utils";
 import { getStateColor } from "@/lib/constants";
 import { JsonViewer } from "@/components/shared/json-viewer";
 import { Skeleton } from "@/components/shared/skeleton";
@@ -384,7 +384,7 @@ export default function TaskDetailPage() {
             <div className="lg:col-span-2 rounded-xl border border-border bg-card p-6">
               <div className="flex items-center gap-2 mb-4">
                 <Layers className="h-4 w-4 text-primary" />
-                <h2 className="font-semibold text-foreground">{task.task_name}</h2>
+                <h2 className="font-semibold text-foreground">{displayTaskName(task.task_name)}</h2>
               </div>
               <InfoRow label="Task ID" value={task.task_id} />
               <InfoRow label="Event ID" value={task.event_id} />

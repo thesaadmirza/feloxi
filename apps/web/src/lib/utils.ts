@@ -32,6 +32,11 @@ export function formatPercent(rate: number): string {
 export function truncateId(id: string, len = 8): string {
   return id.length > len ? `${id.slice(0, len)}...` : id;
 }
+export function displayTaskName(name: string | undefined | null): string {
+  if (!name || name === "unknown") return "unnamed task";
+  return name;
+}
+
 export function timeAgo(dateInput: string | number): string {
   const now = Date.now();
   const date = typeof dateInput === "number" ? dateInput : new Date(dateInput).getTime();
