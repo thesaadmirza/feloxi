@@ -10,12 +10,21 @@ use uuid::Uuid;
 // ─────────────────────────── Alert Types (shared) ───────────────────────────
 
 /// Alert condition types.
+fn default_wildcard() -> String {
+    "*".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type")]
 pub enum AlertCondition {
     /// Trigger when task failure rate exceeds threshold.
     #[serde(rename = "task_failure_rate")]
-    TaskFailureRate { threshold: f64, window_minutes: u64, task_name: String },
+    TaskFailureRate {
+        threshold: f64,
+        window_minutes: u64,
+        #[serde(default = "default_wildcard")]
+        task_name: String,
+    },
     /// Trigger when queue depth exceeds threshold.
     #[serde(rename = "queue_depth")]
     QueueDepth { threshold: u64, queue: String },
@@ -24,22 +33,40 @@ pub enum AlertCondition {
     WorkerOffline { grace_period_seconds: u64 },
     /// Trigger when task duration exceeds threshold at given percentile.
     #[serde(rename = "task_duration")]
-    TaskDuration { threshold_seconds: f64, percentile: f64, task_name: String },
+    TaskDuration {
+        threshold_seconds: f64,
+        percentile: f64,
+        #[serde(default = "default_wildcard")]
+        task_name: String,
+    },
     /// Trigger when a beat schedule misses its expected run.
     #[serde(rename = "beat_missed")]
     BeatMissed { schedule_name: String },
     /// Trigger when a specific task name fails.
     #[serde(rename = "task_failed")]
-    TaskFailed { task_name: String },
+    TaskFailed {
+        #[serde(default = "default_wildcard")]
+        task_name: String,
+    },
     /// Trigger when no events received for a period.
     #[serde(rename = "no_events")]
     NoEvents { silence_minutes: u64 },
     /// Trigger when task throughput deviates from historical baseline (Z-score).
     #[serde(rename = "throughput_anomaly")]
-    ThroughputAnomaly { zscore_threshold: f64, window_minutes: u64, task_name: String },
+    ThroughputAnomaly {
+        zscore_threshold: f64,
+        window_minutes: u64,
+        #[serde(default = "default_wildcard")]
+        task_name: String,
+    },
     /// Trigger when task latency deviates from historical baseline (Z-score).
     #[serde(rename = "latency_anomaly")]
-    LatencyAnomaly { zscore_threshold: f64, window_minutes: u64, task_name: String },
+    LatencyAnomaly {
+        zscore_threshold: f64,
+        window_minutes: u64,
+        #[serde(default = "default_wildcard")]
+        task_name: String,
+    },
     /// Trigger when error rate spikes compared to recent baseline.
     #[serde(rename = "error_rate_spike")]
     ErrorRateSpike { spike_factor: f64, baseline_hours: u64, task_name: String },
