@@ -831,9 +831,8 @@ export interface components {
             /** @enum {string} */
             type: "pagerduty";
         };
-        /** @description Alert condition types. */
         AlertCondition: {
-            task_name: string;
+            task_name?: string;
             /** Format: double */
             threshold: number;
             /** @enum {string} */
@@ -854,7 +853,7 @@ export interface components {
         } | {
             /** Format: double */
             percentile: number;
-            task_name: string;
+            task_name?: string;
             /** Format: double */
             threshold_seconds: number;
             /** @enum {string} */
@@ -864,7 +863,7 @@ export interface components {
             /** @enum {string} */
             type: "beat_missed";
         } | {
-            task_name: string;
+            task_name?: string;
             /** @enum {string} */
             type: "task_failed";
         } | {
@@ -873,7 +872,7 @@ export interface components {
             /** @enum {string} */
             type: "no_events";
         } | {
-            task_name: string;
+            task_name?: string;
             /** @enum {string} */
             type: "throughput_anomaly";
             /** Format: int64 */
@@ -881,7 +880,7 @@ export interface components {
             /** Format: double */
             zscore_threshold: number;
         } | {
-            task_name: string;
+            task_name?: string;
             /** @enum {string} */
             type: "latency_anomaly";
             /** Format: int64 */

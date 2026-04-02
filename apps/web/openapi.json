@@ -2012,7 +2012,6 @@
             "required": [
               "threshold",
               "window_minutes",
-              "task_name",
               "type"
             ],
             "properties": {
@@ -2088,7 +2087,6 @@
             "required": [
               "threshold_seconds",
               "percentile",
-              "task_name",
               "type"
             ],
             "properties": {
@@ -2134,7 +2132,6 @@
             "type": "object",
             "description": "Trigger when a specific task name fails.",
             "required": [
-              "task_name",
               "type"
             ],
             "properties": {
@@ -2176,7 +2173,6 @@
             "required": [
               "zscore_threshold",
               "window_minutes",
-              "task_name",
               "type"
             ],
             "properties": {
@@ -2206,7 +2202,6 @@
             "required": [
               "zscore_threshold",
               "window_minutes",
-              "task_name",
               "type"
             ],
             "properties": {
@@ -2260,8 +2255,7 @@
               }
             }
           }
-        ],
-        "description": "Alert condition types."
+        ]
       },
       "AlertHistoryParams": {
         "type": "object",
