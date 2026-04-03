@@ -8,6 +8,44 @@
     <tcp_port>9000</tcp_port>
     <max_connections>100</max_connections>
     <max_concurrent_queries>50</max_concurrent_queries>
+
+    <!-- Cap system log tables to prevent disk fill (3 days, flush every 30s) -->
+    <text_log>
+        <database>system</database>
+        <table>text_log</table>
+        <flush_interval_milliseconds>30000</flush_interval_milliseconds>
+        <ttl>event_date + INTERVAL 3 DAY</ttl>
+    </text_log>
+    <trace_log>
+        <database>system</database>
+        <table>trace_log</table>
+        <flush_interval_milliseconds>30000</flush_interval_milliseconds>
+        <ttl>event_date + INTERVAL 3 DAY</ttl>
+    </trace_log>
+    <query_log>
+        <database>system</database>
+        <table>query_log</table>
+        <flush_interval_milliseconds>30000</flush_interval_milliseconds>
+        <ttl>event_date + INTERVAL 3 DAY</ttl>
+    </query_log>
+    <metric_log>
+        <database>system</database>
+        <table>metric_log</table>
+        <flush_interval_milliseconds>30000</flush_interval_milliseconds>
+        <ttl>event_date + INTERVAL 3 DAY</ttl>
+    </metric_log>
+    <asynchronous_metric_log>
+        <database>system</database>
+        <table>asynchronous_metric_log</table>
+        <flush_interval_milliseconds>60000</flush_interval_milliseconds>
+        <ttl>event_date + INTERVAL 3 DAY</ttl>
+    </asynchronous_metric_log>
+    <part_log>
+        <database>system</database>
+        <table>part_log</table>
+        <flush_interval_milliseconds>30000</flush_interval_milliseconds>
+        <ttl>event_date + INTERVAL 3 DAY</ttl>
+    </part_log>
     <users>
         <default>
             <password></password>

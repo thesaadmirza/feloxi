@@ -147,6 +147,12 @@ pub async fn run_schema_init(
         .await
         .map_err(|e| format!("ClickHouse schema init failed on database: {e}"))?;
 
+    // Cap ClickHouse system log tables to prevent disk fill.
+    // These tables store internal profiling/logging data and can grow to
+    // gigabytes quickly. Best-effort — don't fail startup if this fails
+    // (e.g., older CH versions or restricted permissions).
+    cap_system_log_tables(&bootstrap).await;
+
     let client = bootstrap.with_database("feloxi");
     for (name, ddl) in TABLE_STATEMENTS {
         client
@@ -155,5 +161,32 @@ pub async fn run_schema_init(
             .await
             .map_err(|e| format!("ClickHouse schema init failed on {name}: {e}"))?;
     }
+
     Ok(())
+}
+
+/// Apply 3-day TTLs to ClickHouse system log tables.
+/// Silently ignores errors — some CH deployments may restrict ALTER on system tables.
+async fn cap_system_log_tables(client: &Client) {
+    const SYSTEM_LOG_TABLES: &[&str] = &[
+        "text_log",
+        "trace_log",
+        "query_log",
+        "metric_log",
+        "asynchronous_metric_log",
+        "part_log",
+        "processors_profile_log",
+        "query_views_log",
+    ];
+
+    for table in SYSTEM_LOG_TABLES {
+        let ddl = format!("ALTER TABLE system.{table} MODIFY TTL event_date + INTERVAL 3 DAY");
+        if let Err(e) = client.query(&ddl).execute().await {
+            tracing::debug!(
+                table,
+                error = %e,
+                "Could not set TTL on system log table (non-fatal)"
+            );
+        }
+    }
 }
