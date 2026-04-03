@@ -112,7 +112,7 @@ pub async fn record_alert_fired(
     rule_id: Uuid,
     severity: &str,
     summary: &str,
-    details: &HashMap<String, serde_json::Value>,
+    details: &serde_json::Value,
     channels_sent: &HashMap<String, ChannelDeliveryStatus>,
 ) -> Result<AlertHistoryRow, AppError> {
     let row = sqlx::query_as::<_, AlertHistoryRow>(

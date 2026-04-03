@@ -10,6 +10,8 @@ pub struct FiredAlert {
     pub rule_id: Uuid,
     pub tenant_id: Uuid,
     pub rule_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub condition_type: Option<String>,
     pub severity: String,
     pub summary: String,
     pub details: serde_json::Value,
@@ -171,6 +173,103 @@ pub fn generate_summary(rule: &ResolvedAlertRule, context: &EvaluationContext) -
                 context.baseline_error_rate * 100.0,
                 context.error_rate_spike_factor
             )
+        }
+    }
+}
+
+/// Return the serde tag string for an alert condition.
+pub fn condition_type_str(condition: &AlertCondition) -> &'static str {
+    match condition {
+        AlertCondition::TaskFailureRate { .. } => "task_failure_rate",
+        AlertCondition::QueueDepth { .. } => "queue_depth",
+        AlertCondition::WorkerOffline { .. } => "worker_offline",
+        AlertCondition::TaskDuration { .. } => "task_duration",
+        AlertCondition::BeatMissed { .. } => "beat_missed",
+        AlertCondition::TaskFailed { .. } => "task_failed",
+        AlertCondition::NoEvents { .. } => "no_events",
+        AlertCondition::ThroughputAnomaly { .. } => "throughput_anomaly",
+        AlertCondition::LatencyAnomaly { .. } => "latency_anomaly",
+        AlertCondition::ErrorRateSpike { .. } => "error_rate_spike",
+    }
+}
+
+/// Generate condition-specific details for an alert.
+pub fn generate_details(condition: &AlertCondition, ctx: &EvaluationContext) -> serde_json::Value {
+    match condition {
+        AlertCondition::TaskFailureRate { threshold, window_minutes, task_name } => {
+            serde_json::json!({
+                "task_name": task_name,
+                "failure_rate": ctx.failure_rate,
+                "threshold": threshold,
+                "window_minutes": window_minutes,
+                "recent_failures": ctx.recent_failures,
+            })
+        }
+        AlertCondition::QueueDepth { threshold, queue } => {
+            serde_json::json!({
+                "queue": queue,
+                "current_depth": ctx.queue_depth,
+                "threshold": threshold,
+            })
+        }
+        AlertCondition::WorkerOffline { grace_period_seconds } => {
+            serde_json::json!({
+                "workers_offline_count": ctx.workers_went_offline,
+                "grace_period_seconds": grace_period_seconds,
+            })
+        }
+        AlertCondition::TaskDuration { threshold_seconds, percentile, task_name } => {
+            serde_json::json!({
+                "task_name": task_name,
+                "p95_runtime": ctx.p95_runtime,
+                "threshold_seconds": threshold_seconds,
+                "percentile": percentile,
+            })
+        }
+        AlertCondition::BeatMissed { schedule_name } => {
+            serde_json::json!({ "schedule_name": schedule_name })
+        }
+        AlertCondition::TaskFailed { task_name } => {
+            serde_json::json!({
+                "task_name": task_name,
+                "recent_failures": ctx.recent_failures,
+            })
+        }
+        AlertCondition::NoEvents { silence_minutes } => {
+            serde_json::json!({
+                "silence_minutes": silence_minutes,
+                "seconds_since_last_event": ctx.seconds_since_last_event,
+            })
+        }
+        AlertCondition::ThroughputAnomaly { zscore_threshold, window_minutes, task_name } => {
+            serde_json::json!({
+                "task_name": task_name,
+                "current_throughput": ctx.current_throughput,
+                "baseline_throughput": ctx.baseline_throughput,
+                "zscore": ctx.throughput_zscore,
+                "zscore_threshold": zscore_threshold,
+                "window_minutes": window_minutes,
+            })
+        }
+        AlertCondition::LatencyAnomaly { zscore_threshold, window_minutes, task_name } => {
+            serde_json::json!({
+                "task_name": task_name,
+                "current_latency": ctx.current_latency,
+                "baseline_latency": ctx.baseline_latency,
+                "zscore": ctx.latency_zscore,
+                "zscore_threshold": zscore_threshold,
+                "window_minutes": window_minutes,
+            })
+        }
+        AlertCondition::ErrorRateSpike { spike_factor, baseline_hours, task_name } => {
+            serde_json::json!({
+                "task_name": task_name,
+                "current_error_rate": ctx.current_error_rate,
+                "baseline_error_rate": ctx.baseline_error_rate,
+                "spike_factor": ctx.error_rate_spike_factor,
+                "spike_threshold": spike_factor,
+                "baseline_hours": baseline_hours,
+            })
         }
     }
 }
@@ -421,6 +520,7 @@ mod tests {
             rule_id: Uuid::nil(),
             tenant_id: Uuid::nil(),
             rule_name: "Test".into(),
+            condition_type: Some("task_failure_rate".into()),
             severity: "critical".into(),
             summary: "Something went wrong".into(),
             details: serde_json::json!({"key": "val"}),
@@ -429,6 +529,51 @@ mod tests {
         let json = serde_json::to_string(&alert).unwrap();
         let decoded: FiredAlert = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.rule_name, "Test");
+        assert_eq!(decoded.condition_type, Some("task_failure_rate".into()));
         assert_eq!(decoded.details["key"], "val");
+
+        // Backward compat: None condition_type is omitted from JSON
+        let alert_no_ct = FiredAlert { condition_type: None, ..alert };
+        let json = serde_json::to_string(&alert_no_ct).unwrap();
+        assert!(!json.contains("condition_type"));
+        let decoded: FiredAlert = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.condition_type, None);
+    }
+
+    #[test]
+    fn condition_type_str_all_variants() {
+        assert_eq!(
+            condition_type_str(&AlertCondition::TaskFailureRate {
+                threshold: 0.1,
+                window_minutes: 5,
+                task_name: "*".into(),
+            }),
+            "task_failure_rate"
+        );
+        assert_eq!(
+            condition_type_str(&AlertCondition::QueueDepth { threshold: 100, queue: "q".into() }),
+            "queue_depth"
+        );
+        assert_eq!(
+            condition_type_str(&AlertCondition::WorkerOffline { grace_period_seconds: 60 }),
+            "worker_offline"
+        );
+    }
+
+    #[test]
+    fn generate_details_task_failure_rate() {
+        let cond = AlertCondition::TaskFailureRate {
+            threshold: 0.1,
+            window_minutes: 5,
+            task_name: "tasks.add".into(),
+        };
+        let ctx =
+            EvaluationContext { failure_rate: 0.25, recent_failures: 4, ..Default::default() };
+        let details = generate_details(&cond, &ctx);
+        assert_eq!(details["task_name"], "tasks.add");
+        assert_eq!(details["threshold"], 0.1);
+        assert_eq!(details["failure_rate"], 0.25);
+        assert_eq!(details["recent_failures"], 4);
+        assert_eq!(details["window_minutes"], 5);
     }
 }
