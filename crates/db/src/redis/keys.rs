@@ -78,6 +78,10 @@ pub fn refresh_token(user_id: Uuid, token_hash: &str) -> String {
     format!("fp:refresh:{user_id}:{token_hash}")
 }
 
+pub fn pipeline_counter(name: &str) -> String {
+    format!("fp:pipeline:{name}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -112,6 +116,7 @@ mod tests {
             (alert_state(t, r), format!("fp:{t}:alert:{r}:state")),
             (session("sid"), "fp:session:sid".into()),
             (refresh_token(t, "hash"), format!("fp:refresh:{t}:hash")),
+            (pipeline_counter("events_received"), "fp:pipeline:events_received".into()),
         ];
         for (actual, expected) in &cases {
             assert!(actual.starts_with("fp:"), "missing prefix: {actual}");

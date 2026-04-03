@@ -165,6 +165,38 @@ pub async fn should_sample_heartbeat(
     Ok(result.is_some())
 }
 
+// ─────────────────────────── Pipeline Metrics ───────────────────────────
+
+const PIPELINE_COUNTERS: &[&str] = &[
+    "events_received",
+    "events_inserted",
+    "events_dropped",
+    "events_parse_failed",
+    "insert_retries",
+];
+
+/// Increment a pipeline counter by `delta`. Fire-and-forget safe.
+pub async fn incr_pipeline_counter(pool: &Pool, name: &str, delta: u64) -> Result<u64, Error> {
+    let key = keys::pipeline_counter(name);
+    pool.incr_by(&key, delta as i64).await
+}
+
+/// Read all pipeline counters in a single round-trip.
+pub async fn get_pipeline_counters(
+    pool: &Pool,
+) -> Result<std::collections::HashMap<String, u64>, Error> {
+    let redis_keys: Vec<String> =
+        PIPELINE_COUNTERS.iter().map(|n| keys::pipeline_counter(n)).collect();
+    let vals: Vec<Option<i64>> = pool.mget(redis_keys).await?;
+    let mut map = std::collections::HashMap::with_capacity(PIPELINE_COUNTERS.len());
+    for (name, val) in PIPELINE_COUNTERS.iter().zip(vals) {
+        map.insert((*name).to_string(), val.unwrap_or(0) as u64);
+    }
+    Ok(map)
+}
+
+// ─────────────────────────── Alert Cooldowns ───────────────────────────
+
 /// Check if alert rule is in cooldown.
 pub async fn is_alert_in_cooldown(
     pool: &Pool,
