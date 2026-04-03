@@ -86,6 +86,39 @@ const ONBOARDING_STEPS = [
   },
 ];
 
+function PipelineHealthBanner() {
+  const { data } = $api.useQuery(
+    "get",
+    "/api/v1/system/pipeline",
+    {},
+    { refetchInterval: 15_000 },
+  );
+
+  if (!data || data.events_dropped === 0) return null;
+
+  const isCritical = data.drop_rate > 0.1;
+
+  return (
+    <div className={`flex items-start gap-3 px-4 py-3 rounded-xl border ${
+      isCritical
+        ? "bg-red-500/10 border-red-500/20"
+        : "bg-yellow-500/10 border-yellow-500/20"
+    }`}>
+      <AlertTriangle className={`w-4 h-4 mt-0.5 shrink-0 ${isCritical ? "text-red-400" : "text-yellow-400"}`} />
+      <div>
+        <p className={`text-sm font-medium ${isCritical ? "text-red-300" : "text-yellow-300"}`}>
+          {formatNumber(data.events_dropped)} event{data.events_dropped !== 1 ? "s" : ""} dropped
+          {isCritical ? " — high loss rate" : " — ClickHouse inserts failing"}
+        </p>
+        <p className="text-xs text-zinc-400 mt-0.5">
+          <Link href="/system" className="text-zinc-300 hover:text-white underline">View system health</Link>
+          {" "}for details.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function GettingStarted() {
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-8">
@@ -356,6 +389,8 @@ export default function DashboardPage() {
           Failed to load metrics. The API may be unreachable.
         </div>
       )}
+
+      <PipelineHealthBanner />
 
       {!isLoading && !isError && overview?.total_tasks === 0 && (
         <GettingStarted />

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { X, LayoutDashboard, ListChecks, Server, Cable, Bell, Settings, Layers } from "lucide-react";
+import { X, LayoutDashboard, ListChecks, Server, Cable, Bell, Settings, Layers, Activity } from "lucide-react";
 import { FeloxiLogo } from "@/components/icons/feloxi-logo";
 
 type NavItem = {
@@ -18,6 +18,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Workers", href: "/workers", icon: <Server className="w-4 h-4" /> },
   { label: "Brokers", href: "/brokers", icon: <Cable className="w-4 h-4" /> },
   { label: "Alerts", href: "/alerts", icon: <Bell className="w-4 h-4" /> },
+  { label: "System", href: "/system", icon: <Activity className="w-4 h-4" /> },
   { label: "Settings", href: "/settings", icon: <Settings className="w-4 h-4" /> },
 ];
 

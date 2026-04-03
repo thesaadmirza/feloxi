@@ -60,4 +60,12 @@ export type DagNode = Schemas["DagNode"];
 export type DagEdge = Schemas["DagEdge"];
 export type WorkflowDag = Schemas["WorkflowDag"];
 
+export type SystemHealthResponse = Schemas["SystemHealthResponse"];
+export type PipelineStatsResponse = Schemas["PipelineStatsResponse"];
+export type ComponentHealth = Schemas["ComponentHealth"];
+export type StorageInfo = Schemas["StorageInfo"];
+export type TableStorageRow = Schemas["TableStorageRow"];
+export type DeadLetterRow = Schemas["DeadLetterRow"];
+export type DeadLetterSummary = Schemas["DeadLetterSummary"];
+
 

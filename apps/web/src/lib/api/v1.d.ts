@@ -566,6 +566,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/system/dead-letters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get recent dead-letter entries for the authenticated tenant. */
+        get: operations["dead_letters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get full system health: component statuses, pipeline metrics, storage info. */
+        get: operations["system_health"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/pipeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get pipeline ingestion metrics (from Redis counters). */
+        get: operations["pipeline_stats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tasks": {
         parameters: {
             query?: never;
@@ -1024,6 +1075,13 @@ export interface components {
             status: string;
             task_id?: string | null;
         };
+        ComponentHealth: {
+            /** Format: int64 */
+            latency_ms?: number | null;
+            message?: string | null;
+            name: string;
+            status: string;
+        };
         CreateAlertRuleRequest: {
             channels: components["schemas"]["AlertChannel"][];
             condition: components["schemas"]["AlertCondition"];
@@ -1070,6 +1128,32 @@ export interface components {
             task_id: string;
             task_name: string;
             worker_id: string;
+        };
+        DeadLetterListResponse: {
+            data: components["schemas"]["DeadLetterRow"][];
+        };
+        DeadLetterRow: {
+            /** Format: uuid */
+            agent_id: string;
+            error_code: string;
+            error_message: string;
+            /** Format: int32 */
+            event_count: number;
+            event_type: string;
+            /** Format: int64 */
+            failed_at: number;
+            /** Format: uuid */
+            id: string;
+            retryable: boolean;
+            sample_payload: string;
+            /** Format: uuid */
+            tenant_id: string;
+        };
+        DeadLetterSummary: {
+            /** Format: int64 */
+            last_24h: number;
+            /** Format: int64 */
+            total: number;
         };
         /** @enum {string} */
         EdgeType: "chain" | "group" | "chord" | "callback";
@@ -1173,6 +1257,22 @@ export interface components {
             success_count: number;
             /** Format: int64 */
             total_tasks: number;
+        };
+        PipelineStatsResponse: {
+            /** Format: double */
+            drop_rate: number;
+            /** Format: int64 */
+            events_dropped: number;
+            /** Format: int64 */
+            events_inserted: number;
+            /** Format: int64 */
+            events_parse_failed: number;
+            /** Format: int64 */
+            events_received: number;
+            /** Format: int64 */
+            insert_retries: number;
+            /** Format: double */
+            success_rate: number;
         };
         /** @description Queue depth information. */
         QueueInfo: {
@@ -1286,6 +1386,15 @@ export interface components {
             tls?: boolean;
             username?: string;
         };
+        StorageInfo: {
+            /** Format: int64 */
+            free_bytes: number;
+            tables: components["schemas"]["TableStorageRow"][];
+            /** Format: int64 */
+            total_bytes: number;
+            /** Format: int64 */
+            used_bytes: number;
+        };
         /** @description List of string values (task names, queue names). */
         StringListResponse: {
             data: string[];
@@ -1293,6 +1402,21 @@ export interface components {
         /** @description Switch to a different org (re-issues tokens for that org). */
         SwitchOrgRequest: {
             tenant_slug: string;
+        };
+        SystemHealthResponse: {
+            components: components["schemas"]["ComponentHealth"][];
+            dead_letters?: null | components["schemas"]["DeadLetterSummary"];
+            pipeline: components["schemas"]["PipelineStatsResponse"];
+            status: string;
+            storage?: null | components["schemas"]["StorageInfo"];
+            version: string;
+        };
+        TableStorageRow: {
+            /** Format: int64 */
+            bytes_on_disk: number;
+            /** Format: int64 */
+            rows: number;
+            table: string;
         };
         /** @description ClickHouse row type for task_events table. */
         TaskEventRow: {
@@ -2633,6 +2757,66 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SetupStatusResponse"];
+                };
+            };
+        };
+    };
+    dead_letters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dead letter entries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeadLetterListResponse"];
+                };
+            };
+        };
+    };
+    system_health: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description System health */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemHealthResponse"];
+                };
+            };
+        };
+    };
+    pipeline_stats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pipeline stats */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineStatsResponse"];
                 };
             };
         };

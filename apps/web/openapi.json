@@ -1333,6 +1333,69 @@
         }
       }
     },
+    "/api/v1/system/dead-letters": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Get recent dead-letter entries for the authenticated tenant.",
+        "operationId": "dead_letters",
+        "responses": {
+          "200": {
+            "description": "Dead letter entries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeadLetterListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/system/health": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Get full system health: component statuses, pipeline metrics, storage info.",
+        "operationId": "system_health",
+        "responses": {
+          "200": {
+            "description": "System health",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemHealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/system/pipeline": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Get pipeline ingestion metrics (from Redis counters).",
+        "operationId": "pipeline_stats",
+        "responses": {
+          "200": {
+            "description": "Pipeline stats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineStatsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks": {
       "get": {
         "tags": [
@@ -2689,6 +2752,35 @@
           }
         }
       },
+      "ComponentHealth": {
+        "type": "object",
+        "required": [
+          "name",
+          "status"
+        ],
+        "properties": {
+          "latency_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
       "CreateAlertRuleRequest": {
         "type": "object",
         "required": [
@@ -2867,6 +2959,92 @@
           },
           "worker_id": {
             "type": "string"
+          }
+        }
+      },
+      "DeadLetterListResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeadLetterRow"
+            }
+          }
+        }
+      },
+      "DeadLetterRow": {
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "event_type",
+          "error_code",
+          "error_message",
+          "retryable",
+          "event_count",
+          "sample_payload",
+          "failed_at",
+          "agent_id"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "error_code": {
+            "type": "string"
+          },
+          "error_message": {
+            "type": "string"
+          },
+          "event_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "failed_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "sample_payload": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "DeadLetterSummary": {
+        "type": "object",
+        "required": [
+          "total",
+          "last_24h"
+        ],
+        "properties": {
+          "last_24h": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -3201,6 +3379,53 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "PipelineStatsResponse": {
+        "type": "object",
+        "required": [
+          "events_received",
+          "events_inserted",
+          "events_dropped",
+          "events_parse_failed",
+          "insert_retries",
+          "drop_rate",
+          "success_rate"
+        ],
+        "properties": {
+          "drop_rate": {
+            "type": "number",
+            "format": "double"
+          },
+          "events_dropped": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "events_inserted": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "events_parse_failed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "events_received": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "insert_retries": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "success_rate": {
+            "type": "number",
+            "format": "double"
           }
         }
       },
@@ -3554,6 +3779,38 @@
           }
         }
       },
+      "StorageInfo": {
+        "type": "object",
+        "required": [
+          "total_bytes",
+          "used_bytes",
+          "free_bytes",
+          "tables"
+        ],
+        "properties": {
+          "free_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "tables": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TableStorageRow"
+            }
+          },
+          "total_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "used_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "StringListResponse": {
         "type": "object",
         "description": "List of string values (task names, queue names).",
@@ -3577,6 +3834,75 @@
         ],
         "properties": {
           "tenant_slug": {
+            "type": "string"
+          }
+        }
+      },
+      "SystemHealthResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "version",
+          "components",
+          "pipeline"
+        ],
+        "properties": {
+          "components": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ComponentHealth"
+            }
+          },
+          "dead_letters": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DeadLetterSummary"
+              }
+            ]
+          },
+          "pipeline": {
+            "$ref": "#/components/schemas/PipelineStatsResponse"
+          },
+          "status": {
+            "type": "string"
+          },
+          "storage": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/StorageInfo"
+              }
+            ]
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "TableStorageRow": {
+        "type": "object",
+        "required": [
+          "table",
+          "rows",
+          "bytes_on_disk"
+        ],
+        "properties": {
+          "bytes_on_disk": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "rows": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "table": {
             "type": "string"
           }
         }
@@ -4788,6 +5114,10 @@
     {
       "name": "workflows",
       "description": "Task workflow and chain tracking"
+    },
+    {
+      "name": "system",
+      "description": "System health and pipeline metrics"
     }
   ]
 }
