@@ -12,7 +12,7 @@ mod routes;
 mod state;
 mod ws;
 
-use state::{AppConfig, AppState, TenantEvent};
+use state::{AppConfig, AppState, HealthCache, TenantEvent};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -71,6 +71,7 @@ async fn main() -> Result<()> {
         broker_manager,
         config: Arc::new(config.clone()),
         jwt_keys: Arc::new(auth::jwt::JwtKeys::new(config.jwt_secret.as_bytes())),
+        health_cache: Arc::new(HealthCache::new(std::time::Duration::from_secs(5))),
     };
 
     // Auto-start active broker connections

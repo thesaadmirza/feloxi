@@ -2,12 +2,36 @@ use std::sync::Arc;
 
 use fred::prelude::Pool;
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, RwLock};
 use uuid::Uuid;
 
 use auth::jwt::JwtKeys;
 
 use crate::broker_conn::manager::BrokerConnectionManager;
+
+/// Cached system health response with TTL.
+pub struct HealthCache {
+    inner: RwLock<Option<(tokio::time::Instant, serde_json::Value)>>,
+    ttl: std::time::Duration,
+}
+
+impl HealthCache {
+    pub fn new(ttl: std::time::Duration) -> Self {
+        Self { inner: RwLock::new(None), ttl }
+    }
+
+    /// Get cached value if still fresh.
+    pub async fn get(&self) -> Option<serde_json::Value> {
+        let guard = self.inner.read().await;
+        guard.as_ref().filter(|(ts, _)| ts.elapsed() < self.ttl).map(|(_, v)| v.clone())
+    }
+
+    /// Store a new cached value.
+    pub async fn set(&self, value: serde_json::Value) {
+        let mut guard = self.inner.write().await;
+        *guard = Some((tokio::time::Instant::now(), value));
+    }
+}
 
 /// Application-wide shared state.
 #[derive(Clone)]
@@ -19,6 +43,7 @@ pub struct AppState {
     pub broker_manager: Arc<BrokerConnectionManager>,
     pub config: Arc<AppConfig>,
     pub jwt_keys: Arc<JwtKeys>,
+    pub health_cache: Arc<HealthCache>,
 }
 
 /// A tenant-scoped event for broadcasting.

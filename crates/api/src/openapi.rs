@@ -18,6 +18,7 @@ use utoipa::OpenApi;
         (name = "settings", description = "Tenant settings and team management"),
         (name = "setup", description = "Instance setup and configuration status"),
         (name = "workflows", description = "Task workflow and chain tracking"),
+        (name = "system", description = "System health and pipeline metrics"),
     ),
     paths(
         // Health
@@ -87,6 +88,10 @@ use utoipa::OpenApi;
         crate::routes::api_keys::revoke_key,
         // Workflows
         crate::routes::workflows::get_workflow,
+        // System
+        crate::routes::system::pipeline_stats,
+        crate::routes::system::system_health,
+        crate::routes::system::dead_letters,
         // Setup
         crate::routes::setup::status,
     ),
@@ -182,6 +187,15 @@ use utoipa::OpenApi;
         crate::routes::responses::QueueOverviewResponse,
         crate::routes::metrics::FailureGroupsParams,
         crate::routes::setup::SetupStatusResponse,
+        // System health types
+        crate::routes::system::PipelineStatsResponse,
+        crate::routes::system::SystemHealthResponse,
+        crate::routes::system::ComponentHealth,
+        crate::routes::system::StorageInfo,
+        crate::routes::system::DeadLetterListResponse,
+        db::clickhouse::system::TableStorageRow,
+        db::clickhouse::system::DeadLetterRow,
+        db::clickhouse::system::DeadLetterSummary,
     ))
 )]
 pub struct ApiDoc;

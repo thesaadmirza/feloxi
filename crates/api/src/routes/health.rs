@@ -1,4 +1,5 @@
 use axum::{extract::State, http::StatusCode, routing::get, Json, Router};
+use fred::prelude::*;
 use serde::Serialize;
 use utoipa::ToSchema;
 
@@ -27,11 +28,17 @@ pub async fn healthz() -> Json<HealthResponse> {
     responses((status = 200, description = "Success", body = HealthResponse))
 )]
 pub async fn readyz(State(state): State<AppState>) -> Result<Json<HealthResponse>, StatusCode> {
-    // Check PostgreSQL connectivity
+    // Check PostgreSQL
     sqlx::query("SELECT 1")
         .execute(&state.pg)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    // Check ClickHouse
+    db::clickhouse::system::ping(&state.ch).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    // Check Redis
+    let _: String = state.redis.ping(None).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
     Ok(Json(HealthResponse { status: "ready", version: env!("CARGO_PKG_VERSION") }))
 }

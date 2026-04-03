@@ -14,7 +14,8 @@ pub fn create_router(state: AppState) -> Router {
     let public = Router::new()
         .merge(routes::health::router())
         .merge(routes::auth::router())
-        .merge(routes::setup::router());
+        .merge(routes::setup::router())
+        .merge(routes::system::public_router());
 
     // Protected routes (JWT auth required)
     let protected = Router::new()
@@ -28,6 +29,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(routes::tenants::router())
         .merge(routes::dashboards::router())
         .merge(routes::workflows::router())
+        .merge(routes::system::protected_router())
         .layer(axum_mw::from_fn_with_state(
             state.jwt_keys.as_ref().clone(),
             auth::middleware::auth_middleware,

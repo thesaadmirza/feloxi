@@ -8,6 +8,7 @@ pub mod health;
 pub mod metrics;
 pub mod responses;
 pub mod setup;
+pub mod system;
 pub mod tasks;
 pub mod tenants;
 pub mod workers;
