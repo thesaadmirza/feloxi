@@ -6,18 +6,15 @@ import {
   HardDrive,
   Server,
   Cable,
-  AlertTriangle,
-  CheckCircle2,
-  XCircle,
   RefreshCw,
 } from "lucide-react";
 import { $api } from "@/lib/api";
 import { formatNumber } from "@/lib/utils";
 
-const STATUS_STYLES: Record<string, { bg: string; text: string; label: string }> = {
-  healthy: { bg: "bg-emerald-500/20", text: "text-emerald-400", label: "Healthy" },
-  degraded: { bg: "bg-yellow-500/20", text: "text-yellow-400", label: "Degraded" },
-  unhealthy: { bg: "bg-red-500/20", text: "text-red-400", label: "Unhealthy" },
+const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string; label: string }> = {
+  healthy: { bg: "bg-[#22c55e]/20", text: "text-[#22c55e]", dot: "bg-[#22c55e]", label: "Healthy" },
+  degraded: { bg: "bg-[#eab308]/20", text: "text-[#eab308]", dot: "bg-[#eab308]", label: "Degraded" },
+  unhealthy: { bg: "bg-red-500/20", text: "text-red-400", dot: "bg-red-400", label: "Unhealthy" },
 };
 
 function formatBytes(bytes: number): string {
@@ -30,14 +27,8 @@ function formatBytes(bytes: number): string {
 function StatusBadge({ status }: { status: string }) {
   const style = STATUS_STYLES[status] ?? STATUS_STYLES.unhealthy;
   return (
-    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium ${style.bg} ${style.text}`}>
-      {status === "healthy" ? (
-        <CheckCircle2 className="w-4 h-4" />
-      ) : status === "degraded" ? (
-        <AlertTriangle className="w-4 h-4" />
-      ) : (
-        <XCircle className="w-4 h-4" />
-      )}
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${style.bg} ${style.text}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
       {style.label}
     </span>
   );
@@ -75,7 +66,7 @@ export default function SystemPage() {
           )}
           <button
             onClick={() => refetch()}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-zinc-200 bg-zinc-800/60 hover:bg-zinc-800 border border-zinc-700/50 rounded-lg transition"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg transition"
           >
             <RefreshCw className="w-3 h-3" />
             Refresh
@@ -86,7 +77,7 @@ export default function SystemPage() {
       {isLoading && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-24 bg-zinc-800/40 rounded-xl animate-pulse" />
+            <div key={i} className="h-24 bg-zinc-800 rounded-xl animate-pulse" />
           ))}
         </div>
       )}
@@ -95,14 +86,14 @@ export default function SystemPage() {
         <>
           {/* Component Health Grid */}
           <section>
-            <h2 className="text-sm font-medium text-zinc-400 uppercase tracking-wider mb-3">
+            <h2 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-4">
               Components
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
               {health.components.map((c) => (
                 <div
                   key={c.name}
-                  className="flex items-start gap-3 p-4 bg-zinc-900/60 border border-zinc-800/60 rounded-xl"
+                  className="flex items-start gap-3 p-4 bg-zinc-900 border border-zinc-800 rounded-xl"
                 >
                   <div className={c.status === "up" ? "text-emerald-400 mt-0.5" : "text-red-400 mt-0.5"}>
                     <ComponentIcon name={c.name} />
@@ -126,7 +117,7 @@ export default function SystemPage() {
 
           {/* Pipeline Metrics */}
           <section>
-            <h2 className="text-sm font-medium text-zinc-400 uppercase tracking-wider mb-3">
+            <h2 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-4">
               Event Pipeline
             </h2>
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
@@ -146,7 +137,6 @@ export default function SystemPage() {
                 value={formatNumber(health.pipeline.events_dropped)}
                 sub={health.pipeline.events_dropped > 0 ? `${(health.pipeline.drop_rate * 100).toFixed(2)}% loss` : undefined}
                 accent={health.pipeline.events_dropped > 0 ? "text-red-400" : "text-zinc-400"}
-                alert={health.pipeline.events_dropped > 0}
               />
               <MetricCard
                 label="Parse Failures"
@@ -164,10 +154,10 @@ export default function SystemPage() {
           {/* ClickHouse Storage */}
           {health.storage && (
             <section>
-              <h2 className="text-sm font-medium text-zinc-400 uppercase tracking-wider mb-3">
+              <h2 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-4">
                 ClickHouse Storage
               </h2>
-              <div className="bg-zinc-900/60 border border-zinc-800/60 rounded-xl p-4 space-y-4">
+              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
                 {/* Disk usage bar */}
                 <div>
                   <div className="flex items-center justify-between text-xs text-zinc-400 mb-1.5">
@@ -226,17 +216,15 @@ function MetricCard({
   value,
   sub,
   accent = "text-zinc-300",
-  alert = false,
 }: {
   label: string;
   value: string | number;
   sub?: string;
   accent?: string;
-  alert?: boolean;
 }) {
   return (
-    <div className={`p-4 bg-zinc-900/60 border rounded-xl ${alert ? "border-red-500/30" : "border-zinc-800/60"}`}>
-      <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">{label}</p>
+    <div className="p-5 bg-zinc-900 border border-zinc-800 rounded-xl">
+      <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-1">{label}</p>
       <p className={`text-2xl font-bold tabular-nums ${accent}`}>{value}</p>
       {sub && <p className="text-xs text-zinc-500 mt-0.5">{sub}</p>}
     </div>
