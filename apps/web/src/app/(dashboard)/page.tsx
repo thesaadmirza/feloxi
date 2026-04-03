@@ -107,12 +107,11 @@ function PipelineHealthBanner() {
       <AlertTriangle className={`w-4 h-4 mt-0.5 shrink-0 ${isCritical ? "text-red-400" : "text-yellow-400"}`} />
       <div>
         <p className={`text-sm font-medium ${isCritical ? "text-red-300" : "text-yellow-300"}`}>
-          {formatNumber(data.events_dropped)} event{data.events_dropped !== 1 ? "s" : ""} dropped
-          {isCritical ? " — high loss rate" : " — ClickHouse inserts failing"}
+          {formatNumber(data.events_dropped)} event{data.events_dropped !== 1 ? "s" : ""} not saved to history
         </p>
         <p className="text-xs text-zinc-400 mt-0.5">
-          <Link href="/system" className="text-zinc-300 hover:text-white underline">View system health</Link>
-          {" "}for details.
+          Some events could not be stored. They were delivered live but won&apos;t appear in historical data.{" "}
+          <Link href="/system" className="text-zinc-300 hover:text-white underline">View details</Link>
         </p>
       </div>
     </div>

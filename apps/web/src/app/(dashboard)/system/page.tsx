@@ -7,14 +7,22 @@ import {
   Server,
   Cable,
   RefreshCw,
+  AlertTriangle,
+  Info,
 } from "lucide-react";
 import { $api } from "@/lib/api";
-import { formatNumber } from "@/lib/utils";
+import { formatNumber, timeAgo } from "@/lib/utils";
 
 const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string; label: string }> = {
   healthy: { bg: "bg-[#22c55e]/20", text: "text-[#22c55e]", dot: "bg-[#22c55e]", label: "Healthy" },
   degraded: { bg: "bg-[#eab308]/20", text: "text-[#eab308]", dot: "bg-[#eab308]", label: "Degraded" },
   unhealthy: { bg: "bg-red-500/20", text: "text-red-400", dot: "bg-red-400", label: "Unhealthy" },
+};
+
+const STATUS_DESCRIPTIONS: Record<string, string> = {
+  healthy: "All systems operational. Events are being processed normally.",
+  degraded: "Some events failed to save. Live dashboard still works, but historical data may have gaps.",
+  unhealthy: "A critical dependency is down. Events cannot be stored until the issue is resolved.",
 };
 
 function formatBytes(bytes: number): string {
@@ -43,14 +51,19 @@ function ComponentIcon({ name }: { name: string }) {
 }
 
 export default function SystemPage() {
-  const { data, isLoading, refetch } = $api.useQuery(
+  const { data: health, isLoading, refetch } = $api.useQuery(
     "get",
     "/api/v1/system/health",
     {},
     { refetchInterval: 10_000 },
   );
 
-  const health = data;
+  const { data: deadLetters } = $api.useQuery(
+    "get",
+    "/api/v1/system/dead-letters",
+    {},
+    { refetchInterval: 30_000 },
+  );
 
   return (
     <div className="space-y-6">
@@ -74,6 +87,13 @@ export default function SystemPage() {
         </div>
       </div>
 
+      {/* Status description */}
+      {health && (
+        <p className="text-sm text-zinc-400">
+          {STATUS_DESCRIPTIONS[health.status] ?? STATUS_DESCRIPTIONS.unhealthy}
+        </p>
+      )}
+
       {isLoading && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {[...Array(4)].map((_, i) => (
@@ -87,7 +107,7 @@ export default function SystemPage() {
           {/* Component Health Grid */}
           <section>
             <h2 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-4">
-              Components
+              Dependencies
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
               {health.components.map((c) => (
@@ -103,11 +123,11 @@ export default function SystemPage() {
                       <p className="text-sm font-medium text-zinc-200 truncate">{c.name}</p>
                       <span className={`w-1.5 h-1.5 rounded-full ${c.status === "up" ? "bg-emerald-400" : "bg-red-400"}`} />
                     </div>
-                    {c.latency_ms != null && (
-                      <p className="text-xs text-zinc-500 mt-0.5">{c.latency_ms}ms</p>
+                    {c.latency_ms != null && c.status === "up" && (
+                      <p className="text-xs text-zinc-500 mt-0.5">{c.latency_ms}ms latency</p>
                     )}
                     {c.message && (
-                      <p className="text-xs text-red-400/80 mt-1 truncate">{c.message}</p>
+                      <p className="text-xs text-red-400/80 mt-1 break-words">{c.message}</p>
                     )}
                   </div>
                 </div>
@@ -115,53 +135,128 @@ export default function SystemPage() {
             </div>
           </section>
 
-          {/* Pipeline Metrics */}
+          {/* Event Pipeline */}
           <section>
-            <h2 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-4">
-              Event Pipeline
-            </h2>
+            <div className="flex items-center gap-2 mb-4">
+              <h2 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                Event Pipeline
+              </h2>
+              <div className="group relative">
+                <Info className="w-3 h-3 text-zinc-600 cursor-help" />
+                <div className="hidden group-hover:block absolute left-0 top-5 z-10 w-72 p-3 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl text-xs text-zinc-300 leading-relaxed">
+                  Celery events flow through this pipeline: broker → parse → store in ClickHouse.
+                  Events are always delivered live via WebSocket, but &quot;dropped&quot; events
+                  won&apos;t appear in historical queries or metrics.
+                </div>
+              </div>
+            </div>
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
               <MetricCard
                 label="Received"
                 value={formatNumber(health.pipeline.events_received)}
-                accent="text-zinc-300"
+                description="Total events from brokers"
               />
               <MetricCard
-                label="Inserted"
+                label="Stored"
                 value={formatNumber(health.pipeline.events_inserted)}
-                sub={`${(health.pipeline.success_rate * 100).toFixed(1)}% success`}
+                sub={`${(health.pipeline.success_rate * 100).toFixed(1)}%`}
                 accent="text-emerald-400"
+                description="Saved to database"
               />
               <MetricCard
-                label="Dropped"
+                label="Lost"
                 value={formatNumber(health.pipeline.events_dropped)}
-                sub={health.pipeline.events_dropped > 0 ? `${(health.pipeline.drop_rate * 100).toFixed(2)}% loss` : undefined}
+                sub={health.pipeline.events_dropped > 0 ? `${(health.pipeline.drop_rate * 100).toFixed(2)}% of total` : undefined}
                 accent={health.pipeline.events_dropped > 0 ? "text-red-400" : "text-zinc-400"}
+                description="Failed to save after retry"
               />
               <MetricCard
-                label="Parse Failures"
+                label="Unreadable"
                 value={formatNumber(health.pipeline.events_parse_failed)}
                 accent={health.pipeline.events_parse_failed > 0 ? "text-yellow-400" : "text-zinc-400"}
+                description="Could not be parsed"
               />
               <MetricCard
                 label="Retries"
                 value={formatNumber(health.pipeline.insert_retries)}
                 accent="text-zinc-400"
+                description="Auto-retry attempts"
               />
             </div>
+
+            {/* Impact explanation when events are lost */}
+            {health.pipeline.events_dropped > 0 && (
+              <div className="mt-3 flex items-start gap-2.5 px-4 py-3 bg-red-500/5 border border-red-500/10 rounded-xl">
+                <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
+                <div className="text-xs text-zinc-400 leading-relaxed">
+                  <span className="text-red-300 font-medium">
+                    {formatNumber(health.pipeline.events_dropped)} event{health.pipeline.events_dropped !== 1 ? "s" : ""} could not be saved.
+                  </span>{" "}
+                  These events were delivered to your live dashboard via WebSocket, but they won&apos;t
+                  appear in task history, metrics, or search results. This usually happens when
+                  ClickHouse is temporarily unavailable or out of disk space.
+                </div>
+              </div>
+            )}
           </section>
+
+          {/* Recent Failures — dead-letter viewer */}
+          {deadLetters && deadLetters.data.length > 0 && (
+            <section>
+              <h2 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-4">
+                Recent Failures
+              </h2>
+              <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-zinc-800">
+                        <th className="text-left text-zinc-500 font-medium py-2.5 px-4">When</th>
+                        <th className="text-left text-zinc-500 font-medium py-2.5 px-4">Type</th>
+                        <th className="text-left text-zinc-500 font-medium py-2.5 px-4">Events</th>
+                        <th className="text-left text-zinc-500 font-medium py-2.5 px-4">Error</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deadLetters.data.slice(0, 20).map((dl) => (
+                        <tr key={dl.id} className="border-b border-zinc-800/50 last:border-0">
+                          <td className="py-2.5 px-4 text-zinc-400 whitespace-nowrap">
+                            {timeAgo(dl.failed_at)}
+                          </td>
+                          <td className="py-2.5 px-4">
+                            <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                              dl.event_type === "task"
+                                ? "bg-blue-500/10 text-blue-400"
+                                : "bg-purple-500/10 text-purple-400"
+                            }`}>
+                              {dl.event_type}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-4 text-zinc-300 tabular-nums">
+                            {dl.event_count}
+                          </td>
+                          <td className="py-2.5 px-4 text-red-400/80 max-w-md truncate">
+                            {dl.error_message}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+          )}
 
           {/* ClickHouse Storage */}
           {health.storage && (
             <section>
               <h2 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-4">
-                ClickHouse Storage
+                Storage
               </h2>
               <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
-                {/* Disk usage bar */}
                 <div>
                   <div className="flex items-center justify-between text-xs text-zinc-400 mb-1.5">
-                    <span>Disk Usage</span>
+                    <span>ClickHouse Disk</span>
                     <span>
                       {formatBytes(health.storage.used_bytes)} / {formatBytes(health.storage.total_bytes)}
                     </span>
@@ -182,10 +277,12 @@ export default function SystemPage() {
                   </div>
                   <p className="text-xs text-zinc-500 mt-1">
                     {formatBytes(health.storage.free_bytes)} free
+                    {health.storage.used_bytes / health.storage.total_bytes > 0.9 && (
+                      <span className="text-red-400 ml-2">— disk nearly full, events may be dropped</span>
+                    )}
                   </p>
                 </div>
 
-                {/* Per-table breakdown */}
                 {health.storage.tables.length > 0 && (
                   <div>
                     <p className="text-xs font-medium text-zinc-400 mb-2">Tables</p>
@@ -216,17 +313,22 @@ function MetricCard({
   value,
   sub,
   accent = "text-zinc-300",
+  description,
 }: {
   label: string;
   value: string | number;
   sub?: string;
   accent?: string;
+  description?: string;
 }) {
   return (
     <div className="p-5 bg-zinc-900 border border-zinc-800 rounded-xl">
       <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-1">{label}</p>
-      <p className={`text-2xl font-bold tabular-nums ${accent}`}>{value}</p>
-      {sub && <p className="text-xs text-zinc-500 mt-0.5">{sub}</p>}
+      <div className="flex items-baseline gap-1.5">
+        <p className={`text-2xl font-bold tabular-nums ${accent}`}>{value}</p>
+        {sub && <span className="text-xs text-zinc-500">{sub}</span>}
+      </div>
+      {description && <p className="text-[11px] text-zinc-600 mt-1">{description}</p>}
     </div>
   );
 }
