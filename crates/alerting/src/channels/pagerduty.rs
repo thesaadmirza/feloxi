@@ -17,6 +17,8 @@ pub async fn send_pagerduty_alert(
         _ => "info",
     };
 
+    let condition_type = alert.condition_type.as_deref().unwrap_or("alert");
+
     let payload = json!({
         "routing_key": routing_key,
         "event_action": "trigger",
@@ -25,6 +27,8 @@ pub async fn send_pagerduty_alert(
             "severity": severity,
             "source": "Feloxi",
             "component": alert.rule_name,
+            "group": condition_type,
+            "class": condition_type,
             "custom_details": alert.details,
         },
         "dedup_key": format!("fp-{}-{}", alert.rule_id, alert.tenant_id),

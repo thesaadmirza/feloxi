@@ -20,6 +20,7 @@ fn make_alert(index: usize) -> FiredAlert {
         rule_id: Uuid::new_v4(),
         tenant_id: Uuid::new_v4(),
         rule_name: format!("Alert Rule {}", index),
+        condition_type: Some("task_failure_rate".to_string()),
         severity: match index % 3 {
             0 => "critical".to_string(),
             1 => "warning".to_string(),
@@ -418,6 +419,7 @@ fn stress_template_rendering_large_content() {
             rule_id: Uuid::new_v4(),
             tenant_id: Uuid::new_v4(),
             rule_name: format!("Complex Rule with Long Name: Monitor Task {} for Failures and Performance Degradation on Queue {}", i, i % 4),
+            condition_type: Some("task_failure_rate".to_string()),
             severity: "critical".to_string(),
             summary: format!(
                 "Multiple issues detected: Task app.tasks.complex_process_{} failure rate is {:.1}% (threshold 10.0%), \
