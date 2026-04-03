@@ -1,0 +1,145 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: feloxi-clickhouse-config
+  namespace: core
+data:
+  config.xml: |
+    <clickhouse>
+      <logger>
+        <level>warning</level>
+        <console>true</console>
+      </logger>
+      <listen_host>::</listen_host>
+      <http_port>8123</http_port>
+      <tcp_port>9000</tcp_port>
+      <max_connections>100</max_connections>
+      <max_concurrent_queries>50</max_concurrent_queries>
+
+      <!-- Cap system log tables to prevent disk fill (3 days) -->
+      <text_log>
+        <database>system</database>
+        <table>text_log</table>
+        <flush_interval_milliseconds>30000</flush_interval_milliseconds>
+        <ttl>event_date + INTERVAL 3 DAY</ttl>
+      </text_log>
+      <trace_log>
+        <database>system</database>
+        <table>trace_log</table>
+        <flush_interval_milliseconds>30000</flush_interval_milliseconds>
+        <ttl>event_date + INTERVAL 3 DAY</ttl>
+      </trace_log>
+      <query_log>
+        <database>system</database>
+        <table>query_log</table>
+        <flush_interval_milliseconds>30000</flush_interval_milliseconds>
+        <ttl>event_date + INTERVAL 3 DAY</ttl>
+      </query_log>
+      <metric_log>
+        <database>system</database>
+        <table>metric_log</table>
+        <flush_interval_milliseconds>30000</flush_interval_milliseconds>
+        <ttl>event_date + INTERVAL 3 DAY</ttl>
+      </metric_log>
+      <asynchronous_metric_log>
+        <database>system</database>
+        <table>asynchronous_metric_log</table>
+        <flush_interval_milliseconds>60000</flush_interval_milliseconds>
+        <ttl>event_date + INTERVAL 3 DAY</ttl>
+      </asynchronous_metric_log>
+      <part_log>
+        <database>system</database>
+        <table>part_log</table>
+        <flush_interval_milliseconds>30000</flush_interval_milliseconds>
+        <ttl>event_date + INTERVAL 3 DAY</ttl>
+      </part_log>
+    </clickhouse>
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: feloxi-clickhouse
+  namespace: core
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: feloxi-clickhouse
+  serviceName: feloxi-clickhouse
+  template:
+    metadata:
+      labels:
+        app: feloxi-clickhouse
+    spec:
+      containers:
+        - name: clickhouse
+          image: clickhouse/clickhouse-server:24.12
+          ports:
+            - containerPort: 8123
+              name: http
+            - containerPort: 9000
+              name: native
+          env:
+            - name: CLICKHOUSE_DB
+              value: feloxi
+            - name: CLICKHOUSE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: feloxi-secrets
+                  key: clickhouse-user
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: feloxi-secrets
+                  key: clickhouse-password
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          livenessProbe:
+            exec:
+              command: ["clickhouse-client", "--query", "SELECT 1"]
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          readinessProbe:
+            exec:
+              command: ["clickhouse-client", "--query", "SELECT 1"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: feloxi-clickhouse-data
+              mountPath: /var/lib/clickhouse
+            - name: clickhouse-config
+              mountPath: /etc/clickhouse-server/config.d/feloxi.xml
+              subPath: config.xml
+      volumes:
+        - name: clickhouse-config
+          configMap:
+            name: feloxi-clickhouse-config
+  volumeClaimTemplates:
+    - metadata:
+        name: feloxi-clickhouse-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: feloxi-clickhouse
+  namespace: core
+spec:
+  selector:
+    app: feloxi-clickhouse
+  ports:
+    - port: 8123
+      targetPort: 8123
+      name: http
+    - port: 9000
+      targetPort: 9000
+      name: native

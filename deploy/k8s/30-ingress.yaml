@@ -1,0 +1,44 @@
+# Google-managed HTTPS certificate
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: feloxi-managed-cert
+  namespace: core
+spec:
+  domains:
+    - feloxi.example.com                    # Change to your domain
+---
+# HTTPS redirect
+apiVersion: networking.gke.io/v1beta1
+kind: FrontendConfig
+metadata:
+  name: feloxi-frontend-config
+  namespace: core
+spec:
+  redirectToHttps:
+    enabled: true
+    responseCodeName: MOVED_PERMANENTLY_DEFAULT
+---
+# Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: feloxi-ingress
+  namespace: core
+  annotations:
+    kubernetes.io/ingress.class: gce
+    kubernetes.io/ingress.global-static-ip-name: feloxi-ip  # Change to your static IP name
+    networking.gke.io/managed-certificates: feloxi-managed-cert
+    networking.gke.io/v1beta1.FrontendConfig: feloxi-frontend-config
+spec:
+  rules:
+    - host: feloxi.example.com              # Change to your domain
+      http:
+        paths:
+          - path: /
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: feloxi-web
+                port:
+                  number: 80
