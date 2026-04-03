@@ -107,6 +107,26 @@ const TABLE_STATEMENTS: &[(&str, &str)] = &[
         FROM feloxi.task_events
         GROUP BY tenant_id, queue, minute",
     ),
+    (
+        "events_dead_letter",
+        "CREATE TABLE IF NOT EXISTS feloxi.events_dead_letter (
+            id              UUID DEFAULT generateUUIDv4(),
+            tenant_id       UUID,
+            event_type      LowCardinality(String),
+            error_code      LowCardinality(String),
+            error_message   String,
+            retryable       Bool DEFAULT false,
+            event_count     UInt32 DEFAULT 1,
+            sample_payload  String DEFAULT '',
+            failed_at       DateTime64(3, 'UTC') DEFAULT now64(3),
+            agent_id        UUID
+        )
+        ENGINE = MergeTree()
+        PARTITION BY toYYYYMM(failed_at)
+        ORDER BY (tenant_id, failed_at)
+        TTL toDateTime(failed_at) + INTERVAL 30 DAY
+        SETTINGS index_granularity = 8192",
+    ),
 ];
 
 pub async fn run_schema_init(

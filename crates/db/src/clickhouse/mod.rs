@@ -2,6 +2,7 @@ pub mod aggregations;
 pub mod pool;
 pub mod retention;
 pub mod schema;
+pub mod system;
 pub mod task_events;
 pub mod worker_events;
 
