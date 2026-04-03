@@ -210,28 +210,18 @@ async fn run_alert_evaluation(
             let severity = determine_severity(condition);
             let summary = generate_summary(&resolved, &ctx);
 
-            let mut details = std::collections::HashMap::new();
-            details.insert("failure_rate".to_string(), serde_json::Value::from(ctx.failure_rate));
-            details.insert("p95_runtime".to_string(), serde_json::Value::from(ctx.p95_runtime));
-            details.insert("queue_depth".to_string(), serde_json::Value::from(ctx.queue_depth));
-            details.insert(
-                "recent_failures".to_string(),
-                serde_json::Value::from(ctx.recent_failures),
-            );
+            let details = alerting::engine::generate_details(condition, &ctx);
+            let condition_type = Some(alerting::engine::condition_type_str(condition).to_string());
 
             let alert = FiredAlert {
                 id: Uuid::new_v4(),
                 rule_id: db_rule.id,
                 tenant_id: tid,
                 rule_name: db_rule.name.clone(),
+                condition_type,
                 severity: severity.to_string(),
                 summary: summary.clone(),
-                details: serde_json::json!({
-                    "failure_rate": ctx.failure_rate,
-                    "p95_runtime": ctx.p95_runtime,
-                    "queue_depth": ctx.queue_depth,
-                    "recent_failures": ctx.recent_failures,
-                }),
+                details: details.clone(),
                 fired_at: chrono::Utc::now().timestamp() as f64,
             };
 

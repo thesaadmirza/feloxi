@@ -338,6 +338,7 @@ pub async fn test_notification(
                 rule_id: uuid::Uuid::nil(),
                 tenant_id: user.tenant_id,
                 rule_name: "Test Notification".into(),
+                condition_type: None,
                 severity: "info".into(),
                 summary: "This is a test email from Feloxi to verify your SMTP configuration."
                     .into(),
