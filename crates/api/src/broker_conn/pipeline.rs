@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::time::Duration;
+
 use uuid::Uuid;
 
 use crate::routes::responses::WorkerState;
@@ -9,8 +11,10 @@ use common::{RawTaskEvent, RawWorkerEvent};
 ///
 /// This is the shared event pipeline used by broker connection consumers. It:
 /// 1. Normalizes raw events into ClickHouse rows
-/// 2. Inserts into ClickHouse
-/// 3. Broadcasts to dashboard WebSocket clients
+/// 2. Inserts into ClickHouse (with single retry on failure)
+/// 3. Records failures in the dead-letter table
+/// 4. Tracks metrics via Redis counters
+/// 5. Broadcasts to dashboard WebSocket clients
 pub async fn ingest_raw_task_events(
     state: &AppState,
     tenant_id: Uuid,
@@ -22,6 +26,10 @@ pub async fn ingest_raw_task_events(
         return;
     }
 
+    let batch_size = raw_events.len() as u64;
+    let _ =
+        db::redis::cache::incr_pipeline_counter(&state.redis, "events_received", batch_size).await;
+
     // Normalize into ClickHouse rows
     let task_rows: Vec<_> = raw_events
         .iter()
@@ -30,12 +38,17 @@ pub async fn ingest_raw_task_events(
         })
         .collect();
 
-    // Insert into ClickHouse
-    if let Err(e) = db::clickhouse::task_events::insert_task_events(&state.ch, &task_rows).await {
-        tracing::error!(?e, "Failed to insert task events into ClickHouse");
+    // Insert into ClickHouse with single retry
+    let inserted =
+        insert_with_retry(state, tenant_id, source_id, "task", &task_rows, batch_size).await;
+
+    if inserted {
+        let _ =
+            db::redis::cache::incr_pipeline_counter(&state.redis, "events_inserted", batch_size)
+                .await;
     }
 
-    // Broadcast to dashboard WebSocket clients
+    // Broadcast to dashboard WebSocket clients (independent of CH success)
     for event in &raw_events {
         let _ = state.event_tx.send(TenantEvent {
             tenant_id,
@@ -70,17 +83,13 @@ pub async fn ingest_raw_worker_events(
     }
 
     // --- Step 1: Deduplicate by worker_id, keeping only the latest event per worker ---
-    // With 50K workers sending heartbeats, a single batch can have thousands of redundant
-    // heartbeats for the same worker. We only need the latest state per worker.
     let mut latest_per_worker: HashMap<&str, &RawWorkerEvent> = HashMap::new();
-    // Collect state-transition events (online/offline) separately — these always get stored.
     let mut transitions: Vec<&RawWorkerEvent> = Vec::new();
 
     for event in &raw_events {
         if event.event_type == "worker-online" || event.event_type == "worker-offline" {
             transitions.push(event);
         }
-        // Always track latest — heartbeat or transition, we want the newest state
         latest_per_worker
             .entry(event.worker_id.as_str())
             .and_modify(|existing| {
@@ -91,15 +100,13 @@ pub async fn ingest_raw_worker_events(
             .or_insert(event);
     }
 
-    // --- Step 2: Store state transitions in ClickHouse (always) ---
-    // Also store sampled heartbeats (1 per worker per 30s) for gap analysis.
+    // --- Step 2: Store state transitions + sampled heartbeats in ClickHouse ---
     {
         let mut rows_to_store: Vec<_> = transitions
             .iter()
             .map(|e| engine::event_processor::normalize_worker_event(tenant_id, source_id, e))
             .collect();
 
-        // Sample heartbeats: throttle via Redis SET NX (30s per worker)
         for event in latest_per_worker.values() {
             if event.event_type == "worker-heartbeat" {
                 if let Ok(true) = db::redis::cache::should_sample_heartbeat(
@@ -117,16 +124,30 @@ pub async fn ingest_raw_worker_events(
         }
 
         if !rows_to_store.is_empty() {
-            if let Err(e) =
-                db::clickhouse::worker_events::insert_worker_events(&state.ch, &rows_to_store).await
-            {
-                tracing::error!(?e, "Failed to insert worker events into ClickHouse");
+            let batch_size = rows_to_store.len() as u64;
+            let _ = db::redis::cache::incr_pipeline_counter(
+                &state.redis,
+                "events_received",
+                batch_size,
+            )
+            .await;
+
+            let inserted =
+                insert_worker_with_retry(state, tenant_id, source_id, &rows_to_store, batch_size)
+                    .await;
+
+            if inserted {
+                let _ = db::redis::cache::incr_pipeline_counter(
+                    &state.redis,
+                    "events_inserted",
+                    batch_size,
+                )
+                .await;
             }
         }
     }
 
     // --- Step 3: Update Redis with deduplicated worker state ---
-    // Instead of 3 Redis ops × N heartbeats, we do 3 ops × unique_workers.
     for event in latest_per_worker.values() {
         if event.event_type == "worker-offline" {
             let _ = db::redis::cache::set_worker_offline(&state.redis, tenant_id, &event.worker_id)
@@ -170,4 +191,98 @@ pub async fn ingest_raw_worker_events(
             },
         });
     }
+}
+
+/// Insert task events with a single retry on failure.
+/// Returns true if insertion succeeded (on first try or retry).
+async fn insert_with_retry(
+    state: &AppState,
+    tenant_id: Uuid,
+    source_id: Uuid,
+    event_type: &str,
+    task_rows: &[db::clickhouse::task_events::TaskEventRow],
+    batch_size: u64,
+) -> bool {
+    let first = db::clickhouse::task_events::insert_task_events(&state.ch, task_rows).await;
+
+    if first.is_ok() {
+        return true;
+    }
+
+    // Retry once after 100ms
+    let _ = db::redis::cache::incr_pipeline_counter(&state.redis, "insert_retries", 1).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    if let Err(e) = db::clickhouse::task_events::insert_task_events(&state.ch, task_rows).await {
+        let _ = db::redis::cache::incr_pipeline_counter(&state.redis, "events_dropped", batch_size)
+            .await;
+        tracing::error!(count = batch_size, ?e, "ClickHouse insert failed after retry");
+
+        // Best-effort dead-letter entry
+        let sample =
+            task_rows.first().and_then(|r| serde_json::to_string(r).ok()).unwrap_or_default();
+        let _ = db::clickhouse::system::insert_dead_letter(
+            &state.ch,
+            &db::clickhouse::system::DeadLetterEntry {
+                tenant_id,
+                event_type: event_type.to_string(),
+                error_code: "clickhouse_insert".to_string(),
+                error_message: e.to_string(),
+                retryable: true,
+                event_count: batch_size as u32,
+                sample_payload: sample,
+                agent_id: source_id,
+            },
+        )
+        .await;
+
+        return false;
+    }
+    true
+}
+
+/// Insert worker events with a single retry on failure.
+async fn insert_worker_with_retry(
+    state: &AppState,
+    tenant_id: Uuid,
+    source_id: Uuid,
+    rows: &[db::clickhouse::worker_events::WorkerEventRow],
+    batch_size: u64,
+) -> bool {
+    let first = db::clickhouse::worker_events::insert_worker_events(&state.ch, rows).await;
+
+    if first.is_ok() {
+        return true;
+    }
+
+    let _ = db::redis::cache::incr_pipeline_counter(&state.redis, "insert_retries", 1).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    if let Err(e) = db::clickhouse::worker_events::insert_worker_events(&state.ch, rows).await {
+        let _ = db::redis::cache::incr_pipeline_counter(&state.redis, "events_dropped", batch_size)
+            .await;
+        tracing::error!(
+            count = batch_size,
+            ?e,
+            "Worker event ClickHouse insert failed after retry"
+        );
+
+        let _ = db::clickhouse::system::insert_dead_letter(
+            &state.ch,
+            &db::clickhouse::system::DeadLetterEntry {
+                tenant_id,
+                event_type: "worker".to_string(),
+                error_code: "clickhouse_insert".to_string(),
+                error_message: e.to_string(),
+                retryable: true,
+                event_count: batch_size as u32,
+                sample_payload: String::new(),
+                agent_id: source_id,
+            },
+        )
+        .await;
+
+        return false;
+    }
+    true
 }

@@ -159,7 +159,10 @@ pub async fn run_redis_consumer(
                             Err(_) => continue,
                         };
 
-                        process_pubsub_payload(&payload, &mut task_batch, &mut worker_batch);
+                        let parse_fails = process_pubsub_payload(&payload, &mut task_batch, &mut worker_batch);
+                        if parse_fails > 0 {
+                            let _ = db::redis::cache::incr_pipeline_counter(&state.redis, "events_parse_failed", parse_fails).await;
+                        }
 
                         if task_batch.len() >= task_batch_cap {
                             let events = std::mem::take(&mut task_batch);
@@ -255,15 +258,17 @@ async fn flush_batches(
     }
 }
 
+/// Returns the number of parse failures encountered.
 fn process_pubsub_payload(
     raw: &str,
     task_batch: &mut Vec<common::RawTaskEvent>,
     worker_batch: &mut Vec<common::RawWorkerEvent>,
-) {
+) -> u64 {
+    let before = task_batch.len() + worker_batch.len();
+
     // Try Kombu envelope first (handles base64 body decoding)
     if let Some(body) = kombu::decode_kombu_body(raw) {
-        if let Some(arr) = body.as_array() {
-            // Array of events (task.multi batched payload)
+        let attempted = if let Some(arr) = body.as_array() {
             for item in arr {
                 let event_val = if let Some(s) = item.as_str() {
                     serde_json::from_str::<serde_json::Value>(s).ok()
@@ -276,17 +281,20 @@ fn process_pubsub_payload(
                     }
                 }
             }
+            arr.len() as u64
         } else {
-            // Single event object
             if let Some(parsed) = classify_event(&body) {
                 route_parsed_event(parsed, task_batch, worker_batch);
             }
-        }
-        return;
+            1
+        };
+        let routed = (task_batch.len() + worker_batch.len() - before) as u64;
+        return attempted.saturating_sub(routed);
     }
 
     // Fallback: raw JSON array (non-Kombu format)
     if let Ok(serde_json::Value::Array(items)) = serde_json::from_str::<serde_json::Value>(raw) {
+        let attempted = items.len() as u64;
         for item in &items {
             let item_str =
                 if let Some(s) = item.as_str() { s.to_string() } else { item.to_string() };
@@ -294,12 +302,16 @@ fn process_pubsub_payload(
                 route_parsed_event(parsed, task_batch, worker_batch);
             }
         }
-        return;
+        let routed = (task_batch.len() + worker_batch.len() - before) as u64;
+        return attempted.saturating_sub(routed);
     }
 
     // Fallback: single raw JSON event
     if let Some(parsed) = parse_raw_message(raw) {
         route_parsed_event(parsed, task_batch, worker_batch);
+        0
+    } else {
+        1
     }
 }
 

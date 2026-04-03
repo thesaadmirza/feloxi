@@ -185,13 +185,19 @@ async fn consume_loop(
                     Some(Ok(delivery)) => {
                         let body_str = match std::str::from_utf8(&delivery.data) {
                             Ok(s) => s,
-                            Err(_) => continue,
+                            Err(_) => {
+                                let _ = db::redis::cache::incr_pipeline_counter(&state.redis, "events_parse_failed", 1).await;
+                                continue;
+                            }
                         };
 
                         // Parse the event
                         let body: serde_json::Value = match serde_json::from_str(body_str) {
                             Ok(v) => v,
-                            Err(_) => continue,
+                            Err(_) => {
+                                let _ = db::redis::cache::incr_pipeline_counter(&state.redis, "events_parse_failed", 1).await;
+                                continue;
+                            }
                         };
 
                         let event_type = body
@@ -209,6 +215,8 @@ async fn consume_loop(
                                         &state, tenant_id, config_id, "celery", events,
                                     ).await;
                                 }
+                            } else {
+                                let _ = db::redis::cache::incr_pipeline_counter(&state.redis, "events_parse_failed", 1).await;
                             }
                         } else if event_type.starts_with("worker-") {
                             if let Some(raw_event) = common::parse_celery_worker_event(&event_type, &body) {
@@ -219,6 +227,8 @@ async fn consume_loop(
                                         &state, tenant_id, config_id, events,
                                     ).await;
                                 }
+                            } else {
+                                let _ = db::redis::cache::incr_pipeline_counter(&state.redis, "events_parse_failed", 1).await;
                             }
                         }
                     }
