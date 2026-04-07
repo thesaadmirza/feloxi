@@ -276,3 +276,89 @@ pub async fn get_workflow_tasks(
 
     Ok(rows)
 }
+
+/// Find direct children of the given parent task IDs that share the same task name.
+async fn get_children_by_parent_ids(
+    client: &Client,
+    tenant_id: Uuid,
+    parent_ids: &[String],
+    task_name: &str,
+) -> Result<Vec<TaskEventRow>, AppError> {
+    if parent_ids.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let placeholders: Vec<&str> = parent_ids.iter().map(|_| "?").collect();
+    let in_clause = placeholders.join(", ");
+
+    let query = format!(
+        "SELECT {MERGED_TASK_SELECT} FROM \
+         {MERGED_TASK_FROM} tenant_id = ? \
+         AND parent_id IN ({in_clause})) \
+         GROUP BY task_id \
+         HAVING task_name = ? \
+         ORDER BY timestamp ASC"
+    );
+
+    let mut q = client.query(&query).bind(tenant_id);
+    for pid in parent_ids {
+        q = q.bind(pid.as_str());
+    }
+    q = q.bind(task_name);
+
+    q.fetch_all::<TaskEventRow>().await.map_err(|e| AppError::Database(e.to_string()))
+}
+
+/// Get the full retry chain for a task, walking up via `parent_id` and down
+/// via child lookups. Only follows links where `task_name` matches (same name
+/// = retry; different name = workflow edge).
+pub async fn get_retry_chain(
+    client: &Client,
+    tenant_id: Uuid,
+    task_id: &str,
+) -> Result<Vec<TaskEventRow>, AppError> {
+    const MAX_DEPTH: usize = 50;
+
+    let mut current = match get_task_latest(client, tenant_id, task_id).await? {
+        Some(t) => t,
+        None => return Ok(vec![]),
+    };
+    let task_name = current.task_name.clone();
+
+    // Walk UP via parent_id to find the chain root
+    let mut ancestors: Vec<TaskEventRow> = Vec::new();
+    for _ in 0..MAX_DEPTH {
+        let pid = match &current.parent_id {
+            Some(pid) if !pid.is_empty() => pid.clone(),
+            _ => break,
+        };
+        match get_task_latest(client, tenant_id, &pid).await? {
+            Some(p) if p.task_name == task_name => {
+                ancestors.push(current);
+                current = p;
+            }
+            _ => break,
+        }
+    }
+    ancestors.reverse();
+
+    // Build chain: root ancestor (current) + remaining ancestors + walk-down
+    let leaf_id = ancestors.last().map_or(current.task_id.clone(), |a| a.task_id.clone());
+    let mut chain = vec![current];
+    chain.append(&mut ancestors);
+
+    // Walk DOWN level-by-level from the leaf
+    let mut level_parents = vec![leaf_id];
+
+    for _ in 0..MAX_DEPTH {
+        let children =
+            get_children_by_parent_ids(client, tenant_id, &level_parents, &task_name).await?;
+        if children.is_empty() {
+            break;
+        }
+        level_parents = children.iter().map(|c| c.task_id.clone()).collect();
+        chain.extend(children);
+    }
+
+    Ok(chain)
+}

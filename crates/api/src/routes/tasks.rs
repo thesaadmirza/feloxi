@@ -8,7 +8,8 @@ use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use crate::routes::responses::{
-    CommandResponse, TaskListResponse, TaskSummaryListResponse, TaskTimelineResponse,
+    CommandResponse, RetryAttempt, RetryChainResponse, TaskListResponse, TaskSummaryListResponse,
+    TaskTimelineResponse,
 };
 use crate::state::AppState;
 use auth::middleware::CurrentUser;
@@ -257,6 +258,49 @@ pub async fn list_task_summary(
     Ok(Json(TaskSummaryListResponse { data: rows, has_more, next_cursor }))
 }
 
+#[utoipa::path(get, path = "/api/v1/tasks/{task_id}/retry-chain", tag = "tasks",
+    params(("task_id" = String, Path, description = "Any task ID in the retry chain")),
+    responses(
+        (status = 200, description = "Retry chain", body = RetryChainResponse),
+        (status = 404, description = "Task not found")
+    )
+)]
+pub async fn get_retry_chain(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+    Path(task_id): Path<String>,
+) -> Result<Json<RetryChainResponse>, AppError> {
+    auth::rbac::check_permission(&user, "tasks_read")?;
+
+    let chain =
+        db::clickhouse::task_events::get_retry_chain(&state.ch, user.tenant_id, &task_id).await?;
+
+    if chain.is_empty() {
+        return Err(AppError::NotFound(format!("Task {task_id} not found")));
+    }
+
+    let task_name = chain[0].task_name.clone();
+    let origin_task_id = chain[0].task_id.clone();
+
+    let attempts = chain
+        .into_iter()
+        .map(|t| {
+            let ms = t.timestamp.unix_timestamp() * 1000 + t.timestamp.millisecond() as i64;
+            RetryAttempt {
+                task_id: t.task_id,
+                state: t.state,
+                timestamp_ms: ms,
+                runtime: t.runtime,
+                retries: t.retries,
+                exception: t.exception,
+                worker_id: t.worker_id,
+            }
+        })
+        .collect();
+
+    Ok(Json(RetryChainResponse { task_name, origin_task_id, attempts }))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/tasks", get(list_tasks))
@@ -265,4 +309,5 @@ pub fn router() -> Router<AppState> {
         .route("/tasks/{task_id}/timeline", get(get_task_timeline))
         .route("/tasks/{task_id}/retry", post(retry_task))
         .route("/tasks/{task_id}/revoke", post(revoke_task))
+        .route("/tasks/{task_id}/retry-chain", get(get_retry_chain))
 }

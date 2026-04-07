@@ -34,6 +34,26 @@ pub struct TaskTimelineResponse {
     pub timeline: Vec<TaskEventRow>,
 }
 
+/// A single attempt in a retry chain.
+#[derive(Serialize, ToSchema)]
+pub struct RetryAttempt {
+    pub task_id: String,
+    pub state: String,
+    pub timestamp_ms: i64,
+    pub runtime: f64,
+    pub retries: u32,
+    pub exception: String,
+    pub worker_id: String,
+}
+
+/// Full retry chain for a task.
+#[derive(Serialize, ToSchema)]
+pub struct RetryChainResponse {
+    pub task_name: String,
+    pub origin_task_id: String,
+    pub attempts: Vec<RetryAttempt>,
+}
+
 /// Response for task retry/revoke and worker shutdown commands.
 #[derive(Serialize, ToSchema)]
 pub struct CommandResponse {

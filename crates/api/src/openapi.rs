@@ -39,6 +39,7 @@ use utoipa::OpenApi;
         crate::routes::tasks::retry_task,
         crate::routes::tasks::revoke_task,
         crate::routes::tasks::list_task_summary,
+        crate::routes::tasks::get_retry_chain,
         // Workers
         crate::routes::workers::list_workers,
         crate::routes::workers::get_worker,
@@ -157,6 +158,8 @@ use utoipa::OpenApi;
         // Response types
         crate::routes::responses::TaskListResponse,
         crate::routes::responses::TaskTimelineResponse,
+        crate::routes::responses::RetryChainResponse,
+        crate::routes::responses::RetryAttempt,
         crate::routes::responses::CommandResponse,
         crate::routes::responses::WorkerListResponse,
         crate::routes::responses::WorkerDetailResponse,
