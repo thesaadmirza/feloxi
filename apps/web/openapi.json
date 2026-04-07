@@ -1629,6 +1629,40 @@
         }
       }
     },
+    "/api/v1/tasks/{task_id}/retry-chain": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "operationId": "get_retry_chain",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Any task ID in the retry chain",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retry chain",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetryChainResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found"
+          }
+        }
+      }
+    },
     "/api/v1/tasks/{task_id}/revoke": {
       "post": {
         "tags": [
@@ -3683,6 +3717,69 @@
           "worker_events_days": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "RetryAttempt": {
+        "type": "object",
+        "description": "A single attempt in a retry chain.",
+        "required": [
+          "task_id",
+          "state",
+          "timestamp_ms",
+          "runtime",
+          "retries",
+          "exception",
+          "worker_id"
+        ],
+        "properties": {
+          "exception": {
+            "type": "string"
+          },
+          "retries": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "runtime": {
+            "type": "number",
+            "format": "double"
+          },
+          "state": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "timestamp_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "worker_id": {
+            "type": "string"
+          }
+        }
+      },
+      "RetryChainResponse": {
+        "type": "object",
+        "description": "Full retry chain for a task.",
+        "required": [
+          "task_name",
+          "origin_task_id",
+          "attempts"
+        ],
+        "properties": {
+          "attempts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RetryAttempt"
+            }
+          },
+          "origin_task_id": {
+            "type": "string"
+          },
+          "task_name": {
+            "type": "string"
           }
         }
       },

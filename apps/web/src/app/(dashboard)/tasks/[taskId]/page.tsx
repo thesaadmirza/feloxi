@@ -23,6 +23,7 @@ import { getStateColor } from "@/lib/constants";
 import { JsonViewer } from "@/components/shared/json-viewer";
 import { Skeleton } from "@/components/shared/skeleton";
 import WorkflowDag from "@/components/shared/workflow-dag";
+import RetryChain from "@/components/shared/retry-chain";
 
 type TabId = "details" | "workflow";
 
@@ -477,6 +478,16 @@ export default function TaskDetailPage() {
               )}
             </div>
           </div>
+
+          {(task.retries > 0 || task.parent_id) && (
+            <div className="rounded-xl border border-border bg-card p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <RotateCcw className="h-4 w-4 text-primary" />
+                <h2 className="font-semibold text-foreground">Retry Chain</h2>
+              </div>
+              <RetryChain taskId={task.task_id} />
+            </div>
+          )}
 
           {(task.args || task.kwargs) && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

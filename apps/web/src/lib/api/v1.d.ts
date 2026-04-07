@@ -681,6 +681,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tasks/{task_id}/retry-chain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_retry_chain"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tasks/{task_id}/revoke": {
         parameters: {
             query?: never;
@@ -1356,6 +1372,25 @@ export interface components {
             task_events_days: number;
             /** Format: int32 */
             worker_events_days: number;
+        };
+        /** @description A single attempt in a retry chain. */
+        RetryAttempt: {
+            exception: string;
+            /** Format: int32 */
+            retries: number;
+            /** Format: double */
+            runtime: number;
+            state: string;
+            task_id: string;
+            /** Format: int64 */
+            timestamp_ms: number;
+            worker_id: string;
+        };
+        /** @description Full retry chain for a task. */
+        RetryChainResponse: {
+            attempts: components["schemas"]["RetryAttempt"][];
+            origin_task_id: string;
+            task_name: string;
         };
         RetryRequest: {
             args: unknown;
@@ -2927,6 +2962,36 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["CommandResponse"];
                 };
+            };
+        };
+    };
+    get_retry_chain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Any task ID in the retry chain */
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Retry chain */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetryChainResponse"];
+                };
+            };
+            /** @description Task not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
