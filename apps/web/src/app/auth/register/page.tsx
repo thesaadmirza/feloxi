@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { FeloxiLogo } from "@/components/icons/feloxi-logo";
+import { PasswordInput } from "@/components/shared/password-input";
 import { fetchClient, unwrap } from "@/lib/api";
 import { saveUser } from "@/lib/auth";
 
@@ -88,7 +89,6 @@ export default function RegisterPage() {
   });
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
-  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -285,26 +285,16 @@ export default function RegisterPage() {
               <label htmlFor="password" className="block text-sm font-medium text-zinc-400 mb-1.5">
                 Password
               </label>
-              <div className="relative">
-                <input
-                  id="password"
-                  name="password"
-                  type={showPassword ? "text" : "password"}
-                  autoComplete="new-password"
-                  value={values.password}
-                  onChange={handleChange}
-                  placeholder="Min. 8 characters"
-                  className={["pr-10", inputBase, errors.password ? inputError : inputNormal].join(" ")}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-400 transition-colors"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
+              <PasswordInput
+                value={values.password}
+                onChange={(v) => {
+                  setValues((prev) => ({ ...prev, password: v }));
+                  if (errors.password) {
+                    setErrors((prev) => ({ ...prev, password: undefined, form: undefined }));
+                  }
+                }}
+                hasError={!!errors.password}
+              />
               {errors.password && (
                 <p className="mt-1.5 text-xs text-red-400">{errors.password}</p>
               )}
