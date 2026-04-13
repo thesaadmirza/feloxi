@@ -95,10 +95,10 @@ function PipelineHealthBanner() {
           {formatNumber(data.events_dropped)} event
           {data.events_dropped !== 1 ? "s" : ""} not saved to history
         </p>
-        <p className="text-xs text-zinc-400 mt-0.5">
+        <p className="text-xs text-muted-foreground mt-0.5">
           Some events could not be stored. They were delivered live but won&apos;t
           appear in historical data.{" "}
-          <Link href="/system" className="text-zinc-300 hover:text-white underline">
+          <Link href="/system" className="text-foreground hover:opacity-80 underline">
             View details
           </Link>
         </p>
@@ -109,10 +109,10 @@ function PipelineHealthBanner() {
 
 function GettingStarted() {
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-8">
+    <div className="rounded-xl border border-border bg-card/50 p-8">
       <div className="text-center mb-8">
-        <h2 className="text-lg font-bold text-white">Welcome to Feloxi</h2>
-        <p className="text-sm text-zinc-400 mt-1">
+        <h2 className="text-lg font-bold text-foreground">Welcome to Feloxi</h2>
+        <p className="text-sm text-muted-foreground mt-1">
           Get started by connecting your first Celery broker
         </p>
       </div>
@@ -120,19 +120,19 @@ function GettingStarted() {
         {ONBOARDING_STEPS.map((step, i) => (
           <div
             key={step.title}
-            className="flex flex-col items-center text-center p-6 rounded-xl border border-zinc-800 bg-zinc-800/30"
+            className="flex flex-col items-center text-center p-6 rounded-xl border border-border bg-secondary/30"
           >
-            <div className="w-10 h-10 rounded-xl bg-zinc-700/50 flex items-center justify-center mb-4">
-              <step.icon className="w-5 h-5 text-zinc-300" />
+            <div className="w-10 h-10 rounded-xl bg-secondary/50 flex items-center justify-center mb-4">
+              <step.icon className="w-5 h-5 text-foreground" />
             </div>
-            <div className="text-xs font-medium text-zinc-500 mb-2">Step {i + 1}</div>
-            <h3 className="text-sm font-semibold text-white mb-1">{step.title}</h3>
-            <p className="text-xs text-zinc-500 mb-4 leading-relaxed">
+            <div className="text-xs font-medium text-muted-foreground mb-2">Step {i + 1}</div>
+            <h3 className="text-sm font-semibold text-foreground mb-1">{step.title}</h3>
+            <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
               {step.description}
             </p>
             <Link
               href={step.href}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-white bg-zinc-700 hover:bg-zinc-600 px-3 py-1.5 rounded-lg transition"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground bg-secondary hover:opacity-90 px-3 py-1.5 rounded-lg transition"
             >
               {step.cta}
               <ArrowRight className="w-3 h-3" />
@@ -158,22 +158,22 @@ function Kpi({
   value,
   sub,
   icon,
-  accent = "text-zinc-300",
+  accent = "text-foreground",
   loading,
 }: KpiProps) {
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 flex items-start gap-4">
+    <div className="bg-card border border-border rounded-xl p-5 flex items-start gap-4">
       <div className={`mt-0.5 ${accent}`}>{icon}</div>
       <div className="flex-1 min-w-0">
-        <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-1">
+        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">
           {title}
         </p>
         {loading ? (
-          <div className="h-7 w-20 bg-zinc-800 rounded animate-pulse" />
+          <div className="h-7 w-20 bg-secondary rounded animate-pulse" />
         ) : (
-          <p className="text-2xl font-bold text-white tabular-nums">{value}</p>
+          <p className="text-2xl font-bold text-foreground tabular-nums">{value}</p>
         )}
-        {sub && !loading && <p className="text-xs text-zinc-500 mt-0.5">{sub}</p>}
+        {sub && !loading && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
       </div>
     </div>
   );
@@ -200,21 +200,21 @@ export default function DashboardPage() {
     <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-xl font-bold text-white">Dashboard</h1>
-          <p className="text-sm text-zinc-400 mt-0.5">
+          <h1 className="text-xl font-bold text-foreground">Dashboard</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
             Throughput, failure clustering, and performance hotspots
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex gap-1 p-1 bg-zinc-800 rounded-lg">
+          <div className="flex gap-1 p-1 bg-secondary rounded-lg">
             {TIME_RANGES.map((r) => (
               <button
                 key={r.label}
                 onClick={() => handleSelectRange(r)}
                 className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${
                   timeRange.minutes === r.minutes
-                    ? "bg-zinc-700 text-white shadow-sm"
-                    : "text-zinc-500 hover:text-zinc-200"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 {r.label}
@@ -223,7 +223,7 @@ export default function DashboardPage() {
           </div>
           <button
             onClick={() => refetch()}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm hover:text-white hover:bg-zinc-700 transition"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary text-muted-foreground text-sm hover:text-foreground hover:opacity-80 transition"
             aria-label="Refresh"
           >
             <RefreshCw className="h-3.5 w-3.5" />

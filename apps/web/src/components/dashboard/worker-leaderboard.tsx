@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import Link from "next/link";
 import { Users, ServerCrash } from "lucide-react";
 import { $api } from "@/lib/api";
@@ -24,8 +25,11 @@ export function WorkerLeaderboard({ fromMinutes, limit = 6 }: Props) {
     { refetchInterval: 30_000 }
   );
 
-  const rows: WorkerTaskStats[] = (data?.data ?? []) as WorkerTaskStats[];
-  const ranked = rows.sort((a, b) => b.total - a.total).slice(0, limit);
+  const ranked = useMemo(() => {
+    const rows = (data?.data ?? []) as WorkerTaskStats[];
+    // Copy before sorting — the fetched array is shared by React Query's cache.
+    return [...rows].sort((a, b) => b.total - a.total).slice(0, limit);
+  }, [data, limit]);
 
   return (
     <DashboardCard
@@ -38,7 +42,7 @@ export function WorkerLeaderboard({ fromMinutes, limit = 6 }: Props) {
         <DashboardCardSkeleton rows={limit} />
       ) : ranked.length === 0 ? (
         <DashboardCardEmpty
-          icon={<ServerCrash className="h-6 w-6 text-zinc-700" />}
+          icon={<ServerCrash className="h-6 w-6 text-muted-foreground" />}
           message="No worker activity recorded yet."
         />
       ) : (
@@ -50,16 +54,16 @@ export function WorkerLeaderboard({ fromMinutes, limit = 6 }: Props) {
               <li key={row.worker_id}>
                 <Link
                   href={`/workers/${encodeURIComponent(row.worker_id)}`}
-                  className="flex items-center gap-3 py-2 px-2 -mx-2 rounded-md hover:bg-zinc-800/40 transition"
+                  className="flex items-center gap-3 py-2 px-2 -mx-2 rounded-md hover:bg-secondary transition"
                 >
                   <div className="min-w-0 flex-1">
                     <p
-                      className="text-xs font-mono text-zinc-200 truncate"
+                      className="text-xs font-mono text-foreground truncate"
                       title={row.worker_id}
                     >
                       {truncateId(row.worker_id, 32)}
                     </p>
-                    <div className="flex items-center gap-2 text-[11px] text-zinc-500 mt-0.5">
+                    <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
                       <span className="text-emerald-400">
                         {formatNumber(row.succeeded)} ok
                       </span>
@@ -80,10 +84,10 @@ export function WorkerLeaderboard({ fromMinutes, limit = 6 }: Props) {
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <div className="text-sm font-semibold text-zinc-100 tabular-nums">
+                    <div className="text-sm font-semibold text-foreground tabular-nums">
                       {formatNumber(row.total)}
                     </div>
-                    <div className="text-[10px] text-zinc-600 uppercase tracking-wider">
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
                       {hasErrors && failRate > 0.1
                         ? `${(failRate * 100).toFixed(0)}% fail`
                         : "tasks"}

@@ -32,6 +32,24 @@ export function formatPercent(rate: number): string {
 export function truncateId(id: string, len = 8): string {
   return id.length > len ? `${id.slice(0, len)}...` : id;
 }
+
+/// Take the first line of a (possibly multi-line) string and cap it at `max`
+/// chars. Used to render stack traces / exception messages in list cells.
+export function truncateFirstLine(raw: string, max = 80): string {
+  const firstLine = raw.split("\n")[0]?.trim() ?? "";
+  return firstLine.length > max ? `${firstLine.slice(0, max)}…` : firstLine;
+}
+
+/// Format `ms` since epoch as `YYYY-MM-DDTHH:mm` in local time, the format
+/// required by `<input type="datetime-local">`.
+export function formatDateTimeLocal(ms: number): string {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  );
+}
 export function displayTaskName(name: string | undefined | null): string {
   if (!name || name === "unknown") return "unnamed task";
   return name;

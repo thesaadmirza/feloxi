@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { AlertOctagon, CheckCircle2 } from "lucide-react";
 import { $api } from "@/lib/api";
-import { formatNumber, timeAgo } from "@/lib/utils";
+import { formatNumber, timeAgo, truncateFirstLine } from "@/lib/utils";
 import {
   DashboardCard,
   DashboardCardEmpty,
@@ -15,11 +15,6 @@ type Props = {
   fromMinutes: number;
   limit?: number;
 };
-
-function truncateException(raw: string, max = 80): string {
-  const firstLine = raw.split("\n")[0]?.trim() ?? "";
-  return firstLine.length > max ? `${firstLine.slice(0, max)}…` : firstLine;
-}
 
 export function RecentErrors({ fromMinutes, limit = 5 }: Props) {
   const { data, isLoading } = $api.useQuery(
@@ -62,31 +57,29 @@ export function RecentErrors({ fromMinutes, limit = 5 }: Props) {
                     className="text-xs font-mono text-red-200 leading-snug"
                     title={row.exception}
                   >
-                    {truncateException(row.exception)}
+                    {truncateFirstLine(row.exception)}
                   </p>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs font-semibold text-red-300 tabular-nums">
-                      ×{formatNumber(row.count)}
-                    </span>
-                  </div>
+                  <span className="text-xs font-semibold text-red-300 tabular-nums shrink-0">
+                    ×{formatNumber(row.count)}
+                  </span>
                 </div>
                 <div className="flex items-center flex-wrap gap-1.5">
                   {row.task_names.slice(0, 3).map((n) => (
                     <span
                       key={n}
-                      className="inline-flex max-w-[180px] truncate px-1.5 py-0.5 rounded bg-zinc-800/80 text-[10px] text-zinc-400 font-mono"
+                      className="inline-flex max-w-[180px] truncate px-1.5 py-0.5 rounded bg-secondary text-[10px] text-muted-foreground font-mono"
                       title={n}
                     >
                       {n}
                     </span>
                   ))}
                   {row.task_names.length > 3 && (
-                    <span className="text-[10px] text-zinc-600">
+                    <span className="text-[10px] text-muted-foreground">
                       +{row.task_names.length - 3}
                     </span>
                   )}
-                  <span className="ml-auto text-[10px] text-zinc-600">
-                    last {timeAgo(Number(row.last_seen))}
+                  <span className="ml-auto text-[10px] text-muted-foreground">
+                    last {timeAgo(row.last_seen)}
                   </span>
                 </div>
               </Link>

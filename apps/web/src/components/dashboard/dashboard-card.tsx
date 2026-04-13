@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
+import { Skeleton } from "@/components/shared/skeleton";
+import { EmptyState } from "@/components/shared/empty-state";
 
 type Props = {
   title: string;
@@ -13,8 +15,6 @@ type Props = {
   className?: string;
 };
 
-/// Common shell for every dashboard widget: card chrome, title row with an
-/// optional icon + subtitle, and an optional "see all" link in the header.
 export function DashboardCard({
   title,
   subtitle,
@@ -26,20 +26,22 @@ export function DashboardCard({
 }: Props) {
   return (
     <div
-      className={`flex flex-col bg-zinc-900 border border-zinc-800 rounded-xl p-5 ${className}`}
+      className={`flex flex-col bg-card border border-border rounded-xl p-5 ${className}`}
     >
       <div className="flex items-start justify-between gap-4 mb-4">
         <div className="flex items-center gap-2 min-w-0">
-          {icon && <span className="text-zinc-400 shrink-0">{icon}</span>}
+          {icon && <span className="text-muted-foreground shrink-0">{icon}</span>}
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-white">{title}</h2>
-            {subtitle && <p className="text-xs text-zinc-500 mt-0.5">{subtitle}</p>}
+            <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+            {subtitle && (
+              <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
+            )}
           </div>
         </div>
         {actionHref && (
           <Link
             href={actionHref}
-            className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-200 transition shrink-0"
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition shrink-0"
           >
             {actionLabel ?? "View all"}
             <ArrowRight className="h-3 w-3" />
@@ -55,7 +57,7 @@ export function DashboardCardSkeleton({ rows = 5 }: { rows?: number }) {
   return (
     <div className="space-y-2">
       {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="h-9 bg-zinc-800/60 rounded animate-pulse" />
+        <Skeleton key={i} className="h-9 w-full" />
       ))}
     </div>
   );
@@ -69,9 +71,8 @@ export function DashboardCardEmpty({
   message: string;
 }) {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center py-10 gap-2 text-zinc-600">
-      {icon}
-      <p className="text-xs">{message}</p>
+    <div className="flex-1 flex items-center justify-center">
+      <EmptyState icon={icon} title={message} className="py-6" />
     </div>
   );
 }

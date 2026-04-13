@@ -5,34 +5,13 @@ import Link from "next/link";
 import { Activity, ChevronRight } from "lucide-react";
 import { $api } from "@/lib/api";
 import { formatDuration, timeAgo, truncateId } from "@/lib/utils";
+import { StateBadge } from "@/components/shared/state-badge";
 import {
   DashboardCard,
   DashboardCardEmpty,
   DashboardCardSkeleton,
 } from "./dashboard-card";
 import type { TaskSummaryRow } from "@/types/api";
-
-const STATE_STYLES: Record<string, string> = {
-  SUCCESS: "bg-emerald-500/15 text-emerald-300 border-emerald-500/25",
-  FAILURE: "bg-red-500/15 text-red-300 border-red-500/25",
-  RETRY: "bg-amber-500/15 text-amber-300 border-amber-500/25",
-  STARTED: "bg-blue-500/15 text-blue-300 border-blue-500/25",
-  RECEIVED: "bg-violet-500/15 text-violet-300 border-violet-500/25",
-  PENDING: "bg-zinc-500/15 text-zinc-300 border-zinc-500/25",
-  REVOKED: "bg-zinc-500/15 text-zinc-400 border-zinc-500/25",
-  REJECTED: "bg-red-500/15 text-red-300 border-red-500/25",
-};
-
-function StateBadge({ state }: { state: string }) {
-  const cls = STATE_STYLES[state] ?? "bg-zinc-500/15 text-zinc-400 border-zinc-500/25";
-  return (
-    <span
-      className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${cls}`}
-    >
-      {state}
-    </span>
-  );
-}
 
 type Props = {
   limit?: number;
@@ -53,7 +32,7 @@ export function RecentTasksSummary({ limit = 15 }: Props) {
         },
       },
     },
-    { refetchInterval: 10_000 }
+    { refetchInterval: 30_000 }
   );
 
   const rows: TaskSummaryRow[] = (data?.data ?? []) as TaskSummaryRow[];
@@ -71,8 +50,8 @@ export function RecentTasksSummary({ limit = 15 }: Props) {
           onClick={() => setFailuresOnly(false)}
           className={`px-2.5 py-1 rounded-md text-xs font-medium transition ${
             !failuresOnly
-              ? "bg-zinc-800 text-white"
-              : "text-zinc-500 hover:text-zinc-200"
+              ? "bg-secondary text-foreground"
+              : "text-muted-foreground hover:text-foreground"
           }`}
         >
           All
@@ -83,7 +62,7 @@ export function RecentTasksSummary({ limit = 15 }: Props) {
           className={`px-2.5 py-1 rounded-md text-xs font-medium transition ${
             failuresOnly
               ? "bg-red-500/15 text-red-300 border border-red-500/25"
-              : "text-zinc-500 hover:text-zinc-200"
+              : "text-muted-foreground hover:text-foreground"
           }`}
         >
           Failures only
@@ -94,7 +73,7 @@ export function RecentTasksSummary({ limit = 15 }: Props) {
         <DashboardCardSkeleton rows={8} />
       ) : rows.length === 0 ? (
         <DashboardCardEmpty
-          icon={<Activity className="h-6 w-6 text-zinc-700" />}
+          icon={<Activity className="h-6 w-6 text-muted-foreground" />}
           message={
             failuresOnly
               ? "No failing tasks right now."
@@ -102,24 +81,24 @@ export function RecentTasksSummary({ limit = 15 }: Props) {
           }
         />
       ) : (
-        <div className="divide-y divide-zinc-800/60 -mx-2">
+        <div className="divide-y divide-border -mx-2">
           {rows.map((row) => (
             <Link
               key={row.task_id}
               href={`/tasks/${row.task_id}`}
-              className="flex items-center gap-3 px-2 py-2 hover:bg-zinc-800/40 transition"
+              className="flex items-center gap-3 px-2 py-2 hover:bg-secondary transition"
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 mb-0.5">
                   <span
-                    className="text-xs font-mono text-zinc-100 truncate"
+                    className="text-xs font-mono text-foreground truncate"
                     title={row.task_name}
                   >
                     {row.task_name}
                   </span>
-                  <StateBadge state={row.state} />
+                  <StateBadge state={row.state} size="xs" />
                 </div>
-                <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                   <span className="font-mono" title={row.task_id}>
                     {truncateId(row.task_id, 12)}
                   </span>
@@ -141,7 +120,7 @@ export function RecentTasksSummary({ limit = 15 }: Props) {
                   </span>
                 </div>
               </div>
-              <ChevronRight className="h-3.5 w-3.5 text-zinc-700 shrink-0" />
+              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
             </Link>
           ))}
         </div>

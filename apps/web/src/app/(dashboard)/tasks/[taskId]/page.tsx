@@ -24,19 +24,10 @@ import { JsonViewer } from "@/components/shared/json-viewer";
 import { Skeleton } from "@/components/shared/skeleton";
 import WorkflowDag from "@/components/shared/workflow-dag";
 import RetryChain from "@/components/shared/retry-chain";
+import { StateBadge } from "@/components/shared/state-badge";
 import { useHasPermission } from "@/hooks/use-current-user";
 
 type TabId = "details" | "workflow";
-
-function StateBadge({ state }: { state: string }) {
-  return (
-    <span
-      className={`badge-${state.toLowerCase()} inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold`}
-    >
-      {state}
-    </span>
-  );
-}
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -332,7 +323,7 @@ export default function TaskDetailPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <StateBadge state={task.state} />
+          <StateBadge state={task.state} size="md" />
           {canRetry && (
             <button
               onClick={() => setConfirmAction("retry")}
@@ -465,11 +456,7 @@ export default function TaskDetailPage() {
                           style={{ backgroundColor: getStateColor(event.state) }}
                         />
                         <div className="min-w-0">
-                          <span
-                            className={`badge-${event.state.toLowerCase()} inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium`}
-                          >
-                            {event.state}
-                          </span>
+                          <StateBadge state={event.state} size="xs" />
                           <p className="text-xs text-muted-foreground mt-0.5">
                             {new Date(event.timestamp).toLocaleTimeString([], {
                               hour: "2-digit",

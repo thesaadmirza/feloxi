@@ -15,8 +15,9 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { $api, fetchClient, unwrap } from "@/lib/api";
-import { formatDuration, truncateId, timeAgo } from "@/lib/utils";
+import { formatDuration, formatDateTimeLocal, truncateId, timeAgo } from "@/lib/utils";
 import { Pagination } from "@/components/shared/pagination";
+import { StateBadge } from "@/components/shared/state-badge";
 import { useHasPermission } from "@/hooks/use-current-user";
 import type { TaskState, TaskEvent } from "@/types/api";
 
@@ -66,16 +67,6 @@ const TASK_STATES: TaskState[] = [
   "REJECTED",
 ];
 
-function StateBadge({ state }: { state: string }) {
-  return (
-    <span
-      className={`badge-${state.toLowerCase()} inline-flex items-center px-2 py-0.5 rounded text-xs font-medium`}
-    >
-      {state}
-    </span>
-  );
-}
-
 function SkeletonRow() {
   return (
     <tr className="border-b border-border animate-pulse">
@@ -89,16 +80,6 @@ function SkeletonRow() {
 }
 
 type ViewMode = "summary" | "events";
-
-function msToLocalInput(ms: number): string {
-  // <input type="datetime-local"> wants "YYYY-MM-DDTHH:mm" in local time.
-  const d = new Date(ms);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return (
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
-    `T${pad(d.getHours())}:${pad(d.getMinutes())}`
-  );
-}
 
 function CustomRangePanel({
   initialSince,
@@ -115,8 +96,8 @@ function CustomRangePanel({
   const defaultSince = initialSince ?? now - 60 * 60 * 1000;
   const defaultUntil = initialUntil ?? now;
 
-  const [fromValue, setFromValue] = useState(() => msToLocalInput(defaultSince));
-  const [toValue, setToValue] = useState(() => msToLocalInput(defaultUntil));
+  const [fromValue, setFromValue] = useState(() => formatDateTimeLocal(defaultSince));
+  const [toValue, setToValue] = useState(() => formatDateTimeLocal(defaultUntil));
   const [error, setError] = useState<string | null>(null);
 
   const handleApply = () => {
@@ -502,8 +483,8 @@ export default function TasksPage() {
               onClick={() => handleViewModeChange("summary")}
               className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${
                 viewMode === "summary"
-                  ? "bg-zinc-700 text-white shadow-sm"
-                  : "text-zinc-500 hover:text-zinc-200"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               Summary
@@ -512,8 +493,8 @@ export default function TasksPage() {
               onClick={() => handleViewModeChange("events")}
               className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${
                 viewMode === "events"
-                  ? "bg-zinc-700 text-white shadow-sm"
-                  : "text-zinc-500 hover:text-zinc-200"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               Events
@@ -608,12 +589,13 @@ export default function TasksPage() {
                   key={p.id}
                   type="button"
                   onClick={() => {
+                    setCustomOpen(false);
                     clearCustomRange();
                     updateParam("range", p.id === DEFAULT_TIME_RANGE ? "" : p.id);
                   }}
                   className={`px-2.5 py-1 rounded-md text-xs font-medium transition ${
                     isActive
-                      ? "bg-zinc-700 text-white shadow-sm"
+                      ? "bg-background text-foreground shadow-sm"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
@@ -627,7 +609,7 @@ export default function TasksPage() {
               onClick={() => setCustomOpen((v) => !v)}
               className={`px-2.5 py-1 rounded-md text-xs font-medium transition ${
                 customRange
-                  ? "bg-zinc-700 text-white shadow-sm"
+                  ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
