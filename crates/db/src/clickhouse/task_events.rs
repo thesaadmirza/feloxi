@@ -76,6 +76,10 @@ pub struct TaskFilters<'a> {
     pub errors_only: Option<bool>,
     pub since_ms: Option<i64>,
     pub until_ms: Option<i64>,
+    /// Skip rows whose `task_name` is the empty string. Celery emits some
+    /// event types (e.g. `task-sent`) without the name, so dashboard widgets
+    /// that want "real" task rows set this.
+    pub require_task_name: bool,
 }
 
 /// Append the tenant check, time window, and user-specified filters. `row_scope`
@@ -110,6 +114,9 @@ pub fn append_task_where(query: &mut String, filters: &TaskFilters, row_scope: &
     }
     if filters.errors_only == Some(true) {
         query.push_str(" AND exception != ''");
+    }
+    if filters.require_task_name {
+        query.push_str(" AND task_name != ''");
     }
     if filters.search.is_some() {
         query.push_str(

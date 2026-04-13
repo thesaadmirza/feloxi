@@ -463,6 +463,7 @@ pub async fn get_task_name_stats(
             FROM task_events
             WHERE tenant_id = ?
               AND state IN ('SUCCESS', 'FAILURE', 'RETRY', 'REVOKED')
+              AND task_name != ''
               AND timestamp >= now() - toIntervalMinute(?)
             GROUP BY task_name
             ORDER BY total DESC
@@ -543,6 +544,7 @@ pub struct WorkerTaskStatsRow {
 pub async fn get_worker_task_stats(
     client: &Client,
     tenant_id: Uuid,
+    from_minutes: u64,
 ) -> Result<Vec<WorkerTaskStatsRow>, AppError> {
     let rows = client
         .query(
@@ -555,15 +557,16 @@ pub async fn get_worker_task_stats(
                 countIf(state = 'RETRY')    AS retried,
                 countIf(state = 'REVOKED')  AS revoked,
                 count()                     AS total,
-                avgIf(runtime, runtime > 0) AS avg_runtime
+                ifNull(avgIf(runtime, runtime > 0), 0.0) AS avg_runtime
             FROM task_events
             WHERE tenant_id = ?
-              AND timestamp >= now() - toIntervalHour(24)
+              AND timestamp >= now() - toIntervalMinute(?)
               AND worker_id != ''
             GROUP BY worker_id
             ORDER BY total DESC"#,
         )
         .bind(tenant_id)
+        .bind(from_minutes)
         .fetch_all::<WorkerTaskStatsRow>()
         .await
         .map_err(|e| AppError::Database(e.to_string()))?;

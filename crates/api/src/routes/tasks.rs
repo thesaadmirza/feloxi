@@ -32,6 +32,9 @@ pub struct TaskListParams {
     pub since_ms: Option<i64>,
     /// Upper bound on `timestamp` (millis since epoch, inclusive).
     pub until_ms: Option<i64>,
+    /// Present-and-true hides rows whose `task_name` is empty. Celery emits
+    /// some event types (e.g. `task-sent`) without the name.
+    pub require_task_name: Option<bool>,
     pub limit: Option<u64>,
     pub cursor: Option<String>,
 }
@@ -47,6 +50,7 @@ impl TaskListParams {
             errors_only: self.errors_only,
             since_ms: self.since_ms,
             until_ms: self.until_ms,
+            require_task_name: self.require_task_name.unwrap_or(false),
         }
     }
 }

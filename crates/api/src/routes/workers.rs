@@ -143,22 +143,33 @@ pub async fn shutdown_worker(
     Err(AppError::BadRequest("No active broker available".into()))
 }
 
+#[derive(Deserialize, ToSchema, IntoParams)]
+pub struct WorkerStatsParams {
+    /// Lookback window in minutes (default: 1440 = 24h).
+    pub from_minutes: Option<u64>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/workers/stats",
     tag = "workers",
-    responses(
-        (status = 200, description = "Per-worker task stats (24h)", body = WorkerTaskStatsResponse)
-    )
+    params(WorkerStatsParams),
+    responses((status = 200, description = "Per-worker task stats", body = WorkerTaskStatsResponse))
 )]
 pub async fn worker_task_stats(
     State(state): State<AppState>,
     Extension(user): Extension<CurrentUser>,
+    Query(params): Query<WorkerStatsParams>,
 ) -> Result<Json<WorkerTaskStatsResponse>, AppError> {
     auth::rbac::check_permission(&user, "workers_read")?;
 
-    let data =
-        db::clickhouse::aggregations::get_worker_task_stats(&state.ch, user.tenant_id).await?;
+    let from_minutes = params.from_minutes.unwrap_or(1440);
+    let data = db::clickhouse::aggregations::get_worker_task_stats(
+        &state.ch,
+        user.tenant_id,
+        from_minutes,
+    )
+    .await?;
 
     Ok(Json(WorkerTaskStatsResponse { data }))
 }
