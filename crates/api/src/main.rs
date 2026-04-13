@@ -9,8 +9,11 @@ mod app;
 mod broker_conn;
 mod openapi;
 mod routes;
+mod smtp;
 mod state;
 mod ws;
+
+use smtp::tenant_smtp_config;
 
 use state::{AppConfig, AppState, HealthCache, TenantEvent};
 
@@ -92,29 +95,6 @@ async fn main() -> Result<()> {
 
     tracing::info!("Server shut down gracefully");
     Ok(())
-}
-
-async fn load_tenant_smtp(
-    state: &AppState,
-    tenant_id: Uuid,
-) -> alerting::channels::email::SmtpConfig {
-    let tenant = match db::postgres::tenants::get_tenant_by_id(&state.pg, tenant_id).await {
-        Ok(t) => t,
-        Err(_) => return alerting::channels::email::SmtpConfig::default(),
-    };
-    let notif: routes::responses::NotificationSettings = tenant
-        .settings
-        .get("notifications")
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or_default();
-    alerting::channels::email::SmtpConfig {
-        host: notif.smtp.host,
-        port: notif.smtp.port,
-        username: notif.smtp.username,
-        password: notif.smtp.password,
-        from_address: notif.smtp.from_address,
-        tls: notif.smtp.tls,
-    }
 }
 
 fn spawn_background_tasks(state: AppState) {
@@ -262,7 +242,7 @@ async fn run_alert_evaluation(
                         .await
                     }
                     AlertChannel::Email { to } => {
-                        let smtp_cfg = load_tenant_smtp(state, tid).await;
+                        let smtp_cfg = tenant_smtp_config(tenant);
                         alerting::channels::email::send_email_alert(to, &alert, &smtp_cfg).await
                     }
                 };

@@ -10,8 +10,72 @@ use utoipa::ToSchema;
 use crate::state::AppState;
 use common::AppError;
 
+const ACCESS_TOKEN_TTL_SECS: i64 = 900;
+const REFRESH_TOKEN_TTL_DAYS: i64 = 30;
+const MIN_PASSWORD_CHARS: usize = 8;
+
+fn validate_password(password: &str) -> Result<(), AppError> {
+    if password.chars().count() < MIN_PASSWORD_CHARS {
+        return Err(AppError::Validation(format!(
+            "Password must be at least {MIN_PASSWORD_CHARS} characters"
+        )));
+    }
+    Ok(())
+}
+
 fn is_secure_context() -> bool {
     std::env::var("CORS_ORIGIN").map(|v| v.contains("https://")).unwrap_or(false)
+}
+
+/// Issue an authenticated session: mints an access JWT, stores a new refresh token,
+/// and returns the `Set-Cookie` headers plus the response body. Shared by every
+/// route that establishes a session (register, login, refresh, switch_org, accept_invite).
+async fn issue_session(
+    state: &AppState,
+    user: &db::postgres::models::User,
+    tenant: &db::postgres::models::Tenant,
+    role_names: Vec<String>,
+) -> Result<(HeaderMap, AuthResponse), AppError> {
+    let permissions = db::postgres::rbac::get_user_permissions(&state.pg, user.id).await?;
+
+    let access_token = auth::jwt::issue_access_token(
+        &state.jwt_keys,
+        user.id,
+        tenant.id,
+        &user.email,
+        role_names.clone(),
+        permissions,
+    )
+    .map_err(|e| AppError::Internal(e.to_string()))?;
+
+    let refresh_token = auth::jwt::generate_refresh_token();
+    let refresh_hash = auth::jwt::hash_refresh_token(&refresh_token);
+    let refresh_expires = chrono::Utc::now() + chrono::Duration::days(REFRESH_TOKEN_TTL_DAYS);
+    db::postgres::refresh_tokens::create_refresh_token(
+        &state.pg,
+        user.id,
+        tenant.id,
+        &refresh_hash,
+        refresh_expires,
+    )
+    .await?;
+
+    let cookies = auth_cookies(&access_token, &refresh_token);
+
+    Ok((
+        cookies,
+        AuthResponse {
+            expires_in: ACCESS_TOKEN_TTL_SECS,
+            user: UserInfo {
+                id: user.id,
+                email: user.email.clone(),
+                display_name: user.display_name.clone(),
+                tenant_id: tenant.id,
+                tenant_slug: tenant.slug.clone(),
+                roles: role_names,
+            },
+        },
+    ))
 }
 
 /// Build Set-Cookie headers for access + refresh tokens (HttpOnly, SameSite=Lax).
@@ -107,9 +171,7 @@ pub async fn register(
     State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<(HeaderMap, Json<AuthResponse>), AppError> {
-    if req.password.len() < 8 {
-        return Err(AppError::Validation("Password must be at least 8 characters".into()));
-    }
+    validate_password(&req.password)?;
 
     let has_tenants = db::postgres::tenants::has_tenants(&state.pg).await?;
     if has_tenants && !state.config.allow_signup {
@@ -120,7 +182,7 @@ pub async fn register(
         &state.pg,
         &db::postgres::models::CreateTenant {
             name: req.tenant_name,
-            slug: req.tenant_slug.clone(),
+            slug: req.tenant_slug,
             plan: None,
         },
     )
@@ -145,46 +207,8 @@ pub async fn register(
     let admin_role = db::postgres::rbac::get_role_by_name(&state.pg, tenant.id, "admin").await?;
     db::postgres::rbac::assign_role(&state.pg, user.id, admin_role.id).await?;
 
-    let permissions = db::postgres::rbac::get_user_permissions(&state.pg, user.id).await?;
-
-    let access_token = auth::jwt::issue_access_token(
-        &state.jwt_keys,
-        user.id,
-        tenant.id,
-        &user.email,
-        vec!["admin".to_string()],
-        permissions,
-    )
-    .map_err(|e| AppError::Internal(e.to_string()))?;
-
-    let refresh_token = auth::jwt::generate_refresh_token();
-    let refresh_hash = auth::jwt::hash_refresh_token(&refresh_token);
-    let refresh_expires = chrono::Utc::now() + chrono::Duration::days(30);
-    db::postgres::refresh_tokens::create_refresh_token(
-        &state.pg,
-        user.id,
-        tenant.id,
-        &refresh_hash,
-        refresh_expires,
-    )
-    .await?;
-
-    let cookies = auth_cookies(&access_token, &refresh_token);
-
-    Ok((
-        cookies,
-        Json(AuthResponse {
-            expires_in: 900,
-            user: UserInfo {
-                id: user.id,
-                email: user.email,
-                display_name: user.display_name,
-                tenant_id: tenant.id,
-                tenant_slug: req.tenant_slug,
-                roles: vec!["admin".to_string()],
-            },
-        }),
-    ))
+    let (cookies, body) = issue_session(&state, &user, &tenant, vec!["admin".to_string()]).await?;
+    Ok((cookies, Json(body)))
 }
 
 #[utoipa::path(post, path = "/api/v1/auth/login", tag = "auth",
@@ -202,9 +226,9 @@ pub async fn login(
             let t = db::postgres::tenants::get_tenant_by_slug(&state.pg, slug)
                 .await
                 .map_err(|_| AppError::Unauthorized("Invalid credentials".into()))?;
-            let u = db::postgres::users::get_user_by_email(&state.pg, t.id, &req.email)
-                .await
-                .map_err(|_| AppError::Unauthorized("Invalid credentials".into()))?;
+            let u = db::postgres::users::find_user_by_email(&state.pg, t.id, &req.email)
+                .await?
+                .ok_or_else(|| AppError::Unauthorized("Invalid credentials".into()))?;
             ResolveResult::Single(Box::new((t, u)))
         }
     } else {
@@ -231,43 +255,8 @@ pub async fn login(
 
     let roles = db::postgres::rbac::get_user_roles(&state.pg, user.id).await?;
     let role_names: Vec<String> = roles.iter().map(|r| r.name.clone()).collect();
-    let permissions = db::postgres::rbac::get_user_permissions(&state.pg, user.id).await?;
 
-    let access_token = auth::jwt::issue_access_token(
-        &state.jwt_keys,
-        user.id,
-        tenant.id,
-        &user.email,
-        role_names.clone(),
-        permissions,
-    )
-    .map_err(|e| AppError::Internal(e.to_string()))?;
-
-    let refresh_token = auth::jwt::generate_refresh_token();
-    let refresh_hash = auth::jwt::hash_refresh_token(&refresh_token);
-    let refresh_expires = chrono::Utc::now() + chrono::Duration::days(30);
-    db::postgres::refresh_tokens::create_refresh_token(
-        &state.pg,
-        user.id,
-        tenant.id,
-        &refresh_hash,
-        refresh_expires,
-    )
-    .await?;
-
-    let cookies = auth_cookies(&access_token, &refresh_token);
-    let body = AuthResponse {
-        expires_in: 900,
-        user: UserInfo {
-            id: user.id,
-            email: user.email,
-            display_name: user.display_name,
-            tenant_id: tenant.id,
-            tenant_slug: tenant.slug,
-            roles: role_names,
-        },
-    };
-
+    let (cookies, body) = issue_session(&state, &user, &tenant, role_names).await?;
     Ok(axum::response::IntoResponse::into_response((cookies, Json(body))))
 }
 
@@ -358,46 +347,9 @@ pub async fn refresh(
 
     let roles = db::postgres::rbac::get_user_roles(&state.pg, user.id).await?;
     let role_names: Vec<String> = roles.iter().map(|r| r.name.clone()).collect();
-    let permissions = db::postgres::rbac::get_user_permissions(&state.pg, user.id).await?;
 
-    let access_token = auth::jwt::issue_access_token(
-        &state.jwt_keys,
-        user.id,
-        tenant.id,
-        &user.email,
-        role_names.clone(),
-        permissions,
-    )
-    .map_err(|e| AppError::Internal(e.to_string()))?;
-
-    let new_refresh_token = auth::jwt::generate_refresh_token();
-    let new_hash = auth::jwt::hash_refresh_token(&new_refresh_token);
-    let refresh_expires = chrono::Utc::now() + chrono::Duration::days(30);
-    db::postgres::refresh_tokens::create_refresh_token(
-        &state.pg,
-        user.id,
-        tenant.id,
-        &new_hash,
-        refresh_expires,
-    )
-    .await?;
-
-    let cookies = auth_cookies(&access_token, &new_refresh_token);
-
-    Ok((
-        cookies,
-        Json(AuthResponse {
-            expires_in: 900,
-            user: UserInfo {
-                id: user.id,
-                email: user.email,
-                display_name: user.display_name,
-                tenant_id: tenant.id,
-                tenant_slug: tenant.slug,
-                roles: role_names,
-            },
-        }),
-    ))
+    let (cookies, body) = issue_session(&state, &user, &tenant, role_names).await?;
+    Ok((cookies, Json(body)))
 }
 
 #[utoipa::path(post, path = "/api/v1/auth/logout", tag = "auth",
@@ -482,52 +434,98 @@ pub async fn switch_org(
         .await
         .map_err(|_| AppError::NotFound("Organization not found".into()))?;
 
-    let user = db::postgres::users::get_user_by_email(&state.pg, tenant.id, &claims.email)
-        .await
-        .map_err(|_| AppError::Unauthorized("You are not a member of this organization".into()))?;
+    let user = db::postgres::users::find_user_by_email(&state.pg, tenant.id, &claims.email)
+        .await?
+        .ok_or_else(|| {
+            AppError::Unauthorized("You are not a member of this organization".into())
+        })?;
 
     let roles = db::postgres::rbac::get_user_roles(&state.pg, user.id).await?;
     let role_names: Vec<String> = roles.iter().map(|r| r.name.clone()).collect();
-    let permissions = db::postgres::rbac::get_user_permissions(&state.pg, user.id).await?;
 
-    let access_token = auth::jwt::issue_access_token(
-        &state.jwt_keys,
-        user.id,
-        tenant.id,
-        &user.email,
-        role_names.clone(),
-        permissions,
-    )
-    .map_err(|e| AppError::Internal(e.to_string()))?;
+    let (cookies, body) = issue_session(&state, &user, &tenant, role_names).await?;
+    Ok((cookies, Json(body)))
+}
 
-    let refresh_token = auth::jwt::generate_refresh_token();
-    let refresh_hash = auth::jwt::hash_refresh_token(&refresh_token);
-    let refresh_expires = chrono::Utc::now() + chrono::Duration::days(30);
-    db::postgres::refresh_tokens::create_refresh_token(
+#[derive(Deserialize, ToSchema)]
+pub struct AcceptInviteRequest {
+    pub token: String,
+    pub password: String,
+    pub display_name: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct InvitePreviewResponse {
+    pub email: String,
+    pub role: String,
+    pub tenant_name: String,
+    pub tenant_slug: String,
+}
+
+/// Look up a pending invite by token to populate the accept-invite form.
+#[utoipa::path(get, path = "/api/v1/auth/invite/{token}", tag = "auth",
+    params(("token" = String, Path, description = "Invite token")),
+    responses((status = 200, body = InvitePreviewResponse), (status = 404, description = "Invite not found or expired"))
+)]
+pub async fn get_invite(
+    State(state): State<AppState>,
+    axum::extract::Path(token): axum::extract::Path<String>,
+) -> Result<Json<InvitePreviewResponse>, AppError> {
+    let token_hash = auth::api_key::hash_api_key(&token);
+    let invite = db::postgres::user_invites::find_pending_invite(&state.pg, &token_hash).await?;
+
+    let tenant = db::postgres::tenants::get_tenant_by_id(&state.pg, invite.tenant_id)
+        .await
+        .map_err(|_| AppError::NotFound("Organization not found".into()))?;
+
+    Ok(Json(InvitePreviewResponse {
+        email: invite.email,
+        role: invite.role_name,
+        tenant_name: tenant.name,
+        tenant_slug: tenant.slug,
+    }))
+}
+
+/// Accept an invitation: atomically claims the token, creates the user, and issues session tokens.
+#[utoipa::path(post, path = "/api/v1/auth/accept-invite", tag = "auth",
+    request_body = AcceptInviteRequest,
+    responses((status = 200, body = AuthResponse), (status = 400, description = "Validation error"), (status = 404, description = "Invite not found or expired"))
+)]
+pub async fn accept_invite(
+    State(state): State<AppState>,
+    Json(req): Json<AcceptInviteRequest>,
+) -> Result<(HeaderMap, Json<AuthResponse>), AppError> {
+    validate_password(&req.password)?;
+
+    let token_hash = auth::api_key::hash_api_key(&req.token);
+    let invite = db::postgres::user_invites::claim_invite(&state.pg, &token_hash).await?;
+
+    let (tenant, role) = tokio::try_join!(
+        db::postgres::tenants::get_tenant_by_id(&state.pg, invite.tenant_id),
+        db::postgres::rbac::get_role_by_name(&state.pg, invite.tenant_id, &invite.role_name),
+    )?;
+
+    let password_hash = auth::password::hash_password(&req.password)
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+    let display_name =
+        req.display_name.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned);
+
+    let user = db::postgres::users::create_user(
         &state.pg,
-        user.id,
-        tenant.id,
-        &refresh_hash,
-        refresh_expires,
+        &db::postgres::models::CreateUser {
+            tenant_id: invite.tenant_id,
+            email: invite.email,
+            password_hash,
+            display_name,
+        },
     )
     .await?;
 
-    let cookies = auth_cookies(&access_token, &refresh_token);
+    db::postgres::rbac::assign_role(&state.pg, user.id, role.id).await?;
 
-    Ok((
-        cookies,
-        Json(AuthResponse {
-            expires_in: 900,
-            user: UserInfo {
-                id: user.id,
-                email: user.email,
-                display_name: user.display_name,
-                tenant_id: tenant.id,
-                tenant_slug: tenant.slug,
-                roles: role_names,
-            },
-        }),
-    ))
+    let (cookies, body) = issue_session(&state, &user, &tenant, vec![invite.role_name]).await?;
+    Ok((cookies, Json(body)))
 }
 
 pub fn router() -> Router<AppState> {
@@ -540,4 +538,6 @@ pub fn router() -> Router<AppState> {
         .route("/auth/me", get(me))
         .route("/auth/orgs", get(list_user_orgs))
         .route("/auth/switch-org", post(switch_org))
+        .route("/auth/invite/{token}", get(get_invite))
+        .route("/auth/accept-invite", post(accept_invite))
 }

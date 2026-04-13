@@ -32,6 +32,8 @@ use utoipa::OpenApi;
         crate::routes::auth::me,
         crate::routes::auth::list_user_orgs,
         crate::routes::auth::switch_org,
+        crate::routes::auth::get_invite,
+        crate::routes::auth::accept_invite,
         // Tasks
         crate::routes::tasks::list_tasks,
         crate::routes::tasks::get_task,
@@ -105,6 +107,8 @@ use utoipa::OpenApi;
         crate::routes::auth::OrgPickerResponse,
         crate::routes::auth::OrgSummary,
         crate::routes::auth::SwitchOrgRequest,
+        crate::routes::auth::AcceptInviteRequest,
+        crate::routes::auth::InvitePreviewResponse,
         // Request types
         crate::routes::tasks::TaskListParams,
         crate::routes::tasks::RetryRequest,

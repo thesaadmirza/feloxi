@@ -241,12 +241,21 @@ pub struct TeamResponse {
 }
 
 /// Invite member response.
+///
+/// `invite_url` is always returned so the admin can share the link manually
+/// if email delivery is unavailable or disabled. `email_sent` tells the UI
+/// whether the invite email was also delivered automatically.
 #[derive(Serialize, ToSchema)]
 pub struct InviteMemberResponse {
     #[schema(value_type = String, format = "uuid")]
-    pub id: uuid::Uuid,
+    pub invite_id: uuid::Uuid,
     pub email: String,
     pub role: String,
+    pub invite_url: String,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+    pub email_sent: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email_error: Option<String>,
 }
 
 /// Data retention configuration.

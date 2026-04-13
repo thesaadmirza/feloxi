@@ -106,6 +106,9 @@ pub struct AppConfig {
     pub jwt_secret: String,
     pub cors_origin: String,
     pub allow_signup: bool,
+    /// Public base URL of the web app (e.g. "https://feloxi.staging.fleetit.com").
+    /// Used to build invite links. Falls back to the first CORS origin if unset.
+    pub app_base_url: String,
 }
 
 impl AppConfig {
@@ -132,6 +135,12 @@ impl AppConfig {
                 .unwrap_or_else(|_| "false".into())
                 .parse()
                 .unwrap_or(false),
+            app_base_url: std::env::var("APP_BASE_URL").unwrap_or_else(|_| {
+                std::env::var("CORS_ORIGIN")
+                    .ok()
+                    .and_then(|v| v.split(',').next().map(|s| s.trim().to_string()))
+                    .unwrap_or_else(|| "http://localhost:3000".into())
+            }),
         })
     }
 }

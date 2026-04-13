@@ -3,6 +3,7 @@ use axum::{
     routing::{delete, get, post},
     Extension, Json, Router,
 };
+use chrono::{Duration, Utc};
 use serde::Deserialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -13,6 +14,8 @@ use crate::routes::responses::{
 use crate::state::AppState;
 use auth::middleware::CurrentUser;
 use common::AppError;
+
+const INVITE_EXPIRY_DAYS: i64 = 7;
 
 #[utoipa::path(
     get,
@@ -82,36 +85,113 @@ pub async fn invite_member(
 ) -> Result<Json<InviteMemberResponse>, AppError> {
     auth::rbac::check_permission(&user, "team_manage")?;
 
-    // Check if the email already exists in this tenant
-    let existing =
-        db::postgres::users::list_users_by_tenant(&state.pg, user.tenant_id, 100, 0).await?;
-    if existing.iter().any(|u| u.email == req.email) {
+    let email = db::postgres::users::normalize_email(&req.email);
+    if !is_valid_email(&email) {
+        return Err(AppError::Validation("A valid email address is required".into()));
+    }
+
+    // user-exists and role-exists checks are independent — run them in parallel.
+    let (existing_user, _role) = tokio::try_join!(
+        db::postgres::users::find_user_by_email(&state.pg, user.tenant_id, &email),
+        db::postgres::rbac::get_role_by_name(&state.pg, user.tenant_id, &req.role),
+    )?;
+    if existing_user.is_some() {
         return Err(AppError::Conflict(
             "A user with this email already exists in this organization".into(),
         ));
     }
 
-    // Generate a random password for the invited user
-    let temp_password = uuid::Uuid::new_v4().to_string();
-    let password_hash = auth::password::hash_password(&temp_password)
-        .map_err(|e| AppError::Internal(format!("Failed to hash password: {e}")))?;
+    // Raw token is shown once (in the URL); only the sha256 hash is persisted,
+    // mirroring the API key scheme in auth::api_key.
+    let token = format!("fp_inv_{}", Uuid::new_v4().simple());
+    let token_hash = auth::api_key::hash_api_key(&token);
+    let expires_at = Utc::now() + Duration::days(INVITE_EXPIRY_DAYS);
 
-    let new_user = db::postgres::users::create_user(
+    let invite = db::postgres::user_invites::create_invite(
         &state.pg,
-        &db::postgres::models::CreateUser {
+        &db::postgres::models::CreateUserInvite {
             tenant_id: user.tenant_id,
-            email: req.email.clone(),
-            password_hash,
-            display_name: None,
+            email: email.clone(),
+            role_name: req.role.clone(),
+            token_hash,
+            invited_by: Some(user.user_id),
+            expires_at,
         },
     )
     .await?;
 
-    // Assign the requested role
-    let role = db::postgres::rbac::get_role_by_name(&state.pg, user.tenant_id, &req.role).await?;
-    db::postgres::rbac::assign_role(&state.pg, new_user.id, role.id).await?;
+    let invite_url =
+        format!("{}/auth/accept-invite/{}", state.config.app_base_url.trim_end_matches('/'), token);
 
-    Ok(Json(InviteMemberResponse { id: new_user.id, email: new_user.email, role: req.role }))
+    let tenant = db::postgres::tenants::get_tenant_by_id(&state.pg, user.tenant_id).await?;
+
+    // Best-effort email delivery — always return the URL so the admin has a
+    // manual fallback when SMTP is unconfigured or unreachable.
+    let (email_sent, email_error) =
+        match send_invite_email(&tenant, &email, &invite_url, &req.role).await {
+            Ok(()) => (true, None),
+            Err(e) => {
+                tracing::warn!(error = %e, email = %email, "Invite email delivery failed");
+                (false, Some(e))
+            }
+        };
+
+    Ok(Json(InviteMemberResponse {
+        invite_id: invite.id,
+        email: invite.email,
+        role: invite.role_name,
+        invite_url,
+        expires_at: invite.expires_at,
+        email_sent,
+        email_error,
+    }))
+}
+
+fn is_valid_email(email: &str) -> bool {
+    let Some((local, domain)) = email.split_once('@') else {
+        return false;
+    };
+    !local.is_empty() && domain.contains('.') && !domain.starts_with('.') && !domain.ends_with('.')
+}
+
+async fn send_invite_email(
+    tenant: &db::postgres::models::Tenant,
+    to: &str,
+    invite_url: &str,
+    role: &str,
+) -> Result<(), String> {
+    let smtp_config = crate::smtp::tenant_smtp_config(tenant);
+    if smtp_config.host.is_empty() {
+        return Err("SMTP not configured for this organization".into());
+    }
+
+    let subject = format!("You've been invited to {} on Feloxi", tenant.name);
+    let html = format!(
+        r#"<!DOCTYPE html>
+<html><body style="font-family: -apple-system, Segoe UI, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; color: #18181b;">
+  <h2 style="margin: 0 0 16px;">You're invited to {tenant}</h2>
+  <p style="line-height: 1.55;">You've been invited to join <strong>{tenant}</strong> on Feloxi as a <strong>{role}</strong>.</p>
+  <p style="margin: 24px 0;">
+    <a href="{url}" style="display: inline-block; padding: 12px 20px; background: #18181b; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 500;">Accept invitation</a>
+  </p>
+  <p style="color: #71717a; font-size: 13px; line-height: 1.55;">Or copy and paste this link into your browser:<br><span style="word-break: break-all;">{url}</span></p>
+  <p style="color: #71717a; font-size: 13px;">This link expires in {days} days.</p>
+</body></html>"#,
+        tenant = html_escape(&tenant.name),
+        role = html_escape(role),
+        url = html_escape(invite_url),
+        days = INVITE_EXPIRY_DAYS,
+    );
+
+    alerting::channels::email::send_email(&[to.to_string()], &subject, html, &smtp_config).await
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
 }
 
 #[utoipa::path(

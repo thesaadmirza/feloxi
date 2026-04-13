@@ -4,6 +4,13 @@ use uuid::Uuid;
 use super::models::{CreateUser, User};
 use common::AppError;
 
+/// Canonical form used for every email written to or queried from `users.email`.
+/// Must be applied at every read/write boundary to keep `(tenant_id, email)`
+/// uniqueness case-insensitive in practice.
+pub fn normalize_email(email: &str) -> String {
+    email.trim().to_lowercase()
+}
+
 pub async fn create_user(pool: &PgPool, input: &CreateUser) -> Result<User, AppError> {
     let user = sqlx::query_as::<_, User>(
         r#"
@@ -13,7 +20,7 @@ pub async fn create_user(pool: &PgPool, input: &CreateUser) -> Result<User, AppE
         "#,
     )
     .bind(input.tenant_id)
-    .bind(&input.email)
+    .bind(normalize_email(&input.email))
     .bind(&input.password_hash)
     .bind(&input.display_name)
     .fetch_one(pool)
@@ -36,17 +43,18 @@ pub async fn get_user_by_id(pool: &PgPool, id: Uuid) -> Result<User, AppError> {
     Ok(user)
 }
 
-pub async fn get_user_by_email(
+/// Returns the active user for `(tenant_id, email)`, or `None` when no row matches.
+pub async fn find_user_by_email(
     pool: &PgPool,
     tenant_id: Uuid,
     email: &str,
-) -> Result<User, AppError> {
+) -> Result<Option<User>, AppError> {
     let user = sqlx::query_as::<_, User>(
-        "SELECT * FROM users WHERE tenant_id = $1 AND email = $2 AND is_active = true",
+        "SELECT * FROM users WHERE tenant_id = $1 AND email = $2 AND is_active = true LIMIT 1",
     )
     .bind(tenant_id)
-    .bind(email)
-    .fetch_one(pool)
+    .bind(normalize_email(email))
+    .fetch_optional(pool)
     .await?;
     Ok(user)
 }
@@ -56,7 +64,7 @@ pub async fn get_user_by_email(
 pub async fn find_users_by_email(pool: &PgPool, email: &str) -> Result<Vec<User>, AppError> {
     let users =
         sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1 AND is_active = true")
-            .bind(email)
+            .bind(normalize_email(email))
             .fetch_all(pool)
             .await?;
     Ok(users)
