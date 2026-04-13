@@ -9,6 +9,7 @@ const mockUser: UserInfo = {
   tenant_id: "tenant-1",
   tenant_slug: "test-org",
   roles: ["admin"],
+  permissions: [],
 };
 
 describe("Auth utilities (cookie-based)", () => {

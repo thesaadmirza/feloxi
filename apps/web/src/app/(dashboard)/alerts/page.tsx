@@ -23,6 +23,7 @@ import { $api, fetchClient, unwrap } from "@/lib/api";
 import { timeAgo } from "@/lib/utils";
 import { ErrorAlert } from "@/components/shared/error-alert";
 import { Pagination } from "@/components/shared/pagination";
+import { useHasPermission } from "@/hooks/use-current-user";
 import type { AlertRule, AlertHistory, AlertChannel } from "@/types/api";
 
 const HISTORY_LIMIT = 50;
@@ -427,11 +428,13 @@ function RulesTab({
   isLoading,
   onEdit,
   onCreate,
+  canWrite,
 }: {
   rules: AlertRule[];
   isLoading: boolean;
   onEdit: (rule: AlertRule) => void;
   onCreate: () => void;
+  canWrite: boolean;
 }) {
   const queryClient = useQueryClient();
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -487,12 +490,20 @@ function RulesTab({
       <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground rounded-xl border border-border bg-card">
         <BellOff className="h-12 w-12 opacity-30" />
         <p className="font-medium">No alert rules configured</p>
-        <p className="text-sm">Create your first alert rule to get notified</p>
-        <button onClick={onCreate}
-          className="mt-2 flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:opacity-90 transition">
-          <Plus className="h-4 w-4" />
-          Create Alert Rule
-        </button>
+        {canWrite ? (
+          <>
+            <p className="text-sm">Create your first alert rule to get notified</p>
+            <button
+              onClick={onCreate}
+              className="mt-2 flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:opacity-90 transition"
+            >
+              <Plus className="h-4 w-4" />
+              Create Alert Rule
+            </button>
+          </>
+        ) : (
+          <p className="text-sm">No rules have been created yet</p>
+        )}
       </div>
     );
   }
@@ -533,40 +544,42 @@ function RulesTab({
               </div>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                onClick={() => toggleMutation.mutate(rule)}
-                disabled={toggleMutation.isPending}
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${rule.is_enabled ? "bg-primary" : "bg-border"}`}
-                title={rule.is_enabled ? "Disable rule" : "Enable rule"}>
-                <span className={`inline-block h-3.5 w-3.5 transform rounded-full shadow transition-transform ${rule.is_enabled ? "translate-x-4 bg-primary-foreground" : "translate-x-1 bg-muted-foreground"}`} />
-              </button>
-
-              <button onClick={() => onEdit(rule)}
-                className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition" title="Edit rule">
-                <Edit2 className="h-4 w-4" />
-              </button>
-
-              {confirmDelete === rule.id ? (
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={async () => { setDeletingId(rule.id); await deleteMutation.mutateAsync(rule.id); }}
-                    disabled={deleteMutation.isPending}
-                    className="px-2 py-1 rounded bg-destructive text-white text-xs hover:bg-destructive/80 transition">
-                    {deletingId === rule.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Delete"}
-                  </button>
-                  <button onClick={() => setConfirmDelete(null)}
-                    className="px-2 py-1 rounded bg-secondary text-xs text-foreground hover:bg-secondary/70 transition">
-                    Cancel
-                  </button>
-                </div>
-              ) : (
-                <button onClick={() => setConfirmDelete(rule.id)}
-                  className="p-1.5 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition" title="Delete rule">
-                  <Trash2 className="h-4 w-4" />
+            {canWrite && (
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => toggleMutation.mutate(rule)}
+                  disabled={toggleMutation.isPending}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${rule.is_enabled ? "bg-primary" : "bg-border"}`}
+                  title={rule.is_enabled ? "Disable rule" : "Enable rule"}>
+                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full shadow transition-transform ${rule.is_enabled ? "translate-x-4 bg-primary-foreground" : "translate-x-1 bg-muted-foreground"}`} />
                 </button>
-              )}
-            </div>
+
+                <button onClick={() => onEdit(rule)}
+                  className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition" title="Edit rule">
+                  <Edit2 className="h-4 w-4" />
+                </button>
+
+                {confirmDelete === rule.id ? (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={async () => { setDeletingId(rule.id); await deleteMutation.mutateAsync(rule.id); }}
+                      disabled={deleteMutation.isPending}
+                      className="px-2 py-1 rounded bg-destructive text-white text-xs hover:bg-destructive/80 transition">
+                      {deletingId === rule.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Delete"}
+                    </button>
+                    <button onClick={() => setConfirmDelete(null)}
+                      className="px-2 py-1 rounded bg-secondary text-xs text-foreground hover:bg-secondary/70 transition">
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => setConfirmDelete(rule.id)}
+                    className="p-1.5 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition" title="Delete rule">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       ))}
@@ -710,6 +723,7 @@ function HistoryTab({ history, isLoading, hasMore, total, page, onNext, onPrev }
 }
 
 export default function AlertsPage() {
+  const canWrite = useHasPermission("alerts_write");
   const [activeTab, setActiveTab] = useState<TabId>("rules");
   const [historyOffset, setHistoryOffset] = useState(0);
   const [modalState, setModalState] = useState<{
@@ -744,13 +758,15 @@ export default function AlertsPage() {
           <h1 className="text-2xl font-bold text-foreground">Alerts</h1>
           <p className="text-sm text-muted-foreground mt-1">Configure alert rules and view firing history</p>
         </div>
-        <button
-          onClick={() => setModalState({ open: true, editRule: null })}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition"
-        >
-          <Plus className="h-4 w-4" />
-          Create Rule
-        </button>
+        {canWrite && (
+          <button
+            onClick={() => setModalState({ open: true, editRule: null })}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition"
+          >
+            <Plus className="h-4 w-4" />
+            Create Rule
+          </button>
+        )}
       </div>
 
       <div className="flex gap-1 p-1 bg-secondary rounded-lg w-fit">
@@ -794,6 +810,7 @@ export default function AlertsPage() {
           isLoading={rulesLoading}
           onEdit={(rule) => setModalState({ open: true, editRule: rule })}
           onCreate={() => setModalState({ open: true, editRule: null })}
+          canWrite={canWrite}
         />
       )}
       {activeTab === "history" && (

@@ -24,6 +24,7 @@ import { JsonViewer } from "@/components/shared/json-viewer";
 import { Skeleton } from "@/components/shared/skeleton";
 import WorkflowDag from "@/components/shared/workflow-dag";
 import RetryChain from "@/components/shared/retry-chain";
+import { useHasPermission } from "@/hooks/use-current-user";
 
 type TabId = "details" | "workflow";
 
@@ -179,6 +180,8 @@ export default function TaskDetailPage() {
   const router = useRouter();
   const taskId = params.taskId as string;
 
+  const canRetry = useHasPermission("tasks_retry");
+  const canRevoke = useHasPermission("tasks_revoke");
   const [retrying, setRetrying] = useState(false);
   const [revoking, setRevoking] = useState(false);
   const [confirmAction, setConfirmAction] = useState<"retry" | "revoke" | null>(null);
@@ -330,30 +333,34 @@ export default function TaskDetailPage() {
 
         <div className="flex items-center gap-2">
           <StateBadge state={task.state} />
-          <button
-            onClick={() => setConfirmAction("retry")}
-            disabled={retrying}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-secondary text-sm text-foreground hover:bg-secondary/80 transition disabled:opacity-50"
-          >
-            {retrying ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <RotateCcw className="h-4 w-4" />
-            )}
-            Retry
-          </button>
-          <button
-            onClick={() => setConfirmAction("revoke")}
-            disabled={revoking}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-destructive/20 text-sm text-destructive hover:bg-destructive/30 transition disabled:opacity-50"
-          >
-            {revoking ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <XCircle className="h-4 w-4" />
-            )}
-            Revoke
-          </button>
+          {canRetry && (
+            <button
+              onClick={() => setConfirmAction("retry")}
+              disabled={retrying}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-secondary text-sm text-foreground hover:bg-secondary/80 transition disabled:opacity-50"
+            >
+              {retrying ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RotateCcw className="h-4 w-4" />
+              )}
+              Retry
+            </button>
+          )}
+          {canRevoke && (
+            <button
+              onClick={() => setConfirmAction("revoke")}
+              disabled={revoking}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-destructive/20 text-sm text-destructive hover:bg-destructive/30 transition disabled:opacity-50"
+            >
+              {revoking ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <XCircle className="h-4 w-4" />
+              )}
+              Revoke
+            </button>
+          )}
         </div>
       </div>
 

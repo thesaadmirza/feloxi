@@ -23,6 +23,7 @@ import { $api, fetchClient, unwrap } from "@/lib/api";
 import { timeAgo, truncateId } from "@/lib/utils";
 import { ErrorAlert } from "@/components/shared/error-alert";
 import { Pagination } from "@/components/shared/pagination";
+import { useHasPermission } from "@/hooks/use-current-user";
 import type { WorkerEvent, WorkerTaskStats, WorkerHealthRow } from "@/types/api";
 
 const WORKERS_PER_PAGE = 20;
@@ -132,6 +133,7 @@ function GroupCard({
   onConfirmShutdown,
   onCancelShutdown,
   onShutdown,
+  canShutdown,
 }: {
   group: WorkerGroup;
   expanded: boolean;
@@ -142,6 +144,7 @@ function GroupCard({
   onConfirmShutdown: (id: string) => void;
   onCancelShutdown: () => void;
   onShutdown: (id: string) => void;
+  canShutdown: boolean;
 }) {
   const [workerPage, setWorkerPage] = useState(1);
   const totalWorkers = group.workers.length;
@@ -285,7 +288,7 @@ function GroupCard({
                         {ws?.failed ?? "—"}
                       </td>
                       <td className="px-5 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                        {shutdownConfirm === worker.worker_id ? (
+                        {canShutdown && shutdownConfirm === worker.worker_id ? (
                           <div className="flex items-center gap-1.5 justify-end">
                             <button
                               onClick={() => onShutdown(worker.worker_id)}
@@ -305,7 +308,7 @@ function GroupCard({
                               No
                             </button>
                           </div>
-                        ) : (
+                        ) : canShutdown ? (
                           <button
                             onClick={() => onConfirmShutdown(worker.worker_id)}
                             disabled={!isOnline}
@@ -314,7 +317,7 @@ function GroupCard({
                             <PowerOff className="h-3 w-3" />
                             Stop
                           </button>
-                        )}
+                        ) : null}
                       </td>
                     </tr>
                   );
@@ -366,6 +369,7 @@ function GroupsSkeleton() {
 
 export default function WorkersPage() {
   const router = useRouter();
+  const canShutdown = useHasPermission("workers_shutdown");
   const [shutdownConfirm, setShutdownConfirm] = useState<string | null>(null);
   const [shuttingDown, setShuttingDown] = useState<string | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -633,6 +637,7 @@ export default function WorkersPage() {
             onConfirmShutdown={(id) => setShutdownConfirm(id)}
             onCancelShutdown={() => setShutdownConfirm(null)}
             onShutdown={handleShutdown}
+            canShutdown={canShutdown}
           />
         ))}
       </div>

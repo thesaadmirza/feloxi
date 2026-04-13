@@ -15,6 +15,7 @@ import {
 import { $api, fetchClient, unwrap } from "@/lib/api";
 import { formatDuration, truncateId, timeAgo } from "@/lib/utils";
 import { Pagination } from "@/components/shared/pagination";
+import { useHasPermission } from "@/hooks/use-current-user";
 import type { TaskState, TaskEvent } from "@/types/api";
 
 const TASKS_LIMIT = 50;
@@ -95,6 +96,8 @@ export default function TasksPage() {
   const queueFilter = searchParams.get("queue") || "";
 
   const [nameInput, setNameInput] = useState(nameFilter);
+  const canRetry = useHasPermission("tasks_retry");
+  const canRevoke = useHasPermission("tasks_revoke");
   const [retrying, setRetrying] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ type: "retry" | "revoke"; task: TaskEvent } | null>(null);
@@ -445,32 +448,36 @@ export default function TasksPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setConfirmAction({ type: "retry", task: task as TaskEvent }); }}
-                          disabled={retrying === task.task_id}
-                          title="Retry task"
-                          className="flex items-center gap-1 px-2 py-1 rounded bg-secondary hover:bg-secondary/70 text-xs text-foreground transition disabled:opacity-50"
-                        >
-                          {retrying === task.task_id ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <RotateCcw className="h-3 w-3" />
-                          )}
-                          Retry
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setConfirmAction({ type: "revoke", task: task as TaskEvent }); }}
-                          disabled={revoking === task.task_id}
-                          title="Revoke task"
-                          className="flex items-center gap-1 px-2 py-1 rounded bg-destructive/20 hover:bg-destructive/30 text-xs text-destructive transition disabled:opacity-50"
-                        >
-                          {revoking === task.task_id ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <XCircle className="h-3 w-3" />
-                          )}
-                          Revoke
-                        </button>
+                        {canRetry && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setConfirmAction({ type: "retry", task: task as TaskEvent }); }}
+                            disabled={retrying === task.task_id}
+                            title="Retry task"
+                            className="flex items-center gap-1 px-2 py-1 rounded bg-secondary hover:bg-secondary/70 text-xs text-foreground transition disabled:opacity-50"
+                          >
+                            {retrying === task.task_id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <RotateCcw className="h-3 w-3" />
+                            )}
+                            Retry
+                          </button>
+                        )}
+                        {canRevoke && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setConfirmAction({ type: "revoke", task: task as TaskEvent }); }}
+                            disabled={revoking === task.task_id}
+                            title="Revoke task"
+                            className="flex items-center gap-1 px-2 py-1 rounded bg-destructive/20 hover:bg-destructive/30 text-xs text-destructive transition disabled:opacity-50"
+                          >
+                            {revoking === task.task_id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <XCircle className="h-3 w-3" />
+                            )}
+                            Revoke
+                          </button>
+                        )}
                         <ChevronRight className="h-4 w-4 text-muted-foreground" />
                       </div>
                     </td>

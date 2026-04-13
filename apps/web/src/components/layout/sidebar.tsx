@@ -4,22 +4,28 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { X, LayoutDashboard, ListChecks, Server, Cable, Bell, Settings, Layers, Activity } from "lucide-react";
 import { FeloxiLogo } from "@/components/icons/feloxi-logo";
+import { useCurrentUser } from "@/hooks/use-current-user";
+import { userHasPermission } from "@/lib/auth";
 
 type NavItem = {
   label: string;
   href: string;
   icon: React.ReactNode;
+  /// Permission the viewer must hold for this item to render. `undefined`
+  /// means the item is shown to everyone. The "admin" role bypasses the
+  /// check (matches the backend).
+  requires?: string;
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { label: "Dashboard", href: "/", icon: <LayoutDashboard className="w-4 h-4" /> },
-  { label: "Tasks", href: "/tasks", icon: <ListChecks className="w-4 h-4" /> },
-  { label: "Queues", href: "/queues", icon: <Layers className="w-4 h-4" /> },
-  { label: "Workers", href: "/workers", icon: <Server className="w-4 h-4" /> },
-  { label: "Brokers", href: "/brokers", icon: <Cable className="w-4 h-4" /> },
-  { label: "Alerts", href: "/alerts", icon: <Bell className="w-4 h-4" /> },
-  { label: "System", href: "/system", icon: <Activity className="w-4 h-4" /> },
-  { label: "Settings", href: "/settings", icon: <Settings className="w-4 h-4" /> },
+  { label: "Dashboard", href: "/", icon: <LayoutDashboard className="w-4 h-4" />, requires: "metrics_read" },
+  { label: "Tasks", href: "/tasks", icon: <ListChecks className="w-4 h-4" />, requires: "tasks_read" },
+  { label: "Queues", href: "/queues", icon: <Layers className="w-4 h-4" />, requires: "metrics_read" },
+  { label: "Workers", href: "/workers", icon: <Server className="w-4 h-4" />, requires: "workers_read" },
+  { label: "Brokers", href: "/brokers", icon: <Cable className="w-4 h-4" />, requires: "brokers_manage" },
+  { label: "Alerts", href: "/alerts", icon: <Bell className="w-4 h-4" />, requires: "alerts_read" },
+  { label: "System", href: "/system", icon: <Activity className="w-4 h-4" />, requires: "metrics_read" },
+  { label: "Settings", href: "/settings", icon: <Settings className="w-4 h-4" />, requires: "settings_read" },
 ];
 
 function NavLink({ item, pathname, onClick }: { item: NavItem; pathname: string; onClick?: () => void }) {
@@ -48,6 +54,10 @@ function NavLink({ item, pathname, onClick }: { item: NavItem; pathname: string;
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const user = useCurrentUser();
+  const visibleItems = NAV_ITEMS.filter(
+    (item) => !item.requires || userHasPermission(user, item.requires)
+  );
 
   return (
     <>
@@ -71,7 +81,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       <nav className="flex-1 px-2 py-4 space-y-0.5 overflow-y-auto">
-        {NAV_ITEMS.map((item) => (
+        {visibleItems.map((item) => (
           <NavLink key={item.href} item={item} pathname={pathname} onClick={onNavigate} />
         ))}
       </nav>

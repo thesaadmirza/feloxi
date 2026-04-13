@@ -1700,6 +1700,11 @@ export interface components {
             email: string;
             /** Format: uuid */
             id: string;
+            /**
+             * @description Permission strings (e.g. "alerts_write"). Empty for admins — they're
+             *     allowed everything by virtue of the "admin" role.
+             */
+            permissions: string[];
             roles: string[];
             /** Format: uuid */
             tenant_id: string;

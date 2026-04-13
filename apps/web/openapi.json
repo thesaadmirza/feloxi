@@ -4799,7 +4799,8 @@
           "email",
           "tenant_id",
           "tenant_slug",
-          "roles"
+          "roles",
+          "permissions"
         ],
         "properties": {
           "display_name": {
@@ -4814,6 +4815,13 @@
           "id": {
             "type": "string",
             "format": "uuid"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Permission strings (e.g. \"alerts_write\"). Empty for admins — they're\nallowed everything by virtue of the \"admin\" role."
           },
           "roles": {
             "type": "array",
