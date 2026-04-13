@@ -50,7 +50,7 @@ impl TaskListParams {
             errors_only: self.errors_only,
             since_ms: self.since_ms,
             until_ms: self.until_ms,
-            require_task_name: self.require_task_name.unwrap_or(false),
+            require_task_name: self.require_task_name,
         }
     }
 }

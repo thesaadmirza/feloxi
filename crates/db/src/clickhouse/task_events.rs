@@ -60,6 +60,10 @@ pub async fn insert_task_events(client: &Client, events: &[TaskEventRow]) -> Res
 
 pub const DEFAULT_WINDOW_HOURS: i64 = 24;
 
+/// Predicate that excludes events whose `task_name` wasn't set by Celery
+/// (some event types — e.g. `task-sent` — land without a name).
+pub const TASK_NAME_NOT_EMPTY: &str = " AND task_name != ''";
+
 const TASK_EVENT_TYPES_IN: &str = " AND event_type IN (\
     'task-succeeded', 'task-failed', 'task-started', 'task-received', \
     'task-sent', 'task-retried', 'task-revoked')";
@@ -76,10 +80,9 @@ pub struct TaskFilters<'a> {
     pub errors_only: Option<bool>,
     pub since_ms: Option<i64>,
     pub until_ms: Option<i64>,
-    /// Skip rows whose `task_name` is the empty string. Celery emits some
-    /// event types (e.g. `task-sent`) without the name, so dashboard widgets
-    /// that want "real" task rows set this.
-    pub require_task_name: bool,
+    /// Present-and-true skips rows whose `task_name` is empty. Matches the
+    /// three-valued shape used by `errors_only`.
+    pub require_task_name: Option<bool>,
 }
 
 /// Append the tenant check, time window, and user-specified filters. `row_scope`
@@ -115,8 +118,8 @@ pub fn append_task_where(query: &mut String, filters: &TaskFilters, row_scope: &
     if filters.errors_only == Some(true) {
         query.push_str(" AND exception != ''");
     }
-    if filters.require_task_name {
-        query.push_str(" AND task_name != ''");
+    if filters.require_task_name == Some(true) {
+        query.push_str(TASK_NAME_NOT_EMPTY);
     }
     if filters.search.is_some() {
         query.push_str(
