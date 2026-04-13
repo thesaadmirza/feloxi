@@ -16,6 +16,7 @@ tracing = { workspace = true }
 tokio = { workspace = true }
 reqwest = { workspace = true }
 lettre = { workspace = true }
+dashmap = { workspace = true }
 
 [lints]
 workspace = true

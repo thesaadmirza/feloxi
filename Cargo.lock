@@ -47,6 +47,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "common",
+ "dashmap",
  "db",
  "lettre",
  "reqwest",

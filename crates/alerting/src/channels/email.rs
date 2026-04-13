@@ -1,77 +1,111 @@
+use std::hash::{Hash, Hasher};
+use std::sync::{Arc, OnceLock};
+
 use super::SendResult;
 use crate::engine::FiredAlert;
 use crate::templates;
 
+use dashmap::DashMap;
 use lettre::message::header::ContentType;
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 
-/// Send email alert via SMTP.
-pub async fn send_email_alert(
+type SmtpTransport = Arc<AsyncSmtpTransport<Tokio1Executor>>;
+
+/// Per-process cache of SMTP transports keyed by config hash. Alert evaluation
+/// fires every 60s for every tenant with an email channel — without this cache
+/// each fire rebuilds the TLS+auth handshake.
+fn transport_cache() -> &'static DashMap<u64, SmtpTransport> {
+    static CACHE: OnceLock<DashMap<u64, SmtpTransport>> = OnceLock::new();
+    CACHE.get_or_init(DashMap::new)
+}
+
+fn smtp_config_key(cfg: &SmtpConfig) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    cfg.host.hash(&mut hasher);
+    cfg.port.hash(&mut hasher);
+    cfg.username.hash(&mut hasher);
+    cfg.password.hash(&mut hasher);
+    cfg.tls.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn get_or_build_transport(cfg: &SmtpConfig) -> Result<SmtpTransport, String> {
+    let key = smtp_config_key(cfg);
+    let cache = transport_cache();
+    if let Some(existing) = cache.get(&key) {
+        return Ok(existing.clone());
+    }
+
+    let builder = if cfg.tls {
+        AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&cfg.host)
+    } else {
+        AsyncSmtpTransport::<Tokio1Executor>::relay(&cfg.host)
+    }
+    .map_err(|e| format!("SMTP transport error: {e}"))?;
+
+    let transport = Arc::new(
+        builder
+            .port(cfg.port)
+            .credentials(Credentials::new(cfg.username.clone(), cfg.password.clone()))
+            .build(),
+    );
+
+    Ok(cache.entry(key).or_insert(transport).clone())
+}
+
+/// Send an HTML email via SMTP, reusing a cached transport for the given config.
+pub async fn send_email(
     to: &[String],
-    alert: &FiredAlert,
+    subject: &str,
+    html_body: String,
     smtp_config: &SmtpConfig,
-) -> SendResult {
+) -> Result<(), String> {
     if to.is_empty() {
-        return SendResult::err("email", "No recipients specified");
+        return Err("No recipients specified".into());
     }
-
     if smtp_config.host.is_empty() {
-        tracing::warn!(
-            rule = %alert.rule_name,
-            "Email channel skipped — SMTP not configured"
-        );
-        return SendResult::err("email", "SMTP not configured");
+        return Err("SMTP not configured".into());
     }
 
-    let subject = templates::format_plain_text(alert);
-    let html_body = templates::format_html(alert);
-
-    // Build the email
-    let mut email_builder = Message::builder()
+    let mut builder = Message::builder()
         .from(
             smtp_config
                 .from_address
                 .parse()
                 .unwrap_or_else(|_| "alerts@feloxi.dev".parse().unwrap()),
         )
-        .subject(&subject);
+        .subject(subject);
 
     for recipient in to {
         match recipient.parse() {
-            Ok(addr) => email_builder = email_builder.to(addr),
+            Ok(addr) => builder = builder.to(addr),
             Err(e) => {
                 tracing::warn!(recipient, error = %e, "Skipping invalid email recipient");
             }
         }
     }
 
-    let email = match email_builder.header(ContentType::TEXT_HTML).body(html_body) {
-        Ok(e) => e,
-        Err(e) => return SendResult::err("email", format!("Failed to build email: {e}")),
-    };
+    let email = builder
+        .header(ContentType::TEXT_HTML)
+        .body(html_body)
+        .map_err(|e| format!("Failed to build email: {e}"))?;
 
-    // Build SMTP transport
-    let transport_result = if smtp_config.tls {
-        AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&smtp_config.host)
-    } else {
-        AsyncSmtpTransport::<Tokio1Executor>::relay(&smtp_config.host)
-    };
+    let transport = get_or_build_transport(smtp_config)?;
+    transport.send(email).await.map(|_| ()).map_err(|e| format!("SMTP send failed: {e}"))
+}
 
-    let transport = match transport_result {
-        Ok(builder) => builder
-            .port(smtp_config.port)
-            .credentials(Credentials::new(
-                smtp_config.username.clone(),
-                smtp_config.password.clone(),
-            ))
-            .build(),
-        Err(e) => return SendResult::err("email", format!("SMTP transport error: {e}")),
-    };
+/// Send an alert notification via email. Thin wrapper around [`send_email`].
+pub async fn send_email_alert(
+    to: &[String],
+    alert: &FiredAlert,
+    smtp_config: &SmtpConfig,
+) -> SendResult {
+    let subject = templates::format_plain_text(alert);
+    let html_body = templates::format_html(alert);
 
-    // Send
-    match transport.send(email).await {
-        Ok(_) => {
+    match send_email(to, &subject, html_body, smtp_config).await {
+        Ok(()) => {
             tracing::info!(
                 rule = %alert.rule_name,
                 recipients = ?to,
@@ -80,12 +114,8 @@ pub async fn send_email_alert(
             SendResult::ok("email")
         }
         Err(e) => {
-            tracing::error!(
-                rule = %alert.rule_name,
-                error = %e,
-                "Failed to send email alert"
-            );
-            SendResult::err("email", format!("SMTP send failed: {e}"))
+            tracing::error!(rule = %alert.rule_name, error = %e, "Failed to send email alert");
+            SendResult::err("email", e)
         }
     }
 }
