@@ -44,7 +44,7 @@ async fn issue_session(
         tenant.id,
         &user.email,
         role_names.clone(),
-        permissions,
+        permissions.clone(),
     )
     .map_err(|e| AppError::Internal(e.to_string()))?;
 
@@ -73,6 +73,7 @@ async fn issue_session(
                 tenant_id: tenant.id,
                 tenant_slug: tenant.slug.clone(),
                 roles: role_names,
+                permissions,
             },
         },
     ))
@@ -148,6 +149,9 @@ pub struct UserInfo {
     pub tenant_id: uuid::Uuid,
     pub tenant_slug: String,
     pub roles: Vec<String>,
+    /// Permission strings (e.g. "alerts_write"). Empty for admins — they're
+    /// allowed everything by virtue of the "admin" role.
+    pub permissions: Vec<String>,
 }
 
 /// Returned when the user's email is in multiple orgs and no slug was provided.
@@ -390,6 +394,7 @@ pub async fn me(
         tenant_id: tenant.id,
         tenant_slug: tenant.slug,
         roles: claims.roles,
+        permissions: claims.permissions,
     }))
 }
 
