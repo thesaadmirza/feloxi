@@ -1542,11 +1542,29 @@ export interface components {
         };
         TaskListParams: {
             cursor?: string | null;
+            /** @description When true, only return tasks with a non-empty exception. */
+            has_error?: boolean | null;
             /** Format: int64 */
             limit?: number | null;
             queue?: string | null;
+            /**
+             * @description Free-text substring search across task_id, task_name, args, kwargs,
+             *     result, and exception.
+             */
+            search?: string | null;
+            /**
+             * Format: int64
+             * @description Lower bound on `timestamp` (millis since epoch, inclusive).
+             */
+            since_ms?: number | null;
             state?: string | null;
             task_name?: string | null;
+            /**
+             * Format: int64
+             * @description Upper bound on `timestamp` (millis since epoch, inclusive).
+             */
+            until_ms?: number | null;
+            worker_id?: string | null;
         };
         TaskListResponse: {
             data: components["schemas"]["TaskEventRow"][];
@@ -2989,6 +3007,18 @@ export interface operations {
                 state?: string | null;
                 task_name?: string | null;
                 queue?: string | null;
+                worker_id?: string | null;
+                /**
+                 * @description Free-text substring search across task_id, task_name, args, kwargs,
+                 *     result, and exception.
+                 */
+                search?: string | null;
+                /** @description When true, only return tasks with a non-empty exception. */
+                has_error?: boolean | null;
+                /** @description Lower bound on `timestamp` (millis since epoch, inclusive). */
+                since_ms?: number | null;
+                /** @description Upper bound on `timestamp` (millis since epoch, inclusive). */
+                until_ms?: number | null;
                 limit?: number | null;
                 cursor?: string | null;
             };
@@ -3015,6 +3045,18 @@ export interface operations {
                 state?: string | null;
                 task_name?: string | null;
                 queue?: string | null;
+                worker_id?: string | null;
+                /**
+                 * @description Free-text substring search across task_id, task_name, args, kwargs,
+                 *     result, and exception.
+                 */
+                search?: string | null;
+                /** @description When true, only return tasks with a non-empty exception. */
+                has_error?: boolean | null;
+                /** @description Lower bound on `timestamp` (millis since epoch, inclusive). */
+                since_ms?: number | null;
+                /** @description Upper bound on `timestamp` (millis since epoch, inclusive). */
+                until_ms?: number | null;
                 limit?: number | null;
                 cursor?: string | null;
             };

@@ -58,45 +58,92 @@ pub async fn insert_task_events(client: &Client, events: &[TaskEventRow]) -> Res
     Ok(())
 }
 
-const TASK_EVENT_BASE_WHERE: &str = "\
-    WHERE tenant_id = ? \
-    AND timestamp >= now() - toIntervalHour(24) \
-    AND event_type IN \
-    ('task-succeeded', 'task-failed', 'task-started', 'task-received', 'task-sent', 'task-retried', 'task-revoked')";
+const DEFAULT_WINDOW_HOURS: i64 = 24;
 
-fn append_task_filters(
-    query: &mut String,
-    task_name: Option<&str>,
-    state: Option<&str>,
-    queue: Option<&str>,
-) {
-    if task_name.is_some() {
-        query.push_str(" AND task_name = ?");
+const TASK_EVENT_TYPES: &str = "\
+    'task-succeeded', 'task-failed', 'task-started', 'task-received', \
+    'task-sent', 'task-retried', 'task-revoked'";
+
+/// Filter set shared by every task-events query. Mirrors the `TaskListParams`
+/// query struct exposed by the HTTP API.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TaskFilters<'a> {
+    pub task_name: Option<&'a str>,
+    pub state: Option<&'a str>,
+    pub queue: Option<&'a str>,
+    pub worker_id: Option<&'a str>,
+    pub search: Option<&'a str>,
+    pub has_error: Option<bool>,
+    pub since_ms: Option<i64>,
+    pub until_ms: Option<i64>,
+}
+
+/// Append `WHERE tenant_id = ? AND <time window> AND <filters>` to `query`.
+/// The caller is responsible for everything after (ORDER BY, LIMIT, cursor).
+fn append_task_where(query: &mut String, filters: &TaskFilters) {
+    query.push_str(" WHERE tenant_id = ?");
+
+    match (filters.since_ms, filters.until_ms) {
+        (Some(_), _) => query.push_str(" AND timestamp >= fromUnixTimestamp64Milli(toInt64(?))"),
+        (None, _) => query
+            .push_str(&format!(" AND timestamp >= now() - toIntervalHour({DEFAULT_WINDOW_HOURS})")),
     }
-    if state.is_some() {
+    if filters.until_ms.is_some() {
+        query.push_str(" AND timestamp <= fromUnixTimestamp64Milli(toInt64(?))");
+    }
+
+    query.push_str(&format!(" AND event_type IN ({TASK_EVENT_TYPES})"));
+
+    if filters.task_name.is_some() {
+        query.push_str(" AND positionCaseInsensitive(CAST(task_name AS String), ?) > 0");
+    }
+    if filters.state.is_some() {
         query.push_str(" AND state = ?");
     }
-    if queue.is_some() {
+    if filters.queue.is_some() {
         query.push_str(" AND queue = ?");
+    }
+    if filters.worker_id.is_some() {
+        query.push_str(" AND worker_id = ?");
+    }
+    if filters.has_error == Some(true) {
+        query.push_str(" AND exception != ''");
+    }
+    if filters.search.is_some() {
+        query.push_str(
+            " AND positionCaseInsensitive(\
+                concat(task_id, ' ', CAST(task_name AS String), ' ', args, ' ', kwargs, ' ', result, ' ', exception),\
+                ?) > 0",
+        );
     }
 }
 
-fn bind_task_filters<'a>(
+fn bind_task_filters(
     mut q: clickhouse::query::Query,
     tenant_id: Uuid,
-    task_name: Option<&'a str>,
-    state: Option<&'a str>,
-    queue: Option<&'a str>,
+    filters: &TaskFilters,
 ) -> clickhouse::query::Query {
     q = q.bind(tenant_id);
-    if let Some(tn) = task_name {
+    if let Some(ms) = filters.since_ms {
+        q = q.bind(ms);
+    }
+    if let Some(ms) = filters.until_ms {
+        q = q.bind(ms);
+    }
+    if let Some(tn) = filters.task_name {
         q = q.bind(tn);
     }
-    if let Some(s) = state {
+    if let Some(s) = filters.state {
         q = q.bind(s);
     }
-    if let Some(qn) = queue {
+    if let Some(qn) = filters.queue {
         q = q.bind(qn);
+    }
+    if let Some(w) = filters.worker_id {
+        q = q.bind(w);
+    }
+    if let Some(s) = filters.search {
+        q = q.bind(s);
     }
     q
 }
@@ -104,14 +151,12 @@ fn bind_task_filters<'a>(
 pub async fn count_task_events(
     client: &Client,
     tenant_id: Uuid,
-    task_name: Option<&str>,
-    state: Option<&str>,
-    queue: Option<&str>,
+    filters: &TaskFilters<'_>,
 ) -> Result<u64, AppError> {
-    let mut query = format!("SELECT count() FROM task_events {TASK_EVENT_BASE_WHERE}");
-    append_task_filters(&mut query, task_name, state, queue);
+    let mut query = String::from("SELECT count() FROM task_events");
+    append_task_where(&mut query, filters);
 
-    let q = bind_task_filters(client.query(&query), tenant_id, task_name, state, queue);
+    let q = bind_task_filters(client.query(&query), tenant_id, filters);
 
     let count: u64 = q.fetch_one().await.map_err(|e| AppError::Database(e.to_string()))?;
 
@@ -122,12 +167,10 @@ pub async fn query_task_events(
     client: &Client,
     tenant_id: Uuid,
     limit: u64,
-    task_name: Option<&str>,
-    state: Option<&str>,
-    queue: Option<&str>,
+    filters: &TaskFilters<'_>,
     cursor_ms: Option<i64>,
 ) -> Result<Vec<TaskEventRow>, AppError> {
-    let mut query = format!(
+    let mut query = String::from(
         "SELECT tenant_id, event_id, task_id, \
          CAST(task_name AS String) AS task_name, \
          CAST(queue AS String) AS queue, \
@@ -137,10 +180,9 @@ pub async fn query_task_events(
          timestamp, args, kwargs, result, exception, traceback, runtime, retries, \
          root_id, parent_id, group_id, chord_id, agent_id, \
          CAST(broker_type AS String) AS broker_type \
-         FROM task_events {TASK_EVENT_BASE_WHERE}"
+         FROM task_events",
     );
-
-    append_task_filters(&mut query, task_name, state, queue);
+    append_task_where(&mut query, filters);
 
     if cursor_ms.is_some() {
         query.push_str(" AND timestamp < fromUnixTimestamp64Milli(toInt64(?))");
@@ -148,7 +190,7 @@ pub async fn query_task_events(
 
     query.push_str(" ORDER BY timestamp DESC LIMIT ?");
 
-    let mut q = bind_task_filters(client.query(&query), tenant_id, task_name, state, queue);
+    let mut q = bind_task_filters(client.query(&query), tenant_id, filters);
 
     if let Some(ms) = cursor_ms {
         q = q.bind(ms);

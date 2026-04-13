@@ -1509,6 +1509,67 @@
             }
           },
           {
+            "name": "worker_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "description": "Free-text substring search across task_id, task_name, args, kwargs,\nresult, and exception.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "has_error",
+            "in": "query",
+            "description": "When true, only return tasks with a non-empty exception.",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "since_ms",
+            "in": "query",
+            "description": "Lower bound on `timestamp` (millis since epoch, inclusive).",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "until_ms",
+            "in": "query",
+            "description": "Upper bound on `timestamp` (millis since epoch, inclusive).",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -1585,6 +1646,67 @@
                 "string",
                 "null"
               ]
+            }
+          },
+          {
+            "name": "worker_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "description": "Free-text substring search across task_id, task_name, args, kwargs,\nresult, and exception.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "has_error",
+            "in": "query",
+            "description": "When true, only return tasks with a non-empty exception.",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "since_ms",
+            "in": "query",
+            "description": "Lower bound on `timestamp` (millis since epoch, inclusive).",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "until_ms",
+            "in": "query",
+            "description": "Upper bound on `timestamp` (millis since epoch, inclusive).",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
             }
           },
           {
@@ -4259,6 +4381,13 @@
               "null"
             ]
           },
+          "has_error": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "When true, only return tasks with a non-empty exception."
+          },
           "limit": {
             "type": [
               "integer",
@@ -4273,6 +4402,21 @@
               "null"
             ]
           },
+          "search": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Free-text substring search across task_id, task_name, args, kwargs,\nresult, and exception."
+          },
+          "since_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Lower bound on `timestamp` (millis since epoch, inclusive)."
+          },
           "state": {
             "type": [
               "string",
@@ -4280,6 +4424,20 @@
             ]
           },
           "task_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "until_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Upper bound on `timestamp` (millis since epoch, inclusive)."
+          },
+          "worker_id": {
             "type": [
               "string",
               "null"

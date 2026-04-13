@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   RotateCcw,
   XCircle,
@@ -11,6 +11,8 @@ import {
   ListTodo,
   Download,
   RefreshCw,
+  X,
+  AlertTriangle,
 } from "lucide-react";
 import { $api, fetchClient, unwrap } from "@/lib/api";
 import { formatDuration, truncateId, timeAgo } from "@/lib/utils";
@@ -19,6 +21,19 @@ import { useHasPermission } from "@/hooks/use-current-user";
 import type { TaskState, TaskEvent } from "@/types/api";
 
 const TASKS_LIMIT = 50;
+
+type TimeRangeId = "15m" | "1h" | "6h" | "24h" | "7d" | "30d";
+
+const TIME_RANGE_PRESETS: { id: TimeRangeId; label: string; minutes: number }[] = [
+  { id: "15m", label: "15m", minutes: 15 },
+  { id: "1h", label: "1h", minutes: 60 },
+  { id: "6h", label: "6h", minutes: 60 * 6 },
+  { id: "24h", label: "24h", minutes: 60 * 24 },
+  { id: "7d", label: "7d", minutes: 60 * 24 * 7 },
+  { id: "30d", label: "30d", minutes: 60 * 24 * 30 },
+];
+
+const DEFAULT_TIME_RANGE: TimeRangeId = "24h";
 
 function exportTasks(tasks: TaskEvent[], format: "csv" | "json") {
   if (tasks.length === 0) return;
@@ -93,9 +108,13 @@ export default function TasksPage() {
 
   const stateFilter = (searchParams.get("state") as TaskState) || "";
   const nameFilter = searchParams.get("task_name") || "";
-  const queueFilter = searchParams.get("queue") || "";
+  const searchFilter = searchParams.get("search") || "";
+  const hasErrorFilter = searchParams.get("has_error") === "true";
+  const rangeFilter: TimeRangeId =
+    (searchParams.get("range") as TimeRangeId) || DEFAULT_TIME_RANGE;
 
   const [nameInput, setNameInput] = useState(nameFilter);
+  const [searchInput, setSearchInput] = useState(searchFilter);
   const canRetry = useHasPermission("tasks_retry");
   const canRevoke = useHasPermission("tasks_revoke");
   const [retrying, setRetrying] = useState<string | null>(null);
@@ -122,17 +141,25 @@ export default function TasksPage() {
     [pathname, router, searchParams]
   );
 
+  const rangeMs = useMemo(() => {
+    const preset = TIME_RANGE_PRESETS.find((p) => p.id === rangeFilter)
+      ?? TIME_RANGE_PRESETS.find((p) => p.id === DEFAULT_TIME_RANGE)!;
+    return Date.now() - preset.minutes * 60 * 1000;
+  }, [rangeFilter]);
+
   const queryParams = useMemo(() => ({
     params: {
       query: {
         state: stateFilter || undefined,
         task_name: nameFilter || undefined,
-        queue: queueFilter || undefined,
+        search: searchFilter || undefined,
+        has_error: hasErrorFilter || undefined,
+        since_ms: rangeMs,
         limit: TASKS_LIMIT,
         cursor,
       },
     },
-  }), [stateFilter, nameFilter, queueFilter, cursor]);
+  }), [stateFilter, nameFilter, searchFilter, hasErrorFilter, rangeMs, cursor]);
 
   const summaryQuery = $api.useQuery(
     "get",
@@ -151,9 +178,6 @@ export default function TasksPage() {
   const activeQuery = viewMode === "summary" ? summaryQuery : eventsQuery;
   const tasks = activeQuery.data?.data ?? [];
 
-  const { data: queueNamesData } = $api.useQuery("get", "/api/v1/metrics/queue-names");
-  const queueNames = queueNamesData?.data ?? [];
-
   const toggleAutoRefresh = useCallback(() => setAutoRefresh((v) => !v), []);
   const handleExportCsv = useCallback(() => exportTasks(tasks as TaskEvent[], "csv"), [tasks]);
   const handleExportJson = useCallback(() => exportTasks(tasks as TaskEvent[], "json"), [tasks]);
@@ -169,6 +193,43 @@ export default function TasksPage() {
     () => updateParam("task_name", nameInput),
     [nameInput, updateParam]
   );
+
+  const commitSearch = useCallback(
+    () => updateParam("search", searchInput.trim()),
+    [searchInput, updateParam]
+  );
+  const handleSearchKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter") commitSearch();
+    },
+    [commitSearch]
+  );
+  const clearFilters = useCallback(() => {
+    setNameInput("");
+    setSearchInput("");
+    setCursor(undefined);
+    setCursorStack([]);
+    router.push(pathname);
+  }, [pathname, router]);
+
+  useEffect(() => {
+    setNameInput(nameFilter);
+  }, [nameFilter]);
+  useEffect(() => {
+    setSearchInput(searchFilter);
+  }, [searchFilter]);
+
+  const activeChips = useMemo(() => {
+    const chips: { key: string; label: string; paramKey: string }[] = [];
+    if (stateFilter) chips.push({ key: "state", label: `state: ${stateFilter}`, paramKey: "state" });
+    if (nameFilter) chips.push({ key: "task_name", label: `name: ${nameFilter}`, paramKey: "task_name" });
+    if (searchFilter) chips.push({ key: "search", label: `search: ${searchFilter}`, paramKey: "search" });
+    if (hasErrorFilter) chips.push({ key: "has_error", label: "errors only", paramKey: "has_error" });
+    if (rangeFilter !== DEFAULT_TIME_RANGE) {
+      chips.push({ key: "range", label: `range: ${rangeFilter}`, paramKey: "range" });
+    }
+    return chips;
+  }, [stateFilter, nameFilter, searchFilter, hasErrorFilter, rangeFilter]);
   const handleTaskRowClick = useCallback(
     (taskId: string) => router.push(`/tasks/${taskId}`),
     [router]
@@ -327,13 +388,56 @@ export default function TasksPage() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-3">
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-muted-foreground">State</label>
+      <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          {searchInput && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchInput("");
+                updateParam("search", "");
+              }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label="Clear search"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+          <input
+            type="text"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
+            onBlur={commitSearch}
+            placeholder="Search task ID, name, args, kwargs, result, error…  (press Enter)"
+            className="w-full pl-10 pr-10 py-2.5 bg-secondary border border-border text-foreground text-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-1 p-1 bg-secondary rounded-lg">
+            {TIME_RANGE_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => updateParam("range", p.id === DEFAULT_TIME_RANGE ? "" : p.id)}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition ${
+                  rangeFilter === p.id
+                    ? "bg-zinc-700 text-white shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
           <select
             value={stateFilter}
             onChange={(e) => updateParam("state", e.target.value)}
             className="bg-secondary border border-border text-foreground text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring"
+            aria-label="State filter"
           >
             <option value="">All states</option>
             {TASK_STATES.map((s) => (
@@ -342,39 +446,62 @@ export default function TasksPage() {
               </option>
             ))}
           </select>
-        </div>
 
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-muted-foreground">Task</label>
           <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <input
               type="text"
               value={nameInput}
               onChange={(e) => setNameInput(e.target.value)}
               onKeyDown={handleNameKeyDown}
               onBlur={handleNameBlur}
-              placeholder="Search task name..."
-              className="pl-8 pr-3 py-2 bg-secondary border border-border text-foreground text-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-ring w-52"
+              placeholder="Task name…"
+              className="px-3 py-2 bg-secondary border border-border text-foreground text-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-ring w-44"
+              aria-label="Task name filter"
             />
           </div>
+
+          <label className="flex items-center gap-2 px-3 py-2 bg-secondary border border-border rounded-lg text-sm text-foreground cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={hasErrorFilter}
+              onChange={(e) => updateParam("has_error", e.target.checked ? "true" : "")}
+              className="accent-primary"
+            />
+            <AlertTriangle className="h-3.5 w-3.5 text-muted-foreground" />
+            Errors only
+          </label>
+
+          {activeChips.length > 0 && (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="ml-auto px-3 py-2 text-xs text-muted-foreground hover:text-foreground transition"
+            >
+              Clear all
+            </button>
+          )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-muted-foreground">Queue</label>
-          <select
-            value={queueFilter}
-            onChange={(e) => updateParam("queue", e.target.value)}
-            className="bg-secondary border border-border text-foreground text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring"
-          >
-            <option value="">All queues</option>
-            {queueNames.map((q) => (
-              <option key={q} value={q}>
-                {q}
-              </option>
+        {activeChips.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-border/60">
+            <span className="text-xs text-muted-foreground mr-1">Active:</span>
+            {activeChips.map((chip) => (
+              <button
+                key={chip.key}
+                type="button"
+                onClick={() => {
+                  if (chip.paramKey === "search") setSearchInput("");
+                  if (chip.paramKey === "task_name") setNameInput("");
+                  updateParam(chip.paramKey, "");
+                }}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/15 border border-primary/30 text-xs text-primary hover:bg-primary/25 transition"
+              >
+                {chip.label}
+                <X className="h-3 w-3" />
+              </button>
             ))}
-          </select>
-        </div>
+          </div>
+        )}
       </div>
 
       <div className="rounded-xl border border-border bg-card overflow-hidden">

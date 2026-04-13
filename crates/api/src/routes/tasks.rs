@@ -14,15 +14,40 @@ use crate::routes::responses::{
 use crate::state::AppState;
 use auth::middleware::CurrentUser;
 use common::AppError;
-use db::clickhouse::task_events::TaskEventRow;
+use db::clickhouse::task_events::{TaskEventRow, TaskFilters};
 
 #[derive(Deserialize, IntoParams, ToSchema)]
 pub struct TaskListParams {
     pub state: Option<String>,
     pub task_name: Option<String>,
     pub queue: Option<String>,
+    pub worker_id: Option<String>,
+    /// Free-text substring search across task_id, task_name, args, kwargs,
+    /// result, and exception.
+    pub search: Option<String>,
+    /// When true, only return tasks with a non-empty exception.
+    pub has_error: Option<bool>,
+    /// Lower bound on `timestamp` (millis since epoch, inclusive).
+    pub since_ms: Option<i64>,
+    /// Upper bound on `timestamp` (millis since epoch, inclusive).
+    pub until_ms: Option<i64>,
     pub limit: Option<u64>,
     pub cursor: Option<String>,
+}
+
+impl TaskListParams {
+    fn filters(&self) -> TaskFilters<'_> {
+        TaskFilters {
+            task_name: self.task_name.as_deref().filter(|s| !s.is_empty()),
+            state: self.state.as_deref().filter(|s| !s.is_empty()),
+            queue: self.queue.as_deref().filter(|s| !s.is_empty()),
+            worker_id: self.worker_id.as_deref().filter(|s| !s.is_empty()),
+            search: self.search.as_deref().filter(|s| !s.is_empty()),
+            has_error: self.has_error,
+            since_ms: self.since_ms,
+            until_ms: self.until_ms,
+        }
+    }
 }
 
 #[utoipa::path(get, path = "/api/v1/tasks", tag = "tasks",
@@ -37,14 +62,13 @@ pub async fn list_tasks(
     auth::rbac::check_permission(&user, "tasks_read")?;
 
     let (limit, cursor_ms) = parse_cursor_params(&params);
+    let filters = params.filters();
 
     let mut events = db::clickhouse::task_events::query_task_events(
         &state.ch,
         user.tenant_id,
         limit + 1,
-        params.task_name.as_deref(),
-        params.state.as_deref(),
-        params.queue.as_deref(),
+        &filters,
         cursor_ms,
     )
     .await?;
@@ -142,6 +166,18 @@ pub async fn retry_task(
         .await
         {
             Ok(()) => {
+                record_synthetic_retry_event(
+                    &state,
+                    user.tenant_id,
+                    config.id,
+                    &config.broker_type,
+                    &new_task_id,
+                    &req,
+                    parent_id.as_deref(),
+                    root_id.as_deref(),
+                )
+                .await;
+
                 return Ok(Json(CommandResponse {
                     task_id: Some(new_task_id),
                     command_id: None,
@@ -156,6 +192,53 @@ pub async fn retry_task(
     }
 
     Err(AppError::BadRequest("No active broker available".into()))
+}
+
+/// After a successful retry publish, emit a synthetic `task-sent` event so
+/// the new task_id is immediately queryable by the UI. Without this the
+/// frontend navigates to /tasks/{new_id} before any worker has touched the
+/// task and the detail page 404s.
+async fn record_synthetic_retry_event(
+    state: &AppState,
+    tenant_id: Uuid,
+    broker_config_id: Uuid,
+    broker_type: &str,
+    new_task_id: &str,
+    req: &RetryRequest,
+    parent_id: Option<&str>,
+    root_id: Option<&str>,
+) {
+    let raw = common::RawTaskEvent {
+        task_id: new_task_id.to_string(),
+        task_name: req.task_name.clone(),
+        event_type: "task-sent".to_string(),
+        timestamp: chrono::Utc::now().timestamp_millis() as f64 / 1000.0,
+        queue: Some(req.queue.clone()),
+        worker_id: None,
+        state: None,
+        args: Some(req.args.to_string()),
+        kwargs: Some(req.kwargs.to_string()),
+        result: None,
+        exception: None,
+        traceback: None,
+        runtime: None,
+        retries: None,
+        eta: None,
+        expires: None,
+        root_id: root_id.map(str::to_string),
+        parent_id: parent_id.map(str::to_string),
+        group_id: None,
+        chord_id: None,
+    };
+
+    crate::broker_conn::pipeline::ingest_raw_task_events(
+        state,
+        tenant_id,
+        broker_config_id,
+        broker_type,
+        vec![raw],
+    )
+    .await;
 }
 
 #[utoipa::path(post, path = "/api/v1/tasks/{task_id}/revoke", tag = "tasks",
@@ -238,14 +321,13 @@ pub async fn list_task_summary(
     auth::rbac::check_permission(&user, "tasks_read")?;
 
     let (limit, cursor_ms) = parse_cursor_params(&params);
+    let filters = params.filters();
 
     let mut rows = db::clickhouse::aggregations::get_task_summary(
         &state.ch,
         user.tenant_id,
         limit + 1,
-        params.task_name.as_deref(),
-        params.state.as_deref(),
-        params.queue.as_deref(),
+        &filters,
         cursor_ms,
     )
     .await?;
