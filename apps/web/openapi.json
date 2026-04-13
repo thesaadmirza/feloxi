@@ -1532,9 +1532,9 @@
             }
           },
           {
-            "name": "has_error",
+            "name": "errors_only",
             "in": "query",
-            "description": "When true, only return tasks with a non-empty exception.",
+            "description": "Present-and-true restricts results to tasks with a non-empty exception.\n`false` is treated as \"no filter\" for URL friendliness — use `errors_only=true` or omit.",
             "required": false,
             "schema": {
               "type": [
@@ -1672,9 +1672,9 @@
             }
           },
           {
-            "name": "has_error",
+            "name": "errors_only",
             "in": "query",
-            "description": "When true, only return tasks with a non-empty exception.",
+            "description": "Present-and-true restricts results to tasks with a non-empty exception.\n`false` is treated as \"no filter\" for URL friendliness — use `errors_only=true` or omit.",
             "required": false,
             "schema": {
               "type": [
@@ -4381,12 +4381,12 @@
               "null"
             ]
           },
-          "has_error": {
+          "errors_only": {
             "type": [
               "boolean",
               "null"
             ],
-            "description": "When true, only return tasks with a non-empty exception."
+            "description": "Present-and-true restricts results to tasks with a non-empty exception.\n`false` is treated as \"no filter\" for URL friendliness — use `errors_only=true` or omit."
           },
           "limit": {
             "type": [

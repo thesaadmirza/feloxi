@@ -1542,8 +1542,11 @@ export interface components {
         };
         TaskListParams: {
             cursor?: string | null;
-            /** @description When true, only return tasks with a non-empty exception. */
-            has_error?: boolean | null;
+            /**
+             * @description Present-and-true restricts results to tasks with a non-empty exception.
+             *     `false` is treated as "no filter" for URL friendliness — use `errors_only=true` or omit.
+             */
+            errors_only?: boolean | null;
             /** Format: int64 */
             limit?: number | null;
             queue?: string | null;
@@ -3013,8 +3016,11 @@ export interface operations {
                  *     result, and exception.
                  */
                 search?: string | null;
-                /** @description When true, only return tasks with a non-empty exception. */
-                has_error?: boolean | null;
+                /**
+                 * @description Present-and-true restricts results to tasks with a non-empty exception.
+                 *     `false` is treated as "no filter" for URL friendliness — use `errors_only=true` or omit.
+                 */
+                errors_only?: boolean | null;
                 /** @description Lower bound on `timestamp` (millis since epoch, inclusive). */
                 since_ms?: number | null;
                 /** @description Upper bound on `timestamp` (millis since epoch, inclusive). */
@@ -3051,8 +3057,11 @@ export interface operations {
                  *     result, and exception.
                  */
                 search?: string | null;
-                /** @description When true, only return tasks with a non-empty exception. */
-                has_error?: boolean | null;
+                /**
+                 * @description Present-and-true restricts results to tasks with a non-empty exception.
+                 *     `false` is treated as "no filter" for URL friendliness — use `errors_only=true` or omit.
+                 */
+                errors_only?: boolean | null;
                 /** @description Lower bound on `timestamp` (millis since epoch, inclusive). */
                 since_ms?: number | null;
                 /** @description Upper bound on `timestamp` (millis since epoch, inclusive). */

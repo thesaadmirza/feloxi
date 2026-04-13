@@ -20,20 +20,9 @@ import { Pagination } from "@/components/shared/pagination";
 import { useHasPermission } from "@/hooks/use-current-user";
 import type { TaskState, TaskEvent } from "@/types/api";
 
+import { DEFAULT_TIME_RANGE, TIME_RANGE_PRESETS, type TimeRangeId } from "@/lib/constants";
+
 const TASKS_LIMIT = 50;
-
-type TimeRangeId = "15m" | "1h" | "6h" | "24h" | "7d" | "30d";
-
-const TIME_RANGE_PRESETS: { id: TimeRangeId; label: string; minutes: number }[] = [
-  { id: "15m", label: "15m", minutes: 15 },
-  { id: "1h", label: "1h", minutes: 60 },
-  { id: "6h", label: "6h", minutes: 60 * 6 },
-  { id: "24h", label: "24h", minutes: 60 * 24 },
-  { id: "7d", label: "7d", minutes: 60 * 24 * 7 },
-  { id: "30d", label: "30d", minutes: 60 * 24 * 30 },
-];
-
-const DEFAULT_TIME_RANGE: TimeRangeId = "24h";
 
 function exportTasks(tasks: TaskEvent[], format: "csv" | "json") {
   if (tasks.length === 0) return;
@@ -109,7 +98,7 @@ export default function TasksPage() {
   const stateFilter = (searchParams.get("state") as TaskState) || "";
   const nameFilter = searchParams.get("task_name") || "";
   const searchFilter = searchParams.get("search") || "";
-  const hasErrorFilter = searchParams.get("has_error") === "true";
+  const errorsOnlyFilter = searchParams.get("errors_only") === "true";
   const rangeFilter: TimeRangeId =
     (searchParams.get("range") as TimeRangeId) || DEFAULT_TIME_RANGE;
 
@@ -141,25 +130,30 @@ export default function TasksPage() {
     [pathname, router, searchParams]
   );
 
-  const rangeMs = useMemo(() => {
-    const preset = TIME_RANGE_PRESETS.find((p) => p.id === rangeFilter)
-      ?? TIME_RANGE_PRESETS.find((p) => p.id === DEFAULT_TIME_RANGE)!;
-    return Date.now() - preset.minutes * 60 * 1000;
-  }, [rangeFilter]);
+  const rangeMinutes = useMemo(
+    () =>
+      (TIME_RANGE_PRESETS.find((p) => p.id === rangeFilter)
+        ?? TIME_RANGE_PRESETS.find((p) => p.id === DEFAULT_TIME_RANGE)!).minutes,
+    [rangeFilter]
+  );
 
+  // Bucket to the minute so React Query can still dedupe identical polls,
+  // but the lower bound advances as the clock does instead of being frozen
+  // at the moment the user picked the preset.
+  const bucketMinute = Math.floor(Date.now() / 60_000);
   const queryParams = useMemo(() => ({
     params: {
       query: {
         state: stateFilter || undefined,
         task_name: nameFilter || undefined,
         search: searchFilter || undefined,
-        has_error: hasErrorFilter || undefined,
-        since_ms: rangeMs,
+        errors_only: errorsOnlyFilter || undefined,
+        since_ms: (bucketMinute - rangeMinutes) * 60_000,
         limit: TASKS_LIMIT,
         cursor,
       },
     },
-  }), [stateFilter, nameFilter, searchFilter, hasErrorFilter, rangeMs, cursor]);
+  }), [stateFilter, nameFilter, searchFilter, errorsOnlyFilter, rangeMinutes, bucketMinute, cursor]);
 
   const summaryQuery = $api.useQuery(
     "get",
@@ -224,12 +218,14 @@ export default function TasksPage() {
     if (stateFilter) chips.push({ key: "state", label: `state: ${stateFilter}`, paramKey: "state" });
     if (nameFilter) chips.push({ key: "task_name", label: `name: ${nameFilter}`, paramKey: "task_name" });
     if (searchFilter) chips.push({ key: "search", label: `search: ${searchFilter}`, paramKey: "search" });
-    if (hasErrorFilter) chips.push({ key: "has_error", label: "errors only", paramKey: "has_error" });
+    if (errorsOnlyFilter) {
+      chips.push({ key: "errors_only", label: "errors only", paramKey: "errors_only" });
+    }
     if (rangeFilter !== DEFAULT_TIME_RANGE) {
       chips.push({ key: "range", label: `range: ${rangeFilter}`, paramKey: "range" });
     }
     return chips;
-  }, [stateFilter, nameFilter, searchFilter, hasErrorFilter, rangeFilter]);
+  }, [stateFilter, nameFilter, searchFilter, errorsOnlyFilter, rangeFilter]);
   const handleTaskRowClick = useCallback(
     (taskId: string) => router.push(`/tasks/${taskId}`),
     [router]
@@ -463,8 +459,8 @@ export default function TasksPage() {
           <label className="flex items-center gap-2 px-3 py-2 bg-secondary border border-border rounded-lg text-sm text-foreground cursor-pointer select-none">
             <input
               type="checkbox"
-              checked={hasErrorFilter}
-              onChange={(e) => updateParam("has_error", e.target.checked ? "true" : "")}
+              checked={errorsOnlyFilter}
+              onChange={(e) => updateParam("errors_only", e.target.checked ? "true" : "")}
               className="accent-primary"
             />
             <AlertTriangle className="h-3.5 w-3.5 text-muted-foreground" />
