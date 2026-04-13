@@ -29,8 +29,8 @@
 
 ## Features
 
-- **Real-time dashboard** &mdash; Live task throughput, failure rates, and worker status via WebSocket
-- **Task explorer** &mdash; Search, filter, and inspect any task. View args, kwargs, results, tracebacks, and full state timelines
+- **SRE dashboard** &mdash; Throughput and failure-rate trends plus widgets that surface what needs attention: top failing tasks, errors clustered by exception, slowest tasks by P95 runtime, worker leaderboard, and a task-centric recent activity feed. Live WebSocket updates
+- **Task explorer** &mdash; Full-text search across task ID, name, args, kwargs, result, and exception. Filter by state, task name, worker, and errors-only. Time range chips (15m / 1h / 6h / 24h / 7d / 30d) plus a custom datetime picker. Click into any task for the full state timeline, traceback, and retry/revoke actions
 - **Worker monitoring** &mdash; CPU, memory, pool size, active tasks, and processed counts for every worker
 - **Broker management** &mdash; Connect Redis or RabbitMQ brokers from the UI. Live queue depth monitoring
 - **Alerting engine** &mdash; 10 alert condition types with Slack, email, webhook, and PagerDuty notifications. Anti-flap controls and delivery tracking
@@ -130,11 +130,19 @@ The API connects directly to your Celery broker (Redis pub/sub or AMQP) to consu
 
 ### Dashboard
 
-Real-time overview with throughput charts, failure rate trends, summary cards (total tasks, success/failure counts, failure rate, avg runtime), recent task stream, and task breakdown by name. Time range selector (1h / 6h / 24h / 7d).
+KPI strip for the time window (total tasks, successful, failed, failure rate, avg runtime with p95), throughput and failure-rate trend charts, then the widgets you actually look at when something feels off:
+
+- **Top Failing Tasks** ranks task names by failure count and rate, one click drills into the filtered task list
+- **Recent Errors** groups exceptions together so repeated `ValueError: X` becomes one row with the affected task names as chips and a link to the latest occurrence
+- **Slowest Tasks** sorts by P95 runtime with an inline bar chart
+- **Worker Leaderboard** shows most active workers in the window with their success and failure counts
+- **Recent Tasks** is task-centric (one row per task, not per event), has a Failures-only quick toggle, and every row is clickable through to the task detail
+
+Time range selector (1h / 6h / 24h / 7d).
 
 ### Task Explorer
 
-Full task list with state, queue, and task name filters. Click any task for the detail view: complete state timeline, args/kwargs, result, exception with traceback, runtime, retries, and retry/revoke actions sent directly through the broker.
+Full-text search across task ID, name, args, kwargs, result, and exception. Filter by state, task name, and errors-only. Time range chips (15m / 1h / 6h / 24h / 7d / 30d) plus a Custom datetime picker for arbitrary windows. Active filters show as chips with one-click removal. Click any task for the detail view: complete state timeline, args/kwargs, result, exception with traceback, runtime, retries, and retry/revoke actions sent directly through the broker.
 
 ### Worker Monitoring
 
