@@ -141,9 +141,10 @@ function DagNodeCard({
           fontWeight={600}
           className="cursor-pointer hover:underline"
         >
+          <title>{displayTaskName(node.task_name)}</title>
           {(() => {
             const name = displayTaskName(node.task_name);
-            return name.length > 24 ? `${name.slice(0, 24)}…` : name;
+            return name.length > 40 ? `${name.slice(0, 40)}…` : name;
           })()}
         </text>
       </Link>
@@ -154,9 +155,10 @@ function DagNodeCard({
         fontSize={10}
         fontFamily="monospace"
       >
-        {truncateId(node.task_id, 12)}
+        <title>{node.task_id}</title>
+        {truncateId(node.task_id, 24)}
       </text>
-      <text x={16} y={56} fontSize={10}>
+      <text x={16} y={58} fontSize={10}>
         <tspan fill={color} fontWeight={600}>
           {node.state}
         </tspan>
@@ -169,11 +171,12 @@ function DagNodeCard({
       </text>
       <text
         x={nodeWidth - 8}
-        y={56}
+        y={58}
         fill="var(--color-muted-foreground)"
         fontSize={9}
         textAnchor="end"
       >
+        <title>Queue: {node.queue || "—"}</title>
         {node.queue}
       </text>
     </g>

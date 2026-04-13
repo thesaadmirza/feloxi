@@ -17,10 +17,10 @@ export const EDGE_TYPE_COLORS: Record<string, string> = {
 };
 
 export const DAG_LAYOUT = {
-  nodeWidth: 220,
-  nodeHeight: 72,
+  nodeWidth: 320,
+  nodeHeight: 80,
   horizontalGap: 60,
-  verticalGap: 40,
+  verticalGap: 44,
 } as const;
 
 export function getStateColor(state: string): string {
