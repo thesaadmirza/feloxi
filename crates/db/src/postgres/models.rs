@@ -151,6 +151,31 @@ pub struct UserResponse {
     pub created_at: DateTime<Utc>,
 }
 
+// ─────────────────────────── User invites ───────────────────────────
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct UserInvite {
+    pub id: Uuid,
+    pub tenant_id: Uuid,
+    pub email: String,
+    pub role_name: String,
+    pub token_hash: String,
+    pub invited_by: Option<Uuid>,
+    pub expires_at: DateTime<Utc>,
+    pub accepted_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug)]
+pub struct CreateUserInvite {
+    pub tenant_id: Uuid,
+    pub email: String,
+    pub role_name: String,
+    pub token_hash: String,
+    pub invited_by: Option<Uuid>,
+    pub expires_at: DateTime<Utc>,
+}
+
 impl From<User> for UserResponse {
     fn from(u: User) -> Self {
         Self {

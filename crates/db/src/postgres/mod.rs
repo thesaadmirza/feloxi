@@ -7,6 +7,7 @@ pub mod rbac;
 pub mod refresh_tokens;
 pub mod retention;
 pub mod tenants;
+pub mod user_invites;
 pub mod users;
 
 pub use pool::{create_pg_pool, run_migrations};
