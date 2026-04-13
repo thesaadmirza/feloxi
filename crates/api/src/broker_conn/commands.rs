@@ -134,40 +134,46 @@ pub async fn redis_shutdown_worker(connection_url: &str, hostname: &str) -> Resu
 }
 
 /// Get queue depths from a Redis broker.
+///
+/// Celery + Kombu register each queue under a set at `_kombu.binding.<exchange>`.
+/// We SCAN for all of those keys, strip the prefix to derive the queue name,
+/// and drop the well-known internal bindings (event bus, pidbox, replies) that
+/// shouldn't surface in the task-queue list.
 pub async fn redis_queue_stats(connection_url: &str) -> Result<Vec<QueueInfo>, String> {
+    use futures::StreamExt;
+
+    const BINDING_PREFIX: &str = "_kombu.binding.";
+
     let client = connect_redis(connection_url).await?;
 
-    // Read queue names from Kombu binding set
-    let binding_key = "_kombu.binding.celery";
-    let members: Vec<String> = client.smembers(binding_key).await.unwrap_or_default();
-
-    let mut queue_names: Vec<String> = members
-        .iter()
-        .filter_map(|m| {
-            let name = m.split('\t').next()?;
-            if name.is_empty() {
-                None
-            } else {
-                Some(name.to_string())
+    let mut queue_names: Vec<String> = Vec::new();
+    let mut stream = client.scan_buffered(format!("{BINDING_PREFIX}*"), Some(200), None);
+    while let Some(item) = stream.next().await {
+        let Ok(key) = item else { continue };
+        let key_str = key.as_str_lossy();
+        if let Some(name) = key_str.strip_prefix(BINDING_PREFIX) {
+            if !is_internal_binding(name) {
+                queue_names.push(name.to_string());
             }
-        })
-        .collect();
+        }
+    }
 
     queue_names.sort();
     queue_names.dedup();
 
-    // Also check for default "celery" queue
-    if !queue_names.contains(&"celery".to_string()) {
-        queue_names.push("celery".to_string());
-    }
-
-    let mut stats = Vec::new();
+    let mut stats = Vec::with_capacity(queue_names.len());
     for name in &queue_names {
-        let depth: u64 = client.llen(name.as_str()).await.unwrap_or(0);
+        let depth: u64 = client.llen::<u64, _>(name.as_str()).await.unwrap_or(0);
         stats.push(QueueInfo { queue_name: name.clone(), depth });
     }
 
     Ok(stats)
+}
+
+/// Kombu binding names that correspond to Celery's internal control plane
+/// rather than user-visible task queues.
+fn is_internal_binding(name: &str) -> bool {
+    name == "celeryev" || name.ends_with(".pidbox") || name.starts_with("reply.")
 }
 
 // ─── AMQP Commands ───────────────────────────────────────────────────────────
