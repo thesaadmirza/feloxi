@@ -1551,6 +1551,11 @@ export interface components {
             limit?: number | null;
             queue?: string | null;
             /**
+             * @description Present-and-true hides rows whose `task_name` is empty. Celery emits
+             *     some event types (e.g. `task-sent`) without the name.
+             */
+            require_task_name?: boolean | null;
+            /**
              * @description Free-text substring search across task_id, task_name, args, kwargs,
              *     result, and exception.
              */
@@ -3025,6 +3030,11 @@ export interface operations {
                 since_ms?: number | null;
                 /** @description Upper bound on `timestamp` (millis since epoch, inclusive). */
                 until_ms?: number | null;
+                /**
+                 * @description Present-and-true hides rows whose `task_name` is empty. Celery emits
+                 *     some event types (e.g. `task-sent`) without the name.
+                 */
+                require_task_name?: boolean | null;
                 limit?: number | null;
                 cursor?: string | null;
             };
@@ -3066,6 +3076,11 @@ export interface operations {
                 since_ms?: number | null;
                 /** @description Upper bound on `timestamp` (millis since epoch, inclusive). */
                 until_ms?: number | null;
+                /**
+                 * @description Present-and-true hides rows whose `task_name` is empty. Celery emits
+                 *     some event types (e.g. `task-sent`) without the name.
+                 */
+                require_task_name?: boolean | null;
                 limit?: number | null;
                 cursor?: string | null;
             };
@@ -3341,14 +3356,17 @@ export interface operations {
     };
     worker_task_stats: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Lookback window in minutes (default: 1440 = 24h). */
+                from_minutes?: number | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Per-worker task stats (24h) */
+            /** @description Per-worker task stats */
             200: {
                 headers: {
                     [name: string]: unknown;

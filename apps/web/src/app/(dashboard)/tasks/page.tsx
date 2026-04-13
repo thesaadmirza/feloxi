@@ -90,6 +90,102 @@ function SkeletonRow() {
 
 type ViewMode = "summary" | "events";
 
+function msToLocalInput(ms: number): string {
+  // <input type="datetime-local"> wants "YYYY-MM-DDTHH:mm" in local time.
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  );
+}
+
+function CustomRangePanel({
+  initialSince,
+  initialUntil,
+  onApply,
+  onCancel,
+}: {
+  initialSince?: number;
+  initialUntil?: number;
+  onApply: (sinceMs: number, untilMs: number) => void;
+  onCancel: () => void;
+}) {
+  const now = Date.now();
+  const defaultSince = initialSince ?? now - 60 * 60 * 1000;
+  const defaultUntil = initialUntil ?? now;
+
+  const [fromValue, setFromValue] = useState(() => msToLocalInput(defaultSince));
+  const [toValue, setToValue] = useState(() => msToLocalInput(defaultUntil));
+  const [error, setError] = useState<string | null>(null);
+
+  const handleApply = () => {
+    const since = new Date(fromValue).getTime();
+    const until = new Date(toValue).getTime();
+    if (Number.isNaN(since) || Number.isNaN(until)) {
+      setError("Please pick valid dates");
+      return;
+    }
+    if (since >= until) {
+      setError("Start must be before end");
+      return;
+    }
+    onApply(since, until);
+  };
+
+  return (
+    <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-2">
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] text-muted-foreground uppercase tracking-wider">
+            From
+          </label>
+          <input
+            type="datetime-local"
+            value={fromValue}
+            onChange={(e) => {
+              setFromValue(e.target.value);
+              setError(null);
+            }}
+            className="px-3 py-2 bg-background border border-border text-foreground text-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] text-muted-foreground uppercase tracking-wider">
+            To
+          </label>
+          <input
+            type="datetime-local"
+            value={toValue}
+            onChange={(e) => {
+              setToValue(e.target.value);
+              setError(null);
+            }}
+            className="px-3 py-2 bg-background border border-border text-foreground text-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+        <div className="flex items-center gap-2 ml-auto">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-3 py-2 text-xs text-muted-foreground hover:text-foreground transition"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleApply}
+            className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 transition"
+          >
+            Apply range
+          </button>
+        </div>
+      </div>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  );
+}
+
 export default function TasksPage() {
   const router = useRouter();
   const pathname = usePathname();
@@ -99,11 +195,21 @@ export default function TasksPage() {
   const nameFilter = searchParams.get("task_name") || "";
   const searchFilter = searchParams.get("search") || "";
   const errorsOnlyFilter = searchParams.get("errors_only") === "true";
+  const sinceMsParam = searchParams.get("since_ms");
+  const untilMsParam = searchParams.get("until_ms");
+  const customRange = useMemo(
+    () =>
+      sinceMsParam !== null && untilMsParam !== null
+        ? { since: Number(sinceMsParam), until: Number(untilMsParam) }
+        : null,
+    [sinceMsParam, untilMsParam]
+  );
   const rangeFilter: TimeRangeId =
     (searchParams.get("range") as TimeRangeId) || DEFAULT_TIME_RANGE;
 
   const [nameInput, setNameInput] = useState(nameFilter);
   const [searchInput, setSearchInput] = useState(searchFilter);
+  const [customOpen, setCustomOpen] = useState(false);
   const canRetry = useHasPermission("tasks_retry");
   const canRevoke = useHasPermission("tasks_revoke");
   const [retrying, setRetrying] = useState<string | null>(null);
@@ -141,6 +247,11 @@ export default function TasksPage() {
   // but the lower bound advances as the clock does instead of being frozen
   // at the moment the user picked the preset.
   const bucketMinute = Math.floor(Date.now() / 60_000);
+  const effectiveSinceMs = customRange
+    ? customRange.since
+    : (bucketMinute - rangeMinutes) * 60_000;
+  const effectiveUntilMs = customRange ? customRange.until : undefined;
+
   const queryParams = useMemo(() => ({
     params: {
       query: {
@@ -148,12 +259,13 @@ export default function TasksPage() {
         task_name: nameFilter || undefined,
         search: searchFilter || undefined,
         errors_only: errorsOnlyFilter || undefined,
-        since_ms: (bucketMinute - rangeMinutes) * 60_000,
+        since_ms: effectiveSinceMs,
+        until_ms: effectiveUntilMs,
         limit: TASKS_LIMIT,
         cursor,
       },
     },
-  }), [stateFilter, nameFilter, searchFilter, errorsOnlyFilter, rangeMinutes, bucketMinute, cursor]);
+  }), [stateFilter, nameFilter, searchFilter, errorsOnlyFilter, effectiveSinceMs, effectiveUntilMs, cursor]);
 
   const summaryQuery = $api.useQuery(
     "get",
@@ -206,6 +318,28 @@ export default function TasksPage() {
     router.push(pathname);
   }, [pathname, router]);
 
+  const applyCustomRange = useCallback(
+    (sinceMs: number, untilMs: number) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("since_ms", String(sinceMs));
+      params.set("until_ms", String(untilMs));
+      params.delete("range");
+      setCursor(undefined);
+      setCursorStack([]);
+      router.push(`${pathname}?${params.toString()}`);
+    },
+    [pathname, router, searchParams]
+  );
+
+  const clearCustomRange = useCallback(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("since_ms");
+    params.delete("until_ms");
+    setCursor(undefined);
+    setCursorStack([]);
+    router.push(`${pathname}?${params.toString()}`);
+  }, [pathname, router, searchParams]);
+
   useEffect(() => {
     setNameInput(nameFilter);
   }, [nameFilter]);
@@ -214,18 +348,72 @@ export default function TasksPage() {
   }, [searchFilter]);
 
   const activeChips = useMemo(() => {
-    const chips: { key: string; label: string; paramKey: string }[] = [];
-    if (stateFilter) chips.push({ key: "state", label: `state: ${stateFilter}`, paramKey: "state" });
-    if (nameFilter) chips.push({ key: "task_name", label: `name: ${nameFilter}`, paramKey: "task_name" });
-    if (searchFilter) chips.push({ key: "search", label: `search: ${searchFilter}`, paramKey: "search" });
-    if (errorsOnlyFilter) {
-      chips.push({ key: "errors_only", label: "errors only", paramKey: "errors_only" });
-    }
-    if (rangeFilter !== DEFAULT_TIME_RANGE) {
-      chips.push({ key: "range", label: `range: ${rangeFilter}`, paramKey: "range" });
+    const chips: {
+      key: string;
+      label: string;
+      onRemove: () => void;
+    }[] = [];
+    if (stateFilter)
+      chips.push({
+        key: "state",
+        label: `state: ${stateFilter}`,
+        onRemove: () => updateParam("state", ""),
+      });
+    if (nameFilter)
+      chips.push({
+        key: "task_name",
+        label: `name: ${nameFilter}`,
+        onRemove: () => {
+          setNameInput("");
+          updateParam("task_name", "");
+        },
+      });
+    if (searchFilter)
+      chips.push({
+        key: "search",
+        label: `search: ${searchFilter}`,
+        onRemove: () => {
+          setSearchInput("");
+          updateParam("search", "");
+        },
+      });
+    if (errorsOnlyFilter)
+      chips.push({
+        key: "errors_only",
+        label: "errors only",
+        onRemove: () => updateParam("errors_only", ""),
+      });
+    if (customRange) {
+      const fmt = (ms: number) =>
+        new Date(ms).toLocaleString([], {
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      chips.push({
+        key: "custom_range",
+        label: `${fmt(customRange.since)} → ${fmt(customRange.until)}`,
+        onRemove: clearCustomRange,
+      });
+    } else if (rangeFilter !== DEFAULT_TIME_RANGE) {
+      chips.push({
+        key: "range",
+        label: `range: ${rangeFilter}`,
+        onRemove: () => updateParam("range", ""),
+      });
     }
     return chips;
-  }, [stateFilter, nameFilter, searchFilter, errorsOnlyFilter, rangeFilter]);
+  }, [
+    stateFilter,
+    nameFilter,
+    searchFilter,
+    errorsOnlyFilter,
+    rangeFilter,
+    customRange,
+    updateParam,
+    clearCustomRange,
+  ]);
   const handleTaskRowClick = useCallback(
     (taskId: string) => router.push(`/tasks/${taskId}`),
     [router]
@@ -413,20 +601,38 @@ export default function TasksPage() {
 
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-1 p-1 bg-secondary rounded-lg">
-            {TIME_RANGE_PRESETS.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => updateParam("range", p.id === DEFAULT_TIME_RANGE ? "" : p.id)}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium transition ${
-                  rangeFilter === p.id
-                    ? "bg-zinc-700 text-white shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
+            {TIME_RANGE_PRESETS.map((p) => {
+              const isActive = !customRange && rangeFilter === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => {
+                    clearCustomRange();
+                    updateParam("range", p.id === DEFAULT_TIME_RANGE ? "" : p.id);
+                  }}
+                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition ${
+                    isActive
+                      ? "bg-zinc-700 text-white shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              );
+            })}
+            <div className="w-px h-4 bg-border mx-0.5" />
+            <button
+              type="button"
+              onClick={() => setCustomOpen((v) => !v)}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition ${
+                customRange
+                  ? "bg-zinc-700 text-white shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Custom…
+            </button>
           </div>
 
           <select
@@ -478,6 +684,18 @@ export default function TasksPage() {
           )}
         </div>
 
+        {customOpen && (
+          <CustomRangePanel
+            initialSince={customRange?.since}
+            initialUntil={customRange?.until}
+            onApply={(since, until) => {
+              applyCustomRange(since, until);
+              setCustomOpen(false);
+            }}
+            onCancel={() => setCustomOpen(false)}
+          />
+        )}
+
         {activeChips.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-border/60">
             <span className="text-xs text-muted-foreground mr-1">Active:</span>
@@ -485,11 +703,7 @@ export default function TasksPage() {
               <button
                 key={chip.key}
                 type="button"
-                onClick={() => {
-                  if (chip.paramKey === "search") setSearchInput("");
-                  if (chip.paramKey === "task_name") setNameInput("");
-                  updateParam(chip.paramKey, "");
-                }}
+                onClick={chip.onRemove}
                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/15 border border-primary/30 text-xs text-primary hover:bg-primary/25 transition"
               >
                 {chip.label}

@@ -1570,6 +1570,18 @@
             }
           },
           {
+            "name": "require_task_name",
+            "in": "query",
+            "description": "Present-and-true hides rows whose `task_name` is empty. Celery emits\nsome event types (e.g. `task-sent`) without the name.",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -1707,6 +1719,18 @@
                 "null"
               ],
               "format": "int64"
+            }
+          },
+          {
+            "name": "require_task_name",
+            "in": "query",
+            "description": "Present-and-true hides rows whose `task_name` is empty. Celery emits\nsome event types (e.g. `task-sent`) without the name.",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
             }
           },
           {
@@ -2090,9 +2114,25 @@
           "workers"
         ],
         "operationId": "worker_task_stats",
+        "parameters": [
+          {
+            "name": "from_minutes",
+            "in": "query",
+            "description": "Lookback window in minutes (default: 1440 = 24h).",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Per-worker task stats (24h)",
+            "description": "Per-worker task stats",
             "content": {
               "application/json": {
                 "schema": {
@@ -4401,6 +4441,13 @@
               "string",
               "null"
             ]
+          },
+          "require_task_name": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Present-and-true hides rows whose `task_name` is empty. Celery emits\nsome event types (e.g. `task-sent`) without the name."
           },
           "search": {
             "type": [
