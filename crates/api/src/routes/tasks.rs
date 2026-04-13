@@ -25,8 +25,9 @@ pub struct TaskListParams {
     /// Free-text substring search across task_id, task_name, args, kwargs,
     /// result, and exception.
     pub search: Option<String>,
-    /// When true, only return tasks with a non-empty exception.
-    pub has_error: Option<bool>,
+    /// Present-and-true restricts results to tasks with a non-empty exception.
+    /// `false` is treated as "no filter" for URL friendliness — use `errors_only=true` or omit.
+    pub errors_only: Option<bool>,
     /// Lower bound on `timestamp` (millis since epoch, inclusive).
     pub since_ms: Option<i64>,
     /// Upper bound on `timestamp` (millis since epoch, inclusive).
@@ -43,7 +44,7 @@ impl TaskListParams {
             queue: self.queue.as_deref().filter(|s| !s.is_empty()),
             worker_id: self.worker_id.as_deref().filter(|s| !s.is_empty()),
             search: self.search.as_deref().filter(|s| !s.is_empty()),
-            has_error: self.has_error,
+            errors_only: self.errors_only,
             since_ms: self.since_ms,
             until_ms: self.until_ms,
         }
@@ -166,17 +167,32 @@ pub async fn retry_task(
         .await
         {
             Ok(()) => {
-                record_synthetic_retry_event(
-                    &state,
-                    user.tenant_id,
-                    config.id,
-                    &config.broker_type,
-                    &new_task_id,
-                    &req,
-                    parent_id.as_deref(),
-                    root_id.as_deref(),
-                )
-                .await;
+                // Spawn so the HTTP response doesn't wait on ClickHouse — the
+                // synthetic event is best-effort and a few ms of lag before the
+                // frontend can refetch is acceptable.
+                let state_for_event = state.clone();
+                let broker_type = config.broker_type.clone();
+                let broker_id = config.id;
+                let tenant_id = user.tenant_id;
+                let synthetic = common::RawTaskEvent::synthetic_sent(
+                    new_task_id.clone(),
+                    req.task_name.clone(),
+                    req.queue.clone(),
+                    req.args.to_string(),
+                    req.kwargs.to_string(),
+                    parent_id.clone(),
+                    root_id.clone(),
+                );
+                tokio::spawn(async move {
+                    crate::broker_conn::pipeline::ingest_raw_task_events(
+                        &state_for_event,
+                        tenant_id,
+                        broker_id,
+                        &broker_type,
+                        vec![synthetic],
+                    )
+                    .await;
+                });
 
                 return Ok(Json(CommandResponse {
                     task_id: Some(new_task_id),
@@ -192,53 +208,6 @@ pub async fn retry_task(
     }
 
     Err(AppError::BadRequest("No active broker available".into()))
-}
-
-/// After a successful retry publish, emit a synthetic `task-sent` event so
-/// the new task_id is immediately queryable by the UI. Without this the
-/// frontend navigates to /tasks/{new_id} before any worker has touched the
-/// task and the detail page 404s.
-async fn record_synthetic_retry_event(
-    state: &AppState,
-    tenant_id: Uuid,
-    broker_config_id: Uuid,
-    broker_type: &str,
-    new_task_id: &str,
-    req: &RetryRequest,
-    parent_id: Option<&str>,
-    root_id: Option<&str>,
-) {
-    let raw = common::RawTaskEvent {
-        task_id: new_task_id.to_string(),
-        task_name: req.task_name.clone(),
-        event_type: "task-sent".to_string(),
-        timestamp: chrono::Utc::now().timestamp_millis() as f64 / 1000.0,
-        queue: Some(req.queue.clone()),
-        worker_id: None,
-        state: None,
-        args: Some(req.args.to_string()),
-        kwargs: Some(req.kwargs.to_string()),
-        result: None,
-        exception: None,
-        traceback: None,
-        runtime: None,
-        retries: None,
-        eta: None,
-        expires: None,
-        root_id: root_id.map(str::to_string),
-        parent_id: parent_id.map(str::to_string),
-        group_id: None,
-        chord_id: None,
-    };
-
-    crate::broker_conn::pipeline::ingest_raw_task_events(
-        state,
-        tenant_id,
-        broker_config_id,
-        broker_type,
-        vec![raw],
-    )
-    .await;
 }
 
 #[utoipa::path(post, path = "/api/v1/tasks/{task_id}/revoke", tag = "tasks",

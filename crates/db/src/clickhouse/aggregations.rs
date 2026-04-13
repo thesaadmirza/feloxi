@@ -4,7 +4,9 @@ use time::OffsetDateTime;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::clickhouse::task_events::TaskFilters;
+use crate::clickhouse::task_events::{
+    append_task_where, bind_task_filters, TaskFilters, TASK_STATES_IN,
+};
 use common::AppError;
 
 /// Per-minute task metrics from the materialized view.
@@ -334,10 +336,6 @@ pub struct TaskSummaryRow {
     pub wait_seconds: f64,
 }
 
-const DEFAULT_WINDOW_HOURS: i64 = 24;
-const TASK_STATES: &str =
-    "'PENDING', 'RECEIVED', 'STARTED', 'SUCCESS', 'FAILURE', 'RETRY', 'REVOKED', 'REJECTED'";
-
 pub async fn get_task_summary(
     client: &Client,
     tenant_id: Uuid,
@@ -357,71 +355,17 @@ pub async fn get_task_summary(
             retries,
             exception,
             0.0 AS wait_seconds
-        FROM task_events
-        WHERE tenant_id = ?"#,
+        FROM task_events"#,
     );
+    append_task_where(&mut query, filters, TASK_STATES_IN);
 
-    match (filters.since_ms, filters.until_ms) {
-        (Some(_), _) => query.push_str(" AND timestamp >= fromUnixTimestamp64Milli(toInt64(?))"),
-        (None, _) => query
-            .push_str(&format!(" AND timestamp >= now() - toIntervalHour({DEFAULT_WINDOW_HOURS})")),
-    }
-    if filters.until_ms.is_some() {
-        query.push_str(" AND timestamp <= fromUnixTimestamp64Milli(toInt64(?))");
-    }
-
-    query.push_str(&format!(" AND state IN ({TASK_STATES})"));
-
-    if filters.task_name.is_some() {
-        query.push_str(" AND positionCaseInsensitive(CAST(task_name AS String), ?) > 0");
-    }
-    if filters.state.is_some() {
-        query.push_str(" AND state = ?");
-    }
-    if filters.queue.is_some() {
-        query.push_str(" AND queue = ?");
-    }
-    if filters.worker_id.is_some() {
-        query.push_str(" AND worker_id = ?");
-    }
-    if filters.has_error == Some(true) {
-        query.push_str(" AND exception != ''");
-    }
-    if filters.search.is_some() {
-        query.push_str(
-            " AND positionCaseInsensitive(\
-                concat(task_id, ' ', CAST(task_name AS String), ' ', args, ' ', kwargs, ' ', result, ' ', exception),\
-                ?) > 0",
-        );
-    }
     if cursor_ms.is_some() {
         query.push_str(" AND timestamp < fromUnixTimestamp64Milli(toInt64(?))");
     }
 
     query.push_str(" ORDER BY timestamp DESC LIMIT 1 BY task_id LIMIT ?");
 
-    let mut q = client.query(&query).bind(tenant_id);
-    if let Some(ms) = filters.since_ms {
-        q = q.bind(ms);
-    }
-    if let Some(ms) = filters.until_ms {
-        q = q.bind(ms);
-    }
-    if let Some(tn) = filters.task_name {
-        q = q.bind(tn);
-    }
-    if let Some(s) = filters.state {
-        q = q.bind(s);
-    }
-    if let Some(qn) = filters.queue {
-        q = q.bind(qn);
-    }
-    if let Some(w) = filters.worker_id {
-        q = q.bind(w);
-    }
-    if let Some(s) = filters.search {
-        q = q.bind(s);
-    }
+    let mut q = bind_task_filters(client.query(&query), tenant_id, filters);
     if let Some(ms) = cursor_ms {
         q = q.bind(ms);
     }

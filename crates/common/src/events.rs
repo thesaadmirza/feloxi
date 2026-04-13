@@ -25,6 +25,49 @@ pub struct RawTaskEvent {
     pub chord_id: Option<String>,
 }
 
+impl RawTaskEvent {
+    /// Build a synthetic `task-sent` event for a freshly published task.
+    /// Used by the retry handler so the new task_id is queryable immediately,
+    /// before any worker has observed it.
+    pub fn synthetic_sent(
+        task_id: String,
+        task_name: String,
+        queue: String,
+        args: String,
+        kwargs: String,
+        parent_id: Option<String>,
+        root_id: Option<String>,
+    ) -> Self {
+        Self {
+            task_id,
+            task_name,
+            event_type: "task-sent".to_string(),
+            timestamp: now_seconds(),
+            queue: Some(queue),
+            worker_id: None,
+            state: None,
+            args: Some(args),
+            kwargs: Some(kwargs),
+            result: None,
+            exception: None,
+            traceback: None,
+            runtime: None,
+            retries: None,
+            eta: None,
+            expires: None,
+            root_id,
+            parent_id,
+            group_id: None,
+            chord_id: None,
+        }
+    }
+}
+
+fn now_seconds() -> f64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
+}
+
 /// Raw worker event from a Celery broker, before normalization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RawWorkerEvent {
