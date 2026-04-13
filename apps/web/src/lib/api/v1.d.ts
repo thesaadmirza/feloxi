@@ -1679,12 +1679,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             is_active: boolean;
-            /** Format: int32 */
-            max_agents: number;
-            /** Format: int64 */
-            max_events_day: number;
             name: string;
-            plan: string;
             settings: unknown;
             slug: string;
             /** Format: date-time */

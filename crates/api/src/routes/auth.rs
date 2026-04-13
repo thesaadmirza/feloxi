@@ -184,11 +184,7 @@ pub async fn register(
 
     let tenant = db::postgres::tenants::create_tenant(
         &state.pg,
-        &db::postgres::models::CreateTenant {
-            name: req.tenant_name,
-            slug: req.tenant_slug,
-            plan: None,
-        },
+        &db::postgres::models::CreateTenant { name: req.tenant_name, slug: req.tenant_slug },
     )
     .await?;
 

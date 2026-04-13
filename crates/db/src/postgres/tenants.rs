@@ -7,14 +7,13 @@ use common::AppError;
 pub async fn create_tenant(pool: &PgPool, input: &CreateTenant) -> Result<Tenant, AppError> {
     let tenant = sqlx::query_as::<_, Tenant>(
         r#"
-        INSERT INTO tenants (name, slug, plan)
-        VALUES ($1, $2, $3)
+        INSERT INTO tenants (name, slug)
+        VALUES ($1, $2)
         RETURNING *
         "#,
     )
     .bind(&input.name)
     .bind(&input.slug)
-    .bind(input.plan.as_deref().unwrap_or("free"))
     .fetch_one(pool)
     .await?;
 

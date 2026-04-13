@@ -225,8 +225,8 @@ def seed_postgres():
 
     # Tenant
     pg_exec(f"""
-INSERT INTO tenants (id, name, slug, plan, max_agents, max_events_day)
-VALUES ('{tid}', '{DEMO_TENANT_NAME}', '{DEMO_TENANT_SLUG}', 'pro', 10, 10000000)
+INSERT INTO tenants (id, name, slug)
+VALUES ('{tid}', '{DEMO_TENANT_NAME}', '{DEMO_TENANT_SLUG}')
 ON CONFLICT (slug) DO NOTHING;
 """)
 

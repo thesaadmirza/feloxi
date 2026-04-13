@@ -4834,10 +4834,7 @@
           "id",
           "name",
           "slug",
-          "plan",
           "settings",
-          "max_agents",
-          "max_events_day",
           "is_active",
           "created_at",
           "updated_at"
@@ -4854,18 +4851,7 @@
           "is_active": {
             "type": "boolean"
           },
-          "max_agents": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "max_events_day": {
-            "type": "integer",
-            "format": "int64"
-          },
           "name": {
-            "type": "string"
-          },
-          "plan": {
             "type": "string"
           },
           "settings": {},

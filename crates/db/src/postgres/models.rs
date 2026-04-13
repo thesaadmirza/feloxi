@@ -101,10 +101,7 @@ pub struct Tenant {
     pub id: Uuid,
     pub name: String,
     pub slug: String,
-    pub plan: String,
     pub settings: serde_json::Value,
-    pub max_agents: i32,
-    pub max_events_day: i64,
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -114,7 +111,6 @@ pub struct Tenant {
 pub struct CreateTenant {
     pub name: String,
     pub slug: String,
-    pub plan: Option<String>,
 }
 
 // ─────────────────────────── Users ───────────────────────────
@@ -333,13 +329,9 @@ mod tests {
 
     #[test]
     fn test_create_tenant_deserialization() {
-        let ct: CreateTenant =
-            serde_json::from_str(r#"{"name": "Acme", "slug": "acme", "plan": "pro"}"#).unwrap();
+        let ct: CreateTenant = serde_json::from_str(r#"{"name": "Acme", "slug": "acme"}"#).unwrap();
+        assert_eq!(ct.name, "Acme");
         assert_eq!(ct.slug, "acme");
-        assert_eq!(ct.plan, Some("pro".to_string()));
-
-        let ct: CreateTenant = serde_json::from_str(r#"{"name": "Test", "slug": "test"}"#).unwrap();
-        assert!(ct.plan.is_none());
 
         assert!(
             serde_json::from_str::<CreateTenant>(r#"{"name": "Test"}"#).is_err(),

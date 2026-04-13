@@ -16,10 +16,7 @@ type SettingsData = {
   id?: string;
   name?: string;
   slug?: string;
-  plan?: string;
   created_at?: string;
-  max_agents?: number;
-  max_events_day?: number;
 };
 
 const SUB_PAGES = [
@@ -81,7 +78,6 @@ export default function SettingsPage() {
           <div className="space-y-0 divide-y divide-border">
             <InfoRow label="Tenant Name" value={settings?.name ?? "—"} />
             <InfoRow label="Tenant Slug" value={settings?.slug ?? "—"} />
-            <InfoRow label="Plan" value={settings?.plan ?? "Free"} />
             <InfoRow
               label="Created"
               value={
@@ -90,18 +86,6 @@ export default function SettingsPage() {
                   : "—"
               }
             />
-            {settings?.max_agents != null && (
-              <InfoRow
-                label="Max Brokers"
-                value={String(settings.max_agents)}
-              />
-            )}
-            {settings?.max_events_day != null && (
-              <InfoRow
-                label="Max Events/Day"
-                value={settings.max_events_day.toLocaleString()}
-              />
-            )}
           </div>
         )}
       </div>
