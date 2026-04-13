@@ -281,6 +281,78 @@
         }
       }
     },
+    "/api/v1/auth/accept-invite": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Accept an invitation: atomically claims the token, creates the user, and issues session tokens.",
+        "operationId": "accept_invite",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInviteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "404": {
+            "description": "Invite not found or expired"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/invite/{token}": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Look up a pending invite by token to populate the accept-invite form.",
+        "operationId": "get_invite",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "description": "Invite token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitePreviewResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Invite not found or expired"
+          }
+        }
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "tags": [
@@ -2009,6 +2081,27 @@
   },
   "components": {
     "schemas": {
+      "AcceptInviteRequest": {
+        "type": "object",
+        "required": [
+          "token",
+          "password"
+        ],
+        "properties": {
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "password": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      },
       "AlertChannel": {
         "oneOf": [
           {
@@ -3202,21 +3295,63 @@
       },
       "InviteMemberResponse": {
         "type": "object",
-        "description": "Invite member response.",
+        "description": "Invite member response.\n\n`invite_url` is always returned so the admin can share the link manually\nif email delivery is unavailable or disabled. `email_sent` tells the UI\nwhether the invite email was also delivered automatically.",
         "required": [
-          "id",
+          "invite_id",
           "email",
-          "role"
+          "role",
+          "invite_url",
+          "expires_at",
+          "email_sent"
         ],
         "properties": {
           "email": {
             "type": "string"
           },
-          "id": {
+          "email_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email_sent": {
+            "type": "boolean"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "invite_id": {
             "type": "string",
             "format": "uuid"
           },
+          "invite_url": {
+            "type": "string"
+          },
           "role": {
+            "type": "string"
+          }
+        }
+      },
+      "InvitePreviewResponse": {
+        "type": "object",
+        "required": [
+          "email",
+          "role",
+          "tenant_name",
+          "tenant_slug"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "tenant_name": {
+            "type": "string"
+          },
+          "tenant_slug": {
             "type": "string"
           }
         }

@@ -84,6 +84,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/accept-invite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept an invitation: atomically claims the token, creates the user, and issues session tokens. */
+        post: operations["accept_invite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/invite/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Look up a pending invite by token to populate the accept-invite form. */
+        get: operations["get_invite"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login": {
         parameters: {
             query?: never;
@@ -877,6 +911,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AcceptInviteRequest: {
+            display_name?: string | null;
+            password: string;
+            token: string;
+        };
         /** @description Alert notification channel configuration. */
         AlertChannel: {
             /** @enum {string} */
@@ -1202,12 +1241,29 @@ export interface components {
             email: string;
             role: string;
         };
-        /** @description Invite member response. */
+        /**
+         * @description Invite member response.
+         *
+         *     `invite_url` is always returned so the admin can share the link manually
+         *     if email delivery is unavailable or disabled. `email_sent` tells the UI
+         *     whether the invite email was also delivered automatically.
+         */
         InviteMemberResponse: {
             email: string;
+            email_error?: string | null;
+            email_sent: boolean;
+            /** Format: date-time */
+            expires_at: string;
             /** Format: uuid */
-            id: string;
+            invite_id: string;
+            invite_url: string;
             role: string;
+        };
+        InvitePreviewResponse: {
+            email: string;
+            role: string;
+            tenant_name: string;
+            tenant_slug: string;
         };
         LoginRequest: {
             email: string;
@@ -2007,6 +2063,72 @@ export interface operations {
                 content: {
                     "application/json": unknown;
                 };
+            };
+        };
+    };
+    accept_invite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptInviteRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthResponse"];
+                };
+            };
+            /** @description Validation error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invite not found or expired */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_invite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Invite token */
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitePreviewResponse"];
+                };
+            };
+            /** @description Invite not found or expired */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

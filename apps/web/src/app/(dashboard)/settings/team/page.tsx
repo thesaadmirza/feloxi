@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -12,9 +12,18 @@ import {
   CheckCircle,
   Shield,
   Trash2,
+  Copy,
+  Check,
 } from "lucide-react";
 import { $api, fetchClient, unwrap } from "@/lib/api";
 import { Skeleton } from "@/components/shared/skeleton";
+
+type InviteResult = {
+  email: string;
+  invite_url: string;
+  email_sent: boolean;
+  email_error?: string | null;
+};
 
 type TeamMember = {
   id: string;
@@ -25,7 +34,7 @@ type TeamMember = {
   is_active?: boolean;
 };
 
-const ROLES = ["admin", "editor", "viewer"] as const;
+const DEFAULT_INVITE_ROLE = "viewer";
 
 function RoleBadge({ role }: { role: string }) {
   const colors: Record<string, string> = {
@@ -48,38 +57,67 @@ function RoleBadge({ role }: { role: string }) {
 export default function TeamPage() {
   const router = useRouter();
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<(typeof ROLES)[number]>("viewer");
+  const [inviteRole, setInviteRole] = useState<string>("");
   const [inviting, setInviting] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
-  const [inviteSuccess, setInviteSuccess] = useState(false);
+  const [inviteResult, setInviteResult] = useState<InviteResult | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
 
   const { data, isLoading, isError, error, refetch } = $api.useQuery("get", "/api/v1/team");
 
   const members = (data?.members ?? []) as TeamMember[];
+  const availableRoles: string[] = (data?.roles ?? []).map((r) => r.name);
+
+  useEffect(() => {
+    if (inviteRole || availableRoles.length === 0) return;
+    setInviteRole(
+      availableRoles.includes(DEFAULT_INVITE_ROLE) ? DEFAULT_INVITE_ROLE : availableRoles[0]
+    );
+  }, [availableRoles, inviteRole]);
 
   async function handleInvite(e: React.FormEvent) {
     e.preventDefault();
-    if (!inviteEmail.trim() || inviting) return;
+    if (!inviteEmail.trim() || !inviteRole || inviting) return;
     setInviting(true);
     setInviteError(null);
-    setInviteSuccess(false);
+    setInviteResult(null);
+    setLinkCopied(false);
 
     try {
-      await unwrap(
+      const result = (await unwrap(
         fetchClient.POST("/api/v1/team/members", {
           body: { email: inviteEmail.trim(), role: inviteRole } as never,
         })
-      );
-      setInviteSuccess(true);
+      )) as InviteResult;
+      setInviteResult(result);
       setInviteEmail("");
       refetch();
     } catch (err) {
       setInviteError(err instanceof Error ? err.message : "Failed to send invitation");
     } finally {
       setInviting(false);
+    }
+  }
+
+  async function copyInviteLink() {
+    if (!inviteResult) return;
+    try {
+      await navigator.clipboard.writeText(inviteResult.invite_url);
+      setLinkCopied(true);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      // Clipboard permission denied — leave the URL visible for manual copy.
     }
   }
 
@@ -215,10 +253,46 @@ export default function TeamPage() {
           <h2 className="font-semibold text-foreground">Add Team Member</h2>
         </div>
 
-        {inviteSuccess && (
-          <div className="flex items-center gap-2 p-3 rounded-lg border border-[#22c55e]/40 bg-[#22c55e]/10 text-[#22c55e] text-sm mb-4">
-            <CheckCircle className="h-4 w-4 shrink-0" />
-            Team member added successfully!
+        {inviteResult && (
+          <div className="p-4 rounded-lg border border-[#22c55e]/40 bg-[#22c55e]/5 mb-4 space-y-3">
+            <div className="flex items-start gap-2 text-[#22c55e] text-sm">
+              <CheckCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-medium">
+                  Invitation created for {inviteResult.email}
+                </p>
+                <p className="text-xs text-[#22c55e]/80">
+                  {inviteResult.email_sent
+                    ? "An email with the sign-in link has been sent."
+                    : inviteResult.email_error
+                      ? `Email delivery failed (${inviteResult.email_error}). Share the link below manually.`
+                      : "Email was not sent. Share the link below manually."}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded-md bg-secondary border border-border">
+              <code className="flex-1 text-xs text-foreground truncate select-all">
+                {inviteResult.invite_url}
+              </code>
+              <button
+                type="button"
+                onClick={copyInviteLink}
+                className="shrink-0 flex items-center gap-1 px-2 py-1 rounded bg-background border border-border text-xs text-foreground hover:bg-secondary transition"
+                title="Copy invite link"
+              >
+                {linkCopied ? (
+                  <>
+                    <Check className="h-3 w-3" />
+                    Copied
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3 w-3" />
+                    Copy
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         )}
 
@@ -250,12 +324,10 @@ export default function TeamPage() {
               </label>
               <select
                 value={inviteRole}
-                onChange={(e) =>
-                  setInviteRole(e.target.value as (typeof ROLES)[number])
-                }
+                onChange={(e) => setInviteRole(e.target.value)}
                 className="w-full bg-secondary border border-border text-foreground text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring"
               >
-                {ROLES.map((r) => (
+                {availableRoles.map((r) => (
                   <option key={r} value={r}>
                     {r.charAt(0).toUpperCase() + r.slice(1)}
                   </option>
