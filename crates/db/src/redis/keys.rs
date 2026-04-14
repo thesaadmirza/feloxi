@@ -22,6 +22,10 @@ pub fn task_state(tenant_id: Uuid, task_id: &str) -> String {
     format!("fp:{tenant_id}:task:{task_id}:state")
 }
 
+pub fn task_name_cache(tenant_id: Uuid, task_id: &str) -> String {
+    format!("fp:{tenant_id}:task:{task_id}:name")
+}
+
 pub fn tasks_recent(tenant_id: Uuid) -> String {
     format!("fp:{tenant_id}:tasks:recent")
 }

@@ -17,7 +17,7 @@ pub async fn ingest_raw_task_events(
     tenant_id: Uuid,
     source_id: Uuid,
     broker_type: &str,
-    raw_events: Vec<RawTaskEvent>,
+    mut raw_events: Vec<RawTaskEvent>,
 ) {
     if raw_events.is_empty() {
         return;
@@ -26,6 +26,8 @@ pub async fn ingest_raw_task_events(
     let batch_size = raw_events.len() as u64;
     let _ =
         db::redis::cache::incr_pipeline_counter(&state.redis, "events_received", batch_size).await;
+
+    backfill_task_names(&state.redis, tenant_id, &mut raw_events).await;
 
     // Normalize into ClickHouse rows
     let task_rows: Vec<_> = raw_events
@@ -258,5 +260,52 @@ async fn buffer_for_retry<T: serde::Serialize>(
                 "Retry buffer unavailable; events dropped"
             );
         }
+    }
+}
+
+/// Fill blank `task_name` fields by stitching from other events in the same
+/// batch or a short-lived Redis cache populated from prior task-received
+/// events. Celery emits the task name on task-received and usually omits it
+/// on later lifecycle events, which leaves SUCCESS/FAILURE rows nameless and
+/// invisible to aggregates that require `task_name != ''`.
+async fn backfill_task_names(
+    redis: &fred::prelude::Pool,
+    tenant_id: Uuid,
+    events: &mut [RawTaskEvent],
+) {
+    let mut known: HashMap<String, String> = HashMap::new();
+    for e in events.iter() {
+        if !e.task_name.is_empty() {
+            known.entry(e.task_id.clone()).or_insert_with(|| e.task_name.clone());
+        }
+    }
+
+    let need: Vec<String> = events
+        .iter()
+        .filter(|e| e.task_name.is_empty() && !known.contains_key(&e.task_id))
+        .map(|e| e.task_id.clone())
+        .collect();
+
+    if !need.is_empty() {
+        if let Ok(vals) = db::redis::cache::get_task_names(redis, tenant_id, &need).await {
+            for (tid, name) in need.iter().zip(vals.into_iter()) {
+                if let Some(name) = name {
+                    known.insert(tid.clone(), name);
+                }
+            }
+        }
+    }
+
+    for e in events.iter_mut() {
+        if e.task_name.is_empty() {
+            if let Some(name) = known.get(&e.task_id) {
+                e.task_name = name.clone();
+            }
+        }
+    }
+
+    let to_cache: Vec<(String, String)> = known.into_iter().collect();
+    if !to_cache.is_empty() {
+        let _ = db::redis::cache::cache_task_names(redis, tenant_id, &to_cache).await;
     }
 }

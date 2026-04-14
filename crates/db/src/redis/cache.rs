@@ -195,6 +195,49 @@ pub async fn get_pipeline_counters(
     Ok(map)
 }
 
+// ─────────────────────────── Task Name Cache ───────────────────────────
+
+/// Celery publishes task names on task-received but omits them on later
+/// lifecycle events. Caching the name for an hour is plenty to stitch every
+/// terminal event with the name that arrived at receive time.
+const TASK_NAME_TTL_SECS: i64 = 3600;
+
+/// Look up cached task names in one round-trip. Returns a Vec parallel to
+/// `task_ids`; each element is `Some(name)` if cached, `None` otherwise.
+pub async fn get_task_names(
+    pool: &Pool,
+    tenant_id: Uuid,
+    task_ids: &[String],
+) -> Result<Vec<Option<String>>, Error> {
+    if task_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let redis_keys: Vec<String> =
+        task_ids.iter().map(|tid| keys::task_name_cache(tenant_id, tid)).collect();
+    let vals: Vec<Option<String>> = pool.mget(redis_keys).await?;
+    Ok(vals)
+}
+
+/// Cache a set of (task_id, task_name) pairs in one pipelined round-trip.
+pub async fn cache_task_names(
+    pool: &Pool,
+    tenant_id: Uuid,
+    entries: &[(String, String)],
+) -> Result<(), Error> {
+    if entries.is_empty() {
+        return Ok(());
+    }
+    let pipe = pool.next().pipeline();
+    for (task_id, name) in entries {
+        let key = keys::task_name_cache(tenant_id, task_id);
+        let _: () = pipe
+            .set(&key, name.as_str(), Some(Expiration::EX(TASK_NAME_TTL_SECS)), None, false)
+            .await?;
+    }
+    pipe.all::<()>().await?;
+    Ok(())
+}
+
 // ─────────────────────────── Retry Queues ───────────────────────────
 
 /// With typical batches (~500 events × ~200 bytes), this caps Redis memory at
