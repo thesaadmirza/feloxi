@@ -109,6 +109,10 @@ pub struct AppConfig {
     /// Public base URL of the web app (e.g. "https://feloxi.staging.fleetit.com").
     /// Used to build invite links. Falls back to the first CORS origin if unset.
     pub app_base_url: String,
+    /// System-level SMTP config for auth emails (magic link, invites). Separate
+    /// from per-tenant SMTP which is used for alerts. `None` if `SMTP_HOST` is
+    /// unset — in that case magic-link requests return 503.
+    pub system_smtp: Option<alerting::channels::email::SmtpConfig>,
 }
 
 impl AppConfig {
@@ -141,8 +145,24 @@ impl AppConfig {
                     .and_then(|v| v.split(',').next().map(|s| s.trim().to_string()))
                     .unwrap_or_else(|| "http://localhost:3000".into())
             }),
+            system_smtp: load_system_smtp(),
         })
     }
+}
+
+fn load_system_smtp() -> Option<alerting::channels::email::SmtpConfig> {
+    let host = std::env::var("SMTP_HOST").ok()?;
+    if host.is_empty() {
+        return None;
+    }
+    Some(alerting::channels::email::SmtpConfig {
+        host,
+        port: std::env::var("SMTP_PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(587),
+        username: std::env::var("SMTP_USERNAME").unwrap_or_default(),
+        password: std::env::var("SMTP_PASSWORD").unwrap_or_default(),
+        from_address: std::env::var("SMTP_FROM").unwrap_or_else(|_| "noreply@feloxi.dev".into()),
+        tls: std::env::var("SMTP_TLS").map(|v| v != "false").unwrap_or(true),
+    })
 }
 
 #[cfg(test)]

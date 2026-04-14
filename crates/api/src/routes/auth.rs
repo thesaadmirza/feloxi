@@ -533,6 +533,157 @@ pub async fn accept_invite(
     Ok((cookies, Json(body)))
 }
 
+// ─────────────────────────── Magic Link Login ───────────────────────────
+
+const MAGIC_LINK_TTL_MINUTES: i64 = 15;
+
+#[derive(Deserialize, ToSchema)]
+pub struct MagicLinkRequest {
+    pub email: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct MagicLinkRequestResponse {
+    pub ok: bool,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct MagicLinkVerifyRequest {
+    pub token: String,
+    /// If the email belongs to multiple orgs, the client re-submits with the
+    /// chosen slug.
+    pub tenant_slug: Option<String>,
+}
+
+/// Send a one-time login link to the given email. Always returns 200 to avoid
+/// leaking which addresses have accounts.
+#[utoipa::path(post, path = "/api/v1/auth/magic-link", tag = "auth",
+    request_body = MagicLinkRequest,
+    responses((status = 200, body = MagicLinkRequestResponse))
+)]
+pub async fn magic_link_request(
+    State(state): State<AppState>,
+    Json(req): Json<MagicLinkRequest>,
+) -> Result<Json<MagicLinkRequestResponse>, AppError> {
+    let smtp = state
+        .config
+        .system_smtp
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("System SMTP not configured".into()))?;
+
+    let email = req.email.trim().to_lowercase();
+    if email.is_empty() {
+        return Err(AppError::Validation("Email required".into()));
+    }
+
+    // Only send if at least one user matches — but always return 200 either way.
+    let users = db::postgres::users::find_users_by_email(&state.pg, &email).await?;
+    if !users.is_empty() {
+        let token = auth::jwt::generate_refresh_token();
+        let token_hash = auth::jwt::hash_refresh_token(&token);
+        let expires_at = chrono::Utc::now() + chrono::Duration::minutes(MAGIC_LINK_TTL_MINUTES);
+
+        db::postgres::magic_links::create_magic_link(&state.pg, &email, &token_hash, expires_at)
+            .await?;
+
+        let link = format!("{}/auth/magic-link/{}", state.config.app_base_url, token);
+        let subject = "Your Feloxi sign-in link";
+        let html = magic_link_email_html(&link);
+
+        if let Err(e) =
+            alerting::channels::email::send_email(std::slice::from_ref(&email), subject, html, smtp)
+                .await
+        {
+            tracing::error!(error = %e, "Failed to send magic link email");
+        }
+    }
+
+    Ok(Json(MagicLinkRequestResponse { ok: true }))
+}
+
+fn magic_link_email_html(link: &str) -> String {
+    format!(
+        r#"<!DOCTYPE html>
+<html><body style="font-family:system-ui,-apple-system,sans-serif;background:#0a0a0a;color:#e5e5e5;padding:40px 20px;">
+<div style="max-width:480px;margin:0 auto;background:#171717;border:1px solid #262626;border-radius:12px;padding:32px;">
+<h1 style="margin:0 0 16px;font-size:20px;color:#fafafa;">Sign in to Feloxi</h1>
+<p style="margin:0 0 24px;color:#a3a3a3;line-height:1.5;">Click the button below to sign in. This link expires in {ttl} minutes and can only be used once.</p>
+<a href="{link}" style="display:inline-block;background:#fafafa;color:#0a0a0a;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:500;">Sign in</a>
+<p style="margin:24px 0 0;color:#737373;font-size:13px;line-height:1.5;">If the button doesn't work, paste this URL into your browser:<br><span style="color:#a3a3a3;word-break:break-all;">{link}</span></p>
+<p style="margin:24px 0 0;color:#737373;font-size:12px;">If you didn't request this, you can ignore this email.</p>
+</div></body></html>"#,
+        link = link,
+        ttl = MAGIC_LINK_TTL_MINUTES,
+    )
+}
+
+/// Verify a magic link token and issue a session. If the user's email exists
+/// in multiple orgs and no `tenant_slug` is given, returns an org picker.
+#[utoipa::path(post, path = "/api/v1/auth/magic-link/verify", tag = "auth",
+    request_body = MagicLinkVerifyRequest,
+    responses(
+        (status = 200, body = AuthResponse),
+        (status = 200, body = OrgPickerResponse, description = "Org selection needed"),
+        (status = 401, description = "Invalid or expired token"),
+    )
+)]
+pub async fn magic_link_verify(
+    State(state): State<AppState>,
+    Json(req): Json<MagicLinkVerifyRequest>,
+) -> Result<axum::response::Response, AppError> {
+    let token_hash = auth::jwt::hash_refresh_token(&req.token);
+
+    let consumed = db::postgres::magic_links::consume_magic_link(&state.pg, &token_hash)
+        .await?
+        .ok_or_else(|| AppError::Unauthorized("Invalid or expired link".into()))?;
+
+    let email = consumed.email;
+
+    let (tenant, user) = match req.tenant_slug.as_deref().filter(|s| !s.is_empty()) {
+        Some(slug) => {
+            let t = db::postgres::tenants::get_tenant_by_slug(&state.pg, slug)
+                .await
+                .map_err(|_| AppError::NotFound("Organization not found".into()))?;
+            let u = db::postgres::users::find_user_by_email(&state.pg, t.id, &email)
+                .await?
+                .ok_or_else(|| {
+                    AppError::Unauthorized("You are not a member of this organization".into())
+                })?;
+            (t, u)
+        }
+        None => {
+            let users = db::postgres::users::find_users_by_email(&state.pg, &email).await?;
+            match users.len() {
+                0 => return Err(AppError::Unauthorized("Account not found".into())),
+                1 => {
+                    let user = users.into_iter().next().unwrap();
+                    let tenant =
+                        db::postgres::tenants::get_tenant_by_id(&state.pg, user.tenant_id).await?;
+                    (tenant, user)
+                }
+                _ => {
+                    let mut orgs = Vec::new();
+                    for u in &users {
+                        if let Ok(t) =
+                            db::postgres::tenants::get_tenant_by_id(&state.pg, u.tenant_id).await
+                        {
+                            orgs.push(OrgSummary { slug: t.slug, name: t.name });
+                        }
+                    }
+                    let body = OrgPickerResponse { needs_org_selection: true, organizations: orgs };
+                    return Ok(axum::response::IntoResponse::into_response(Json(body)));
+                }
+            }
+        }
+    };
+
+    let roles = db::postgres::rbac::get_user_roles(&state.pg, user.id).await?;
+    let role_names: Vec<String> = roles.iter().map(|r| r.name.clone()).collect();
+
+    let (cookies, body) = issue_session(&state, &user, &tenant, role_names).await?;
+    Ok(axum::response::IntoResponse::into_response((cookies, Json(body))))
+}
+
 pub fn router() -> Router<AppState> {
     use axum::routing::get;
     Router::new()
@@ -545,4 +696,6 @@ pub fn router() -> Router<AppState> {
         .route("/auth/switch-org", post(switch_org))
         .route("/auth/invite/{token}", get(get_invite))
         .route("/auth/accept-invite", post(accept_invite))
+        .route("/auth/magic-link", post(magic_link_request))
+        .route("/auth/magic-link/verify", post(magic_link_verify))
 }

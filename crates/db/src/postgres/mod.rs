@@ -1,6 +1,7 @@
 pub mod alert_rules;
 pub mod api_keys;
 pub mod broker_configs;
+pub mod magic_links;
 pub mod models;
 pub mod pool;
 pub mod rbac;

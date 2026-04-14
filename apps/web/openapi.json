@@ -399,6 +399,71 @@
         }
       }
     },
+    "/api/v1/auth/magic-link": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Send a one-time login link to the given email. Always returns 200 to avoid\nleaking which addresses have accounts.",
+        "operationId": "magic_link_request",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MagicLinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MagicLinkRequestResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/magic-link/verify": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Verify a magic link token and issue a session. If the user's email exists\nin multiple orgs and no `tenant_slug` is given, returns an org picker.",
+        "operationId": "magic_link_verify",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MagicLinkVerifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Org selection needed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgPickerResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or expired token"
+          }
+        }
+      }
+    },
     "/api/v1/auth/me": {
       "get": {
         "tags": [
@@ -3537,6 +3602,46 @@
               "null"
             ],
             "description": "Optional: if the user belongs to multiple orgs, they must specify which one."
+          }
+        }
+      },
+      "MagicLinkRequest": {
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          }
+        }
+      },
+      "MagicLinkRequestResponse": {
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "MagicLinkVerifyRequest": {
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "tenant_slug": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "If the email belongs to multiple orgs, the client re-submits with the\nchosen slug."
+          },
+          "token": {
+            "type": "string"
           }
         }
       },
