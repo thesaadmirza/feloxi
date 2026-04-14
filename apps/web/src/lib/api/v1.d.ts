@@ -150,6 +150,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/magic-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a one-time login link to the given email. Always returns 200 to avoid
+         *     leaking which addresses have accounts.
+         */
+        post: operations["magic_link_request"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/magic-link/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify a magic link token and issue a session. If the user's email exists
+         *     in multiple orgs and no `tenant_slug` is given, returns an org picker.
+         */
+        post: operations["magic_link_verify"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/me": {
         parameters: {
             query?: never;
@@ -1271,6 +1311,20 @@ export interface components {
             /** @description Optional: if the user belongs to multiple orgs, they must specify which one. */
             tenant_slug?: string | null;
         };
+        MagicLinkRequest: {
+            email: string;
+        };
+        MagicLinkRequestResponse: {
+            ok: boolean;
+        };
+        MagicLinkVerifyRequest: {
+            /**
+             * @description If the email belongs to multiple orgs, the client re-submits with the
+             *     chosen slug.
+             */
+            tenant_slug?: string | null;
+            token: string;
+        };
         MetricsParams: {
             /**
              * Format: uuid
@@ -2200,6 +2254,60 @@ export interface operations {
         responses: {
             /** @description Logged out */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    magic_link_request: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MagicLinkRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MagicLinkRequestResponse"];
+                };
+            };
+        };
+    };
+    magic_link_verify: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MagicLinkVerifyRequest"];
+            };
+        };
+        responses: {
+            /** @description Org selection needed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgPickerResponse"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };
