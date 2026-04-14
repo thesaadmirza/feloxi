@@ -4245,11 +4245,16 @@
         "type": "object",
         "required": [
           "needs_setup",
-          "allow_signup"
+          "allow_signup",
+          "magic_link_enabled"
         ],
         "properties": {
           "allow_signup": {
             "type": "boolean"
+          },
+          "magic_link_enabled": {
+            "type": "boolean",
+            "description": "Whether system SMTP is configured. When false, the frontend hides the\nmagic-link sign-in path and falls back to password-only login."
           },
           "needs_setup": {
             "type": "boolean"

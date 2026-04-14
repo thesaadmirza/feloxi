@@ -1521,6 +1521,11 @@ export interface components {
         };
         SetupStatusResponse: {
             allow_signup: boolean;
+            /**
+             * @description Whether system SMTP is configured. When false, the frontend hides the
+             *     magic-link sign-in path and falls back to password-only login.
+             */
+            magic_link_enabled: boolean;
             needs_setup: boolean;
         };
         SmtpSettings: {

@@ -9,6 +9,9 @@ use common::AppError;
 pub struct SetupStatusResponse {
     pub needs_setup: bool,
     pub allow_signup: bool,
+    /// Whether system SMTP is configured. When false, the frontend hides the
+    /// magic-link sign-in path and falls back to password-only login.
+    pub magic_link_enabled: bool,
 }
 
 #[utoipa::path(
@@ -22,6 +25,7 @@ pub async fn status(State(state): State<AppState>) -> Result<Json<SetupStatusRes
     Ok(Json(SetupStatusResponse {
         needs_setup: !has_tenants,
         allow_signup: state.config.allow_signup,
+        magic_link_enabled: state.config.system_smtp.is_some(),
     }))
 }
 

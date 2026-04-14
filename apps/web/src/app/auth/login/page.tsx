@@ -50,21 +50,31 @@ export default function LoginPage() {
   const [orgs, setOrgs] = useState<OrgSummary[] | null>(null);
   const [pickingOrg, setPickingOrg] = useState(false);
 
-  const [mode, setMode] = useState<"magic" | "password">("magic");
+  const [mode, setMode] = useState<"magic" | "password">("password");
+  const [magicLinkEnabled, setMagicLinkEnabled] = useState(false);
   const [magicSending, setMagicSending] = useState(false);
   const [magicSentTo, setMagicSentTo] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/v1/setup/status", { credentials: "include" })
       .then((r) => r.json())
-      .then((data: { needs_setup: boolean; allow_signup: boolean }) => {
-        if (data.needs_setup) {
-          router.replace("/setup");
-        } else {
-          setAllowSignup(data.allow_signup);
-          setCheckingSetup(false);
-        }
-      })
+      .then(
+        (data: {
+          needs_setup: boolean;
+          allow_signup: boolean;
+          magic_link_enabled?: boolean;
+        }) => {
+          if (data.needs_setup) {
+            router.replace("/setup");
+          } else {
+            setAllowSignup(data.allow_signup);
+            const magicEnabled = !!data.magic_link_enabled;
+            setMagicLinkEnabled(magicEnabled);
+            if (magicEnabled) setMode("magic");
+            setCheckingSetup(false);
+          }
+        },
+      )
       .catch(() => setCheckingSetup(false));
   }, [router]);
 
@@ -332,13 +342,15 @@ export default function LoginPage() {
                 {magicSending ? "Sending…" : "Email me a sign-in link"}
               </button>
 
-              <button
-                type="button"
-                onClick={() => setMode("password")}
-                className="w-full text-center text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
-              >
-                Sign in with password instead
-              </button>
+              {magicLinkEnabled && (
+                <button
+                  type="button"
+                  onClick={() => setMode("password")}
+                  className="w-full text-center text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+                >
+                  Sign in with password instead
+                </button>
+              )}
             </form>
           ) : (
             <form onSubmit={handleSubmit} noValidate className="space-y-4">
@@ -400,13 +412,15 @@ export default function LoginPage() {
                 {loading ? "Signing in…" : "Sign in"}
               </button>
 
-              <button
-                type="button"
-                onClick={() => setMode("magic")}
-                className="w-full text-center text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
-              >
-                Email me a sign-in link instead
-              </button>
+              {magicLinkEnabled && (
+                <button
+                  type="button"
+                  onClick={() => setMode("magic")}
+                  className="w-full text-center text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+                >
+                  Email me a sign-in link instead
+                </button>
+              )}
             </form>
           )}
         </div>
