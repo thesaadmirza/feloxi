@@ -127,6 +127,112 @@ fn spawn_background_tasks(state: AppState) {
             }
         }
     });
+
+    let s = state.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+        interval.tick().await; // interval fires immediately on the first tick; skip it
+        loop {
+            interval.tick().await;
+            tokio::join!(
+                drain_retry_queue::<db::clickhouse::task_events::TaskEventRow>(&s),
+                drain_retry_queue::<db::clickhouse::worker_events::WorkerEventRow>(&s),
+            );
+        }
+    });
+}
+
+/// Max batches drained per queue per tick. Bounds the peak row count flattened
+/// into one ClickHouse insert (roughly this × typical batch size), keeping the
+/// transient memory spike during replay well under 100 MB.
+const RETRY_DRAIN_PER_CYCLE: usize = 100;
+
+trait RetryRow: serde::de::DeserializeOwned + Send + Sync + 'static {
+    const KIND: &'static str;
+    fn insert_batch(
+        ch: &clickhouse::Client,
+        rows: &[Self],
+    ) -> impl std::future::Future<Output = Result<(), common::AppError>> + Send;
+}
+
+impl RetryRow for db::clickhouse::task_events::TaskEventRow {
+    const KIND: &'static str = db::redis::keys::RETRY_KIND_TASK;
+    async fn insert_batch(ch: &clickhouse::Client, rows: &[Self]) -> Result<(), common::AppError> {
+        db::clickhouse::task_events::insert_task_events(ch, rows).await
+    }
+}
+
+impl RetryRow for db::clickhouse::worker_events::WorkerEventRow {
+    const KIND: &'static str = db::redis::keys::RETRY_KIND_WORKER;
+    async fn insert_batch(ch: &clickhouse::Client, rows: &[Self]) -> Result<(), common::AppError> {
+        db::clickhouse::worker_events::insert_worker_events(ch, rows).await
+    }
+}
+
+async fn drain_retry_queue<T: RetryRow>(state: &AppState) {
+    let jsons =
+        match db::redis::cache::pop_retry_batches(&state.redis, T::KIND, RETRY_DRAIN_PER_CYCLE)
+            .await
+        {
+            Ok(v) if v.is_empty() => return,
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(kind = T::KIND, error = ?e, "Failed to pop retry queue");
+                return;
+            }
+        };
+
+    let mut good_jsons: Vec<String> = Vec::with_capacity(jsons.len());
+    let mut all_rows: Vec<T> = Vec::new();
+    for json in jsons {
+        match serde_json::from_str::<Vec<T>>(&json) {
+            Ok(mut rows) => {
+                all_rows.append(&mut rows);
+                good_jsons.push(json);
+            }
+            Err(e) => {
+                // Re-parse as untyped to recover row count for drop metrics.
+                let dropped = serde_json::from_str::<Vec<serde_json::Value>>(&json)
+                    .map(|v| v.len() as u64)
+                    .unwrap_or(1);
+                let _ = db::redis::cache::incr_pipeline_counter(
+                    &state.redis,
+                    "events_dropped",
+                    dropped,
+                )
+                .await;
+                tracing::error!(
+                    kind = T::KIND,
+                    dropped,
+                    error = ?e,
+                    "Failed to deserialize buffered batch; discarding"
+                );
+            }
+        }
+    }
+
+    if all_rows.is_empty() {
+        return;
+    }
+    let count = all_rows.len() as u64;
+
+    match T::insert_batch(&state.ch, &all_rows).await {
+        Ok(_) => {
+            let _ = db::redis::cache::incr_pipeline_counter(&state.redis, "events_inserted", count)
+                .await;
+            tracing::info!(count, kind = T::KIND, "Replayed buffered batches");
+        }
+        Err(e) => {
+            let _ =
+                db::redis::cache::requeue_retry_batches(&state.redis, T::KIND, good_jsons).await;
+            tracing::debug!(
+                count,
+                kind = T::KIND,
+                error = ?e,
+                "Batch replay still failing; requeued"
+            );
+        }
+    }
 }
 
 async fn run_alert_evaluation(
