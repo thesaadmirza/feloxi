@@ -336,8 +336,6 @@ pub async fn refresh(
         .await
         .map_err(|_| AppError::Unauthorized("Invalid or expired refresh token".into()))?;
 
-    db::postgres::refresh_tokens::revoke_refresh_token(&state.pg, stored.id).await?;
-
     let user = db::postgres::users::get_user_by_id(&state.pg, stored.user_id)
         .await
         .map_err(|_| AppError::Unauthorized("User not found".into()))?;
@@ -348,7 +346,13 @@ pub async fn refresh(
     let roles = db::postgres::rbac::get_user_roles(&state.pg, user.id).await?;
     let role_names: Vec<String> = roles.iter().map(|r| r.name.clone()).collect();
 
+    // Issue the new session first; only revoke the old token once the new one
+    // is ready. A transient Postgres blip mid-rotation used to leave the user
+    // with no valid session at all.
     let (cookies, body) = issue_session(&state, &user, &tenant, role_names).await?;
+    if let Err(e) = db::postgres::refresh_tokens::revoke_refresh_token(&state.pg, stored.id).await {
+        tracing::warn!(error = %e, "Failed to revoke old refresh token after rotation");
+    }
     Ok((cookies, Json(body)))
 }
 
