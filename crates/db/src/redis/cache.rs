@@ -195,6 +195,55 @@ pub async fn get_pipeline_counters(
     Ok(map)
 }
 
+// ─────────────────────────── Retry Queues ───────────────────────────
+
+/// With typical batches (~500 events × ~200 bytes), this caps Redis memory at
+/// a few hundred MB per queue during prolonged outages.
+pub const MAX_RETRY_QUEUE_LEN: i64 = 2_000;
+
+/// Serialize a batch and enqueue it for later replay in one round-trip.
+pub async fn push_retry_batch<T: Serialize + ?Sized>(
+    pool: &Pool,
+    kind: &str,
+    batch: &T,
+) -> Result<(), Error> {
+    let json =
+        serde_json::to_string(batch).map_err(|e| Error::new(ErrorKind::Parse, e.to_string()))?;
+    let key = keys::retry_queue(kind);
+    let pipe = pool.next().pipeline();
+    let _: () = pipe.lpush(&key, json).await?;
+    let _: () = pipe.ltrim(&key, 0, MAX_RETRY_QUEUE_LEN - 1).await?;
+    pipe.all::<()>().await?;
+    Ok(())
+}
+
+/// Pop up to `count` oldest buffered batches (FIFO) in a single round-trip.
+pub async fn pop_retry_batches(
+    pool: &Pool,
+    kind: &str,
+    count: usize,
+) -> Result<Vec<String>, Error> {
+    let key = keys::retry_queue(kind);
+    let vals: Option<Vec<String>> = pool.rpop(&key, Some(count)).await?;
+    Ok(vals.unwrap_or_default())
+}
+
+/// Requeue popped batches at the head so they survive the next trim and stay
+/// next in line for replay. Consumes `batches` to avoid re-cloning the payload
+/// on the failure path.
+pub async fn requeue_retry_batches(
+    pool: &Pool,
+    kind: &str,
+    batches: Vec<String>,
+) -> Result<(), Error> {
+    if batches.is_empty() {
+        return Ok(());
+    }
+    let key = keys::retry_queue(kind);
+    pool.lpush::<(), _, _>(&key, batches).await?;
+    Ok(())
+}
+
 // ─────────────────────────── Alert Cooldowns ───────────────────────────
 
 /// Check if alert rule is in cooldown.

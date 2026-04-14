@@ -9,12 +9,9 @@ use common::{RawTaskEvent, RawWorkerEvent};
 
 /// Ingest raw task events into the Feloxi pipeline.
 ///
-/// This is the shared event pipeline used by broker connection consumers. It:
-/// 1. Normalizes raw events into ClickHouse rows
-/// 2. Inserts into ClickHouse (with single retry on failure)
-/// 3. Records failures in the dead-letter table
-/// 4. Tracks metrics via Redis counters
-/// 5. Broadcasts to dashboard WebSocket clients
+/// Normalizes, inserts into ClickHouse (with in-flight retry + Redis-buffered
+/// replay on failure), updates Redis pipeline counters, and broadcasts to
+/// dashboard WebSocket clients.
 pub async fn ingest_raw_task_events(
     state: &AppState,
     tenant_id: Uuid,
@@ -38,9 +35,7 @@ pub async fn ingest_raw_task_events(
         })
         .collect();
 
-    // Insert into ClickHouse with single retry
-    let inserted =
-        insert_with_retry(state, tenant_id, source_id, "task", &task_rows, batch_size).await;
+    let inserted = insert_with_retry(state, &task_rows).await;
 
     if inserted {
         let _ =
@@ -132,9 +127,7 @@ pub async fn ingest_raw_worker_events(
             )
             .await;
 
-            let inserted =
-                insert_worker_with_retry(state, tenant_id, source_id, &rows_to_store, batch_size)
-                    .await;
+            let inserted = insert_worker_with_retry(state, &rows_to_store).await;
 
             if inserted {
                 let _ = db::redis::cache::incr_pipeline_counter(
@@ -193,15 +186,12 @@ pub async fn ingest_raw_worker_events(
     }
 }
 
-/// Insert task events with a single retry on failure.
-/// Returns true if insertion succeeded (on first try or retry).
+/// Returns true if the batch was persisted to ClickHouse on the first try or
+/// after the in-flight retry. Returns false if it was buffered for background
+/// replay — or truly dropped when the buffer itself is unreachable.
 async fn insert_with_retry(
     state: &AppState,
-    tenant_id: Uuid,
-    source_id: Uuid,
-    event_type: &str,
     task_rows: &[db::clickhouse::task_events::TaskEventRow],
-    batch_size: u64,
 ) -> bool {
     let first = db::clickhouse::task_events::insert_task_events(&state.ch, task_rows).await;
 
@@ -209,45 +199,21 @@ async fn insert_with_retry(
         return true;
     }
 
-    // Retry once after 100ms
+    // Retry once after 100ms — handles transient hiccups without engaging the buffer.
     let _ = db::redis::cache::incr_pipeline_counter(&state.redis, "insert_retries", 1).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     if let Err(e) = db::clickhouse::task_events::insert_task_events(&state.ch, task_rows).await {
-        let _ = db::redis::cache::incr_pipeline_counter(&state.redis, "events_dropped", batch_size)
-            .await;
-        tracing::error!(count = batch_size, ?e, "ClickHouse insert failed after retry");
-
-        // Best-effort dead-letter entry
-        let sample =
-            task_rows.first().and_then(|r| serde_json::to_string(r).ok()).unwrap_or_default();
-        let _ = db::clickhouse::system::insert_dead_letter(
-            &state.ch,
-            &db::clickhouse::system::DeadLetterEntry {
-                tenant_id,
-                event_type: event_type.to_string(),
-                error_code: "clickhouse_insert".to_string(),
-                error_message: e.to_string(),
-                retryable: true,
-                event_count: batch_size as u32,
-                sample_payload: sample,
-                agent_id: source_id,
-            },
-        )
-        .await;
-
+        buffer_for_retry(state, db::redis::keys::RETRY_KIND_TASK, task_rows, &e).await;
         return false;
     }
     true
 }
 
-/// Insert worker events with a single retry on failure.
+/// Worker-event twin of [`insert_with_retry`]; same buffering semantics.
 async fn insert_worker_with_retry(
     state: &AppState,
-    tenant_id: Uuid,
-    source_id: Uuid,
     rows: &[db::clickhouse::worker_events::WorkerEventRow],
-    batch_size: u64,
 ) -> bool {
     let first = db::clickhouse::worker_events::insert_worker_events(&state.ch, rows).await;
 
@@ -259,30 +225,38 @@ async fn insert_worker_with_retry(
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     if let Err(e) = db::clickhouse::worker_events::insert_worker_events(&state.ch, rows).await {
-        let _ = db::redis::cache::incr_pipeline_counter(&state.redis, "events_dropped", batch_size)
-            .await;
-        tracing::error!(
-            count = batch_size,
-            ?e,
-            "Worker event ClickHouse insert failed after retry"
-        );
-
-        let _ = db::clickhouse::system::insert_dead_letter(
-            &state.ch,
-            &db::clickhouse::system::DeadLetterEntry {
-                tenant_id,
-                event_type: "worker".to_string(),
-                error_code: "clickhouse_insert".to_string(),
-                error_message: e.to_string(),
-                retryable: true,
-                event_count: batch_size as u32,
-                sample_payload: String::new(),
-                agent_id: source_id,
-            },
-        )
-        .await;
-
+        buffer_for_retry(state, db::redis::keys::RETRY_KIND_WORKER, rows, &e).await;
         return false;
     }
     true
+}
+
+async fn buffer_for_retry<T: serde::Serialize>(
+    state: &AppState,
+    kind: &str,
+    rows: &[T],
+    ch_err: &common::AppError,
+) {
+    let count = rows.len() as u64;
+    match db::redis::cache::push_retry_batch(&state.redis, kind, rows).await {
+        Ok(_) => {
+            tracing::warn!(
+                count,
+                kind,
+                error = ?ch_err,
+                "ClickHouse insert failed; batch buffered for replay"
+            );
+        }
+        Err(buf_err) => {
+            let _ = db::redis::cache::incr_pipeline_counter(&state.redis, "events_dropped", count)
+                .await;
+            tracing::error!(
+                count,
+                kind,
+                error = ?buf_err,
+                ch_error = ?ch_err,
+                "Retry buffer unavailable; events dropped"
+            );
+        }
+    }
 }

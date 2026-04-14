@@ -82,6 +82,13 @@ pub fn pipeline_counter(name: &str) -> String {
     format!("fp:pipeline:{name}")
 }
 
+pub const RETRY_KIND_TASK: &str = "task_events";
+pub const RETRY_KIND_WORKER: &str = "worker_events";
+
+pub fn retry_queue(kind: &str) -> String {
+    format!("fp:retry:{kind}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
