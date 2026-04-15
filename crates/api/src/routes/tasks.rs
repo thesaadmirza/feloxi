@@ -18,6 +18,8 @@ use db::clickhouse::task_events::{TaskEventRow, TaskFilters};
 
 #[derive(Deserialize, IntoParams, ToSchema)]
 pub struct TaskListParams {
+    /// Comma-separated list of task states (e.g. `SUCCESS,FAILURE`). Empty or
+    /// missing means no state filter. A single value still works as before.
     pub state: Option<String>,
     pub task_name: Option<String>,
     pub queue: Option<String>,
@@ -37,13 +39,33 @@ pub struct TaskListParams {
     pub require_task_name: Option<bool>,
     pub limit: Option<u64>,
     pub cursor: Option<String>,
+    /// When `true`, populates the `total` field on the response with a parallel
+    /// COUNT() over the same filters. Defaults to false because the count query
+    /// roughly doubles the work of a list page; opt in for screens that need it.
+    pub count: Option<bool>,
 }
 
 impl TaskListParams {
-    fn filters(&self) -> TaskFilters<'_> {
+    /// Parse the comma-separated `state` field into an owned Vec so callers can
+    /// borrow a stable slice for `TaskFilters`. Whitespace is trimmed, empty
+    /// segments are dropped, and any unknown state is filtered out so the
+    /// query never receives a value outside the schema enum.
+    pub fn parsed_states(&self) -> Vec<String> {
+        let Some(raw) = self.state.as_deref() else {
+            return Vec::new();
+        };
+        raw.split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .filter(|s| ALLOWED_TASK_STATES.contains(s))
+            .map(|s| s.to_string())
+            .collect()
+    }
+
+    fn filters<'a>(&'a self, states: &'a [String]) -> TaskFilters<'a> {
         TaskFilters {
             task_name: self.task_name.as_deref().filter(|s| !s.is_empty()),
-            state: self.state.as_deref().filter(|s| !s.is_empty()),
+            states: (!states.is_empty()).then_some(states),
             queue: self.queue.as_deref().filter(|s| !s.is_empty()),
             worker_id: self.worker_id.as_deref().filter(|s| !s.is_empty()),
             search: self.search.as_deref().filter(|s| !s.is_empty()),
@@ -54,6 +76,9 @@ impl TaskListParams {
         }
     }
 }
+
+const ALLOWED_TASK_STATES: &[&str] =
+    &["PENDING", "RECEIVED", "STARTED", "SUCCESS", "FAILURE", "RETRY", "REVOKED", "REJECTED"];
 
 #[utoipa::path(get, path = "/api/v1/tasks", tag = "tasks",
     params(TaskListParams),
@@ -67,23 +92,40 @@ pub async fn list_tasks(
     auth::rbac::check_permission(&user, "tasks_read")?;
 
     let (limit, cursor_ms) = parse_cursor_params(&params);
-    let filters = params.filters();
+    let states = params.parsed_states();
+    let filters = params.filters(&states);
+    let want_count = params.count.unwrap_or(false);
 
-    let mut events = db::clickhouse::task_events::query_task_events(
-        &state.ch,
-        user.tenant_id,
-        limit + 1,
-        &filters,
-        cursor_ms,
-    )
-    .await?;
+    let (mut events, total) = if want_count {
+        let (events_res, count_res) = tokio::join!(
+            db::clickhouse::task_events::query_task_events(
+                &state.ch,
+                user.tenant_id,
+                limit + 1,
+                &filters,
+                cursor_ms,
+            ),
+            db::clickhouse::task_events::count_task_events(&state.ch, user.tenant_id, &filters,),
+        );
+        (events_res?, Some(count_res? as i64))
+    } else {
+        let events = db::clickhouse::task_events::query_task_events(
+            &state.ch,
+            user.tenant_id,
+            limit + 1,
+            &filters,
+            cursor_ms,
+        )
+        .await?;
+        (events, None)
+    };
 
     let (has_more, next_cursor) = paginate(&mut events, limit, |e| {
         let ms = e.timestamp.unix_timestamp() * 1000 + e.timestamp.millisecond() as i64;
         ms.to_string()
     });
 
-    Ok(Json(TaskListResponse { data: events, has_more, next_cursor, total: None }))
+    Ok(Json(TaskListResponse { data: events, has_more, next_cursor, total }))
 }
 
 #[utoipa::path(get, path = "/api/v1/tasks/{task_id}", tag = "tasks",
@@ -294,23 +336,40 @@ pub async fn list_task_summary(
     auth::rbac::check_permission(&user, "tasks_read")?;
 
     let (limit, cursor_ms) = parse_cursor_params(&params);
-    let filters = params.filters();
+    let states = params.parsed_states();
+    let filters = params.filters(&states);
+    let want_count = params.count.unwrap_or(false);
 
-    let mut rows = db::clickhouse::aggregations::get_task_summary(
-        &state.ch,
-        user.tenant_id,
-        limit + 1,
-        &filters,
-        cursor_ms,
-    )
-    .await?;
+    let (mut rows, total) = if want_count {
+        let (rows_res, count_res) = tokio::join!(
+            db::clickhouse::aggregations::get_task_summary(
+                &state.ch,
+                user.tenant_id,
+                limit + 1,
+                &filters,
+                cursor_ms,
+            ),
+            db::clickhouse::aggregations::count_task_summary(&state.ch, user.tenant_id, &filters,),
+        );
+        (rows_res?, Some(count_res? as i64))
+    } else {
+        let rows = db::clickhouse::aggregations::get_task_summary(
+            &state.ch,
+            user.tenant_id,
+            limit + 1,
+            &filters,
+            cursor_ms,
+        )
+        .await?;
+        (rows, None)
+    };
 
     let (has_more, next_cursor) = paginate(&mut rows, limit, |r| {
         let ms = r.timestamp.unix_timestamp() * 1000 + r.timestamp.millisecond() as i64;
         ms.to_string()
     });
 
-    Ok(Json(TaskSummaryListResponse { data: rows, has_more, next_cursor }))
+    Ok(Json(TaskSummaryListResponse { data: rows, has_more, next_cursor, total }))
 }
 
 #[utoipa::path(get, path = "/api/v1/tasks/{task_id}/retry-chain", tag = "tasks",

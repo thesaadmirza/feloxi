@@ -329,6 +329,10 @@ pub struct TaskSummaryListResponse {
     pub has_more: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_cursor: Option<String>,
+    /// Distinct task count matching the filter (independent of pagination).
+    /// Populated only when the request sets `count=true`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<i64>,
 }
 
 #[derive(Serialize, ToSchema)]

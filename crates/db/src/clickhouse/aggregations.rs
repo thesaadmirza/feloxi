@@ -336,6 +336,21 @@ pub struct TaskSummaryRow {
     pub wait_seconds: f64,
 }
 
+/// Count the distinct task_ids matching the same filter the summary list
+/// would return. Used to populate `total` on `/api/v1/tasks/summary?count=true`.
+pub async fn count_task_summary(
+    client: &Client,
+    tenant_id: Uuid,
+    filters: &TaskFilters<'_>,
+) -> Result<u64, AppError> {
+    let mut query = String::from("SELECT countDistinct(task_id) FROM task_events");
+    append_task_where(&mut query, filters, TASK_STATES_IN);
+
+    let q = bind_task_filters(client.query(&query), tenant_id, filters);
+    let count: u64 = q.fetch_one().await.map_err(|e| AppError::Database(e.to_string()))?;
+    Ok(count)
+}
+
 pub async fn get_task_summary(
     client: &Client,
     tenant_id: Uuid,

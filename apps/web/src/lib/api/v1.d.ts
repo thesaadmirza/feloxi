@@ -1600,6 +1600,12 @@ export interface components {
             worker_id: string;
         };
         TaskListParams: {
+            /**
+             * @description When `true`, populates the `total` field on the response with a parallel
+             *     COUNT() over the same filters. Defaults to false because the count query
+             *     roughly doubles the work of a list page; opt in for screens that need it.
+             */
+            count?: boolean | null;
             cursor?: string | null;
             /**
              * @description Present-and-true restricts results to tasks with a non-empty exception.
@@ -1624,6 +1630,10 @@ export interface components {
              * @description Lower bound on `timestamp` (millis since epoch, inclusive).
              */
             since_ms?: number | null;
+            /**
+             * @description Comma-separated list of task states (e.g. `SUCCESS,FAILURE`). Empty or
+             *     missing means no state filter. A single value still works as before.
+             */
             state?: string | null;
             task_name?: string | null;
             /**
@@ -1695,6 +1705,12 @@ export interface components {
             data: components["schemas"]["TaskSummaryRow"][];
             has_more: boolean;
             next_cursor?: string | null;
+            /**
+             * Format: int64
+             * @description Distinct task count matching the filter (independent of pagination).
+             *     Populated only when the request sets `count=true`.
+             */
+            total?: number | null;
         };
         TaskSummaryRow: {
             exception: string;
@@ -3120,6 +3136,10 @@ export interface operations {
     list_tasks: {
         parameters: {
             query?: {
+                /**
+                 * @description Comma-separated list of task states (e.g. `SUCCESS,FAILURE`). Empty or
+                 *     missing means no state filter. A single value still works as before.
+                 */
                 state?: string | null;
                 task_name?: string | null;
                 queue?: string | null;
@@ -3145,6 +3165,12 @@ export interface operations {
                 require_task_name?: boolean | null;
                 limit?: number | null;
                 cursor?: string | null;
+                /**
+                 * @description When `true`, populates the `total` field on the response with a parallel
+                 *     COUNT() over the same filters. Defaults to false because the count query
+                 *     roughly doubles the work of a list page; opt in for screens that need it.
+                 */
+                count?: boolean | null;
             };
             header?: never;
             path?: never;
@@ -3166,6 +3192,10 @@ export interface operations {
     list_task_summary: {
         parameters: {
             query?: {
+                /**
+                 * @description Comma-separated list of task states (e.g. `SUCCESS,FAILURE`). Empty or
+                 *     missing means no state filter. A single value still works as before.
+                 */
                 state?: string | null;
                 task_name?: string | null;
                 queue?: string | null;
@@ -3191,6 +3221,12 @@ export interface operations {
                 require_task_name?: boolean | null;
                 limit?: number | null;
                 cursor?: string | null;
+                /**
+                 * @description When `true`, populates the `total` field on the response with a parallel
+                 *     COUNT() over the same filters. Defaults to false because the count query
+                 *     roughly doubles the work of a list page; opt in for screens that need it.
+                 */
+                count?: boolean | null;
             };
             header?: never;
             path?: never;

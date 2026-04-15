@@ -73,7 +73,10 @@ pub const TASK_STATES_IN: &str = " AND state IN (\
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TaskFilters<'a> {
     pub task_name: Option<&'a str>,
-    pub state: Option<&'a str>,
+    /// Restricts results to one or more task states. An empty slice is treated
+    /// the same as `None` (no filter). Each state is bound individually so the
+    /// query stays parameterised.
+    pub states: Option<&'a [String]>,
     pub queue: Option<&'a str>,
     pub worker_id: Option<&'a str>,
     pub search: Option<&'a str>,
@@ -83,6 +86,15 @@ pub struct TaskFilters<'a> {
     /// Present-and-true skips rows whose `task_name` is empty. Matches the
     /// three-valued shape used by `errors_only`.
     pub require_task_name: Option<bool>,
+}
+
+impl<'a> TaskFilters<'a> {
+    /// Returns the active state filter as a non-empty slice, or `None` when
+    /// no state filtering should apply. Centralises the empty-slice handling
+    /// so the SQL builder and binder agree byte-for-byte.
+    fn active_states(&self) -> Option<&'a [String]> {
+        self.states.filter(|s| !s.is_empty())
+    }
 }
 
 /// Append the tenant check, time window, and user-specified filters. `row_scope`
@@ -106,8 +118,15 @@ pub fn append_task_where(query: &mut String, filters: &TaskFilters, row_scope: &
     if filters.task_name.is_some() {
         query.push_str(" AND positionCaseInsensitive(CAST(task_name AS String), ?) > 0");
     }
-    if filters.state.is_some() {
-        query.push_str(" AND state = ?");
+    if let Some(states) = filters.active_states() {
+        query.push_str(" AND state IN (");
+        for i in 0..states.len() {
+            if i > 0 {
+                query.push(',');
+            }
+            query.push('?');
+        }
+        query.push(')');
     }
     if filters.queue.is_some() {
         query.push_str(" AND queue = ?");
@@ -145,8 +164,10 @@ pub fn bind_task_filters(
     if let Some(tn) = filters.task_name {
         q = q.bind(tn);
     }
-    if let Some(s) = filters.state {
-        q = q.bind(s);
+    if let Some(states) = filters.active_states() {
+        for s in states {
+            q = q.bind(s.as_str());
+        }
     }
     if let Some(qn) = filters.queue {
         q = q.bind(qn);

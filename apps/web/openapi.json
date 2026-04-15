@@ -1543,6 +1543,7 @@
           {
             "name": "state",
             "in": "query",
+            "description": "Comma-separated list of task states (e.g. `SUCCESS,FAILURE`). Empty or\nmissing means no state filter. A single value still works as before.",
             "required": false,
             "schema": {
               "type": [
@@ -1666,6 +1667,18 @@
             "schema": {
               "type": [
                 "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "count",
+            "in": "query",
+            "description": "When `true`, populates the `total` field on the response with a parallel\nCOUNT() over the same filters. Defaults to false because the count query\nroughly doubles the work of a list page; opt in for screens that need it.",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
                 "null"
               ]
             }
@@ -1695,6 +1708,7 @@
           {
             "name": "state",
             "in": "query",
+            "description": "Comma-separated list of task states (e.g. `SUCCESS,FAILURE`). Empty or\nmissing means no state filter. A single value still works as before.",
             "required": false,
             "schema": {
               "type": [
@@ -1818,6 +1832,18 @@
             "schema": {
               "type": [
                 "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "count",
+            "in": "query",
+            "description": "When `true`, populates the `total` field on the response with a parallel\nCOUNT() over the same filters. Defaults to false because the count query\nroughly doubles the work of a list page; opt in for screens that need it.",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
                 "null"
               ]
             }
@@ -4525,6 +4551,13 @@
       "TaskListParams": {
         "type": "object",
         "properties": {
+          "count": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "When `true`, populates the `total` field on the response with a parallel\nCOUNT() over the same filters. Defaults to false because the count query\nroughly doubles the work of a list page; opt in for screens that need it."
+          },
           "cursor": {
             "type": [
               "string",
@@ -4578,7 +4611,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Comma-separated list of task states (e.g. `SUCCESS,FAILURE`). Empty or\nmissing means no state filter. A single value still works as before."
           },
           "task_name": {
             "type": [
@@ -4807,6 +4841,14 @@
               "string",
               "null"
             ]
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Distinct task count matching the filter (independent of pagination).\nPopulated only when the request sets `count=true`."
           }
         }
       },

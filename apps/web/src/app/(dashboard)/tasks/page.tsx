@@ -172,7 +172,16 @@ export default function TasksPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const stateFilter = (searchParams.get("state") as TaskState) || "";
+  const stateFilters = useMemo<TaskState[]>(() => {
+    const raw = searchParams.get("state");
+    if (!raw) return [];
+    return raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s): s is TaskState => (TASK_STATES as readonly string[]).includes(s));
+  }, [searchParams]);
+  const stateFilterCsv = stateFilters.join(",");
+  const stateFilterSet = useMemo(() => new Set(stateFilters), [stateFilters]);
   const nameFilter = searchParams.get("task_name") || "";
   const searchFilter = searchParams.get("search") || "";
   const errorsOnlyFilter = searchParams.get("errors_only") === "true";
@@ -217,6 +226,20 @@ export default function TasksPage() {
     [pathname, router, searchParams]
   );
 
+  const toggleStateFilter = useCallback(
+    (state: TaskState) => {
+      const next = new Set(stateFilterSet);
+      if (next.has(state)) {
+        next.delete(state);
+      } else {
+        next.add(state);
+      }
+      const csv = TASK_STATES.filter((s) => next.has(s)).join(",");
+      updateParam("state", csv);
+    },
+    [stateFilterSet, updateParam],
+  );
+
   const rangeMinutes = useMemo(
     () =>
       (TIME_RANGE_PRESETS.find((p) => p.id === rangeFilter)
@@ -236,7 +259,7 @@ export default function TasksPage() {
   const queryParams = useMemo(() => ({
     params: {
       query: {
-        state: stateFilter || undefined,
+        state: stateFilterCsv || undefined,
         task_name: nameFilter || undefined,
         search: searchFilter || undefined,
         errors_only: errorsOnlyFilter || undefined,
@@ -244,9 +267,10 @@ export default function TasksPage() {
         until_ms: effectiveUntilMs,
         limit: TASKS_LIMIT,
         cursor,
+        count: true,
       },
     },
-  }), [stateFilter, nameFilter, searchFilter, errorsOnlyFilter, effectiveSinceMs, effectiveUntilMs, cursor]);
+  }), [stateFilterCsv, nameFilter, searchFilter, errorsOnlyFilter, effectiveSinceMs, effectiveUntilMs, cursor]);
 
   const summaryQuery = $api.useQuery(
     "get",
@@ -334,12 +358,13 @@ export default function TasksPage() {
       label: string;
       onRemove: () => void;
     }[] = [];
-    if (stateFilter)
+    for (const s of stateFilters) {
       chips.push({
-        key: "state",
-        label: `state: ${stateFilter}`,
-        onRemove: () => updateParam("state", ""),
+        key: `state:${s}`,
+        label: `state: ${s}`,
+        onRemove: () => toggleStateFilter(s),
       });
+    }
     if (nameFilter)
       chips.push({
         key: "task_name",
@@ -386,7 +411,7 @@ export default function TasksPage() {
     }
     return chips;
   }, [
-    stateFilter,
+    stateFilters,
     nameFilter,
     searchFilter,
     errorsOnlyFilter,
@@ -394,6 +419,7 @@ export default function TasksPage() {
     customRange,
     updateParam,
     clearCustomRange,
+    toggleStateFilter,
   ]);
   const handleTaskRowClick = useCallback(
     (taskId: string) => router.push(`/tasks/${taskId}`),
@@ -465,11 +491,20 @@ export default function TasksPage() {
     }
   }
 
+  const totalMatching = activeQuery.data?.total ?? null;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Tasks</h1>
+          <h1 className="text-2xl font-bold text-foreground">
+            Tasks
+            {totalMatching !== null && (
+              <span className="ml-2 text-sm font-medium text-muted-foreground">
+                ({totalMatching.toLocaleString()})
+              </span>
+            )}
+          </h1>
           <p className="text-sm text-muted-foreground mt-1">
             {viewMode === "summary"
               ? "One row per task — latest state"
@@ -617,19 +652,30 @@ export default function TasksPage() {
             </button>
           </div>
 
-          <select
-            value={stateFilter}
-            onChange={(e) => updateParam("state", e.target.value)}
-            className="bg-secondary border border-border text-foreground text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring"
+          <div
+            className="flex flex-wrap items-center gap-1 p-1 bg-secondary border border-border rounded-lg"
+            role="group"
             aria-label="State filter"
           >
-            <option value="">All states</option>
-            {TASK_STATES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
+            {TASK_STATES.map((s) => {
+              const active = stateFilterSet.has(s);
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => toggleStateFilter(s)}
+                  aria-pressed={active}
+                  className={`px-2 py-1 rounded-md text-[11px] font-medium tracking-wide transition ${
+                    active
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {s}
+                </button>
+              );
+            })}
+          </div>
 
           <div className="relative">
             <input
