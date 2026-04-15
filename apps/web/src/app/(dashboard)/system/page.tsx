@@ -7,7 +7,6 @@ import {
   Server,
   Cable,
   RefreshCw,
-  AlertTriangle,
   Info,
 } from "lucide-react";
 import { $api } from "@/lib/api";
@@ -21,7 +20,7 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string; lab
 
 const STATUS_DESCRIPTIONS: Record<string, string> = {
   healthy: "All systems operational. Events are being processed normally.",
-  degraded: "Some events failed to save. Live dashboard still works, but historical data may have gaps.",
+  degraded: "A non-critical dependency is reporting errors. Live dashboard and ingestion still work.",
   unhealthy: "A critical dependency is down. Events cannot be stored until the issue is resolved.",
 };
 
@@ -167,7 +166,7 @@ export default function SystemPage() {
                 label="Lost"
                 value={formatNumber(health.pipeline.events_dropped)}
                 sub={health.pipeline.events_dropped > 0 ? `${(health.pipeline.drop_rate * 100).toFixed(2)}% of total` : undefined}
-                accent={health.pipeline.events_dropped > 0 ? "text-red-400" : "text-zinc-400"}
+                accent="text-zinc-400"
                 description="Failed to save after retry"
               />
               <MetricCard
@@ -183,21 +182,6 @@ export default function SystemPage() {
                 description="Auto-retry attempts"
               />
             </div>
-
-            {/* Impact explanation when events are lost */}
-            {health.pipeline.events_dropped > 0 && (
-              <div className="mt-3 flex items-start gap-2.5 px-4 py-3 bg-red-500/5 border border-red-500/10 rounded-xl">
-                <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
-                <div className="text-xs text-zinc-400 leading-relaxed">
-                  <span className="text-red-300 font-medium">
-                    {formatNumber(health.pipeline.events_dropped)} event{health.pipeline.events_dropped !== 1 ? "s" : ""} could not be saved.
-                  </span>{" "}
-                  These events were delivered to your live dashboard via WebSocket, but they won&apos;t
-                  appear in task history, metrics, or search results. This usually happens when
-                  ClickHouse is temporarily unavailable or out of disk space.
-                </div>
-              </div>
-            )}
           </section>
 
           {/* Recent Failures — dead-letter viewer */}

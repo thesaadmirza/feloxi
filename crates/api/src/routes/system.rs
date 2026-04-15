@@ -175,9 +175,13 @@ pub async fn system_health(
         components.iter().find(|c| c.name == "postgresql").is_some_and(|c| c.status == "up");
     let all_up = components.iter().all(|c| c.status == "up");
 
+    // events_dropped is a monotonic counter; with the retry buffer in place a
+    // brief CH outage no longer increments it, so we treat the dependency
+    // status as the only auto-degrade signal. The dropped count is still
+    // surfaced on the system page for operators who care.
     let status = if !pg_up || !ch_up {
         "unhealthy"
-    } else if !all_up || pipeline.events_dropped > 0 {
+    } else if !all_up {
         "degraded"
     } else {
         "healthy"
