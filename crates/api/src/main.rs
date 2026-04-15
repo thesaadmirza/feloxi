@@ -140,6 +140,63 @@ fn spawn_background_tasks(state: AppState) {
             );
         }
     });
+
+    // Queue depth pollster (every 30s). Polls every active broker for live
+    // queue depths and writes them to Redis so the dashboard /live endpoint
+    // can read them in sub-millisecond time without hammering brokers per
+    // request.
+    let s = state.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        interval.tick().await; // skip immediate first tick
+        loop {
+            interval.tick().await;
+            poll_queue_depths(&s).await;
+        }
+    });
+}
+
+async fn poll_queue_depths(state: &AppState) {
+    let configs = match db::postgres::broker_configs::list_active_broker_configs(&state.pg).await {
+        Ok(cfgs) => cfgs,
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to list active brokers for queue poll");
+            return;
+        }
+    };
+    for config in configs {
+        let queues =
+            match broker_conn::commands::queue_stats(&config.broker_type, &config.connection_enc)
+                .await
+            {
+                Ok(q) => q,
+                Err(e) => {
+                    tracing::debug!(
+                        broker_id = %config.id,
+                        tenant_id = %config.tenant_id,
+                        error = %e,
+                        "queue_stats poll failed",
+                    );
+                    continue;
+                }
+            };
+        for q in queues {
+            if let Err(e) = db::redis::cache::set_queue_depth(
+                &state.redis,
+                config.tenant_id,
+                &q.queue_name,
+                q.depth,
+            )
+            .await
+            {
+                tracing::debug!(
+                    queue = %q.queue_name,
+                    error = ?e,
+                    "Failed to write queue depth cache",
+                );
+            }
+        }
+    }
 }
 
 /// Max batches drained per queue per tick. Bounds the peak row count flattened

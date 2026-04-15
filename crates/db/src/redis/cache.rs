@@ -129,6 +129,41 @@ pub async fn get_online_workers(pool: &Pool, tenant_id: Uuid) -> Result<Vec<Stri
     Ok(members)
 }
 
+/// Read every cached worker state for a tenant in one round-trip via MGET.
+/// Workers whose state TTL has expired are returned as `None` and the caller
+/// can decide whether to discard them or keep the slot.
+pub async fn get_worker_states_raw(
+    pool: &Pool,
+    tenant_id: Uuid,
+    worker_ids: &[String],
+) -> Result<Vec<Option<String>>, Error> {
+    if worker_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let redis_keys: Vec<String> =
+        worker_ids.iter().map(|w| keys::worker_state(tenant_id, w)).collect();
+    let vals: Vec<Option<String>> = pool.mget(redis_keys).await?;
+    Ok(vals)
+}
+
+/// Read every active queue and its current depth for a tenant. Queues whose
+/// depth key has expired are skipped (the active set may carry a stale name).
+pub async fn get_queue_depths(pool: &Pool, tenant_id: Uuid) -> Result<Vec<(String, u64)>, Error> {
+    let active_key = keys::queues_active(tenant_id);
+    let names: Vec<String> = pool.smembers(&active_key).await?;
+    if names.is_empty() {
+        return Ok(Vec::new());
+    }
+    let redis_keys: Vec<String> = names.iter().map(|n| keys::queue_depth(tenant_id, n)).collect();
+    let raw: Vec<Option<String>> = pool.mget(redis_keys).await?;
+    let depths = names
+        .into_iter()
+        .zip(raw)
+        .filter_map(|(name, val)| val.and_then(|v| v.parse::<u64>().ok()).map(|d| (name, d)))
+        .collect();
+    Ok(depths)
+}
+
 /// Get remaining TTL of heartbeat keys for the given workers.
 /// Returns (worker_id, ttl_seconds) pairs. A TTL of -2 means the key doesn't
 /// exist (heartbeat expired), -1 means no expiry set.

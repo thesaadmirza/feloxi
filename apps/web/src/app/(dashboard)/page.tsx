@@ -27,6 +27,10 @@ import {
   FailureRateChart,
   ThroughputChart,
 } from "@/components/dashboard/throughput-chart";
+import {
+  LiveClusterStrip,
+  LiveWorkerCapacity,
+} from "@/components/dashboard/live-cluster";
 
 type TimeRange = { label: string; minutes: number };
 
@@ -195,6 +199,9 @@ export default function DashboardPage() {
 
       {!isLoading && !isError && overview?.total_tasks === 0 && <GettingStarted />}
 
+      {/* Live cluster snapshot — running, queued, online workers */}
+      <LiveClusterStrip />
+
       {/* KPI strip */}
       <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
         <Kpi
@@ -265,6 +272,11 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <SlowestTasks fromMinutes={timeRange.minutes} />
         <WorkerLeaderboard fromMinutes={timeRange.minutes} />
+      </div>
+
+      {/* Live worker capacity */}
+      <div className="grid grid-cols-1 gap-6">
+        <LiveWorkerCapacity />
       </div>
 
       {/* Recent activity */}

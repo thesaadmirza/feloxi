@@ -863,6 +863,26 @@
         }
       }
     },
+    "/api/v1/dashboard/live": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "operationId": "get_dashboard_live",
+        "responses": {
+          "200": {
+            "description": "Live cluster snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardLiveResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/healthz": {
       "get": {
         "tags": [
@@ -3336,6 +3356,101 @@
           },
           "task_name": {
             "type": "string"
+          },
+          "worker_id": {
+            "type": "string"
+          }
+        }
+      },
+      "DashboardLiveQueue": {
+        "type": "object",
+        "required": [
+          "queue_name",
+          "depth"
+        ],
+        "properties": {
+          "depth": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "queue_name": {
+            "type": "string"
+          }
+        }
+      },
+      "DashboardLiveResponse": {
+        "type": "object",
+        "required": [
+          "active_tasks_total",
+          "queue_depth_total",
+          "online_workers_total",
+          "worker_capacity_total",
+          "workers",
+          "queues"
+        ],
+        "properties": {
+          "active_tasks_total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Sum of `active_tasks` across every online worker — the number of tasks\ncurrently executing right now, not over a window.",
+            "minimum": 0
+          },
+          "online_workers_total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of online workers (heartbeat within the last ~90s).",
+            "minimum": 0
+          },
+          "queue_depth_total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Sum of broker-reported queue depths for every active queue.",
+            "minimum": 0
+          },
+          "queues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DashboardLiveQueue"
+            },
+            "description": "Per-queue live snapshot, sorted by `depth` descending."
+          },
+          "worker_capacity_total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Sum of pool sizes across online workers — the maximum concurrent\ncapacity the cluster could process. Useful for showing utilisation.",
+            "minimum": 0
+          },
+          "workers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DashboardLiveWorker"
+            },
+            "description": "Per-worker live snapshot, sorted by `active_tasks` descending. Bounded\nby the dashboard widget's display limit."
+          }
+        }
+      },
+      "DashboardLiveWorker": {
+        "type": "object",
+        "required": [
+          "worker_id",
+          "hostname",
+          "active_tasks",
+          "pool_size"
+        ],
+        "properties": {
+          "active_tasks": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "pool_size": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           },
           "worker_id": {
             "type": "string"

@@ -384,6 +384,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dashboard/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_dashboard_live"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/healthz": {
         parameters: {
             query?: never;
@@ -1222,6 +1238,50 @@ export interface components {
             state: string;
             task_id: string;
             task_name: string;
+            worker_id: string;
+        };
+        DashboardLiveQueue: {
+            /** Format: int64 */
+            depth: number;
+            queue_name: string;
+        };
+        DashboardLiveResponse: {
+            /**
+             * Format: int64
+             * @description Sum of `active_tasks` across every online worker — the number of tasks
+             *     currently executing right now, not over a window.
+             */
+            active_tasks_total: number;
+            /**
+             * Format: int64
+             * @description Number of online workers (heartbeat within the last ~90s).
+             */
+            online_workers_total: number;
+            /**
+             * Format: int64
+             * @description Sum of broker-reported queue depths for every active queue.
+             */
+            queue_depth_total: number;
+            /** @description Per-queue live snapshot, sorted by `depth` descending. */
+            queues: components["schemas"]["DashboardLiveQueue"][];
+            /**
+             * Format: int64
+             * @description Sum of pool sizes across online workers — the maximum concurrent
+             *     capacity the cluster could process. Useful for showing utilisation.
+             */
+            worker_capacity_total: number;
+            /**
+             * @description Per-worker live snapshot, sorted by `active_tasks` descending. Bounded
+             *     by the dashboard widget's display limit.
+             */
+            workers: components["schemas"]["DashboardLiveWorker"][];
+        };
+        DashboardLiveWorker: {
+            /** Format: int32 */
+            active_tasks: number;
+            hostname: string;
+            /** Format: int32 */
+            pool_size: number;
             worker_id: string;
         };
         DeadLetterListResponse: {
@@ -2669,6 +2729,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_dashboard_live: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Live cluster snapshot */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardLiveResponse"];
                 };
             };
         };

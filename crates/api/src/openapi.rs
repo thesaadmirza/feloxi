@@ -93,6 +93,8 @@ use utoipa::OpenApi;
         crate::routes::api_keys::revoke_key,
         // Workflows
         crate::routes::workflows::get_workflow,
+        // Dashboard
+        crate::routes::dashboards::get_dashboard_live,
         // System
         crate::routes::system::pipeline_stats,
         crate::routes::system::system_health,
@@ -164,6 +166,10 @@ use utoipa::OpenApi;
         crate::broker_conn::commands::QueueInfo,
         // Worker state
         crate::routes::responses::WorkerState,
+        // Dashboard live
+        crate::routes::dashboards::DashboardLiveResponse,
+        crate::routes::dashboards::DashboardLiveWorker,
+        crate::routes::dashboards::DashboardLiveQueue,
         // Response types
         crate::routes::responses::TaskListResponse,
         crate::routes::responses::TaskTimelineResponse,
