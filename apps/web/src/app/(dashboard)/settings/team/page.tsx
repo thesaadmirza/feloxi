@@ -14,6 +14,7 @@ import {
   Trash2,
   Copy,
   Check,
+  KeyRound,
 } from "lucide-react";
 import { $api, fetchClient, unwrap } from "@/lib/api";
 import { Skeleton } from "@/components/shared/skeleton";
@@ -72,6 +73,18 @@ export default function TeamPage() {
   }, []);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  const [resetOpenId, setResetOpenId] = useState<string | null>(null);
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetSubmitting, setResetSubmitting] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetSuccessId, setResetSuccessId] = useState<string | null>(null);
+  const resetSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (resetSuccessTimerRef.current) clearTimeout(resetSuccessTimerRef.current);
+    };
+  }, []);
 
   const { data, isLoading, isError, error, refetch } = $api.useQuery("get", "/api/v1/team");
 
@@ -118,6 +131,40 @@ export default function TeamPage() {
       copyTimerRef.current = setTimeout(() => setLinkCopied(false), 2000);
     } catch {
       // Clipboard permission denied — leave the URL visible for manual copy.
+    }
+  }
+
+  function openReset(memberId: string) {
+    setResetOpenId(memberId);
+    setResetPassword("");
+    setResetError(null);
+  }
+
+  function cancelReset() {
+    setResetOpenId(null);
+    setResetPassword("");
+    setResetError(null);
+  }
+
+  async function handleResetPassword(memberId: string) {
+    setResetSubmitting(true);
+    setResetError(null);
+    try {
+      await unwrap(
+        fetchClient.POST("/api/v1/team/members/{member_id}/password", {
+          params: { path: { member_id: memberId } },
+          body: { password: resetPassword },
+        })
+      );
+      setResetOpenId(null);
+      setResetPassword("");
+      setResetSuccessId(memberId);
+      if (resetSuccessTimerRef.current) clearTimeout(resetSuccessTimerRef.current);
+      resetSuccessTimerRef.current = setTimeout(() => setResetSuccessId(null), 3000);
+    } catch (err) {
+      setResetError(err instanceof Error ? err.message : "Failed to reset password");
+    } finally {
+      setResetSubmitting(false);
     }
   }
 
@@ -190,57 +237,121 @@ export default function TeamPage() {
         ) : (
           <div className="divide-y divide-border">
             {members.map((member) => (
-              <div
-                key={member.id}
-                className="flex items-center justify-between px-5 py-4 gap-4"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="h-9 w-9 rounded-full bg-secondary flex items-center justify-center text-sm font-semibold text-foreground shrink-0">
-                    {(member.display_name ?? member.email).charAt(0).toUpperCase()}
+              <div key={member.id} className="px-5 py-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="h-9 w-9 rounded-full bg-secondary flex items-center justify-center text-sm font-semibold text-foreground shrink-0">
+                      {(member.display_name ?? member.email).charAt(0).toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">
+                        {member.display_name ?? member.email}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate flex items-center gap-1">
+                        <Mail className="h-3 w-3 shrink-0" />
+                        {member.email}
+                      </p>
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-foreground truncate">
-                      {member.display_name ?? member.email}
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate flex items-center gap-1">
-                      <Mail className="h-3 w-3 shrink-0" />
-                      {member.email}
-                    </p>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {(member.roles ?? []).map((r) => (
+                      <RoleBadge key={r} role={r} />
+                    ))}
+                    {resetSuccessId === member.id && (
+                      <span className="flex items-center gap-1 text-xs text-[#22c55e]">
+                        <CheckCircle className="h-3 w-3" />
+                        Password reset
+                      </span>
+                    )}
+                    {confirmRemove === member.id ? (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleRemove(member.id)}
+                          className="px-2 py-1 rounded bg-destructive text-white text-xs"
+                        >
+                          {removingId === member.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            "Remove"
+                          )}
+                        </button>
+                        <button
+                          onClick={() => setConfirmRemove(null)}
+                          className="px-2 py-1 rounded bg-secondary text-xs text-foreground"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() =>
+                            resetOpenId === member.id ? cancelReset() : openReset(member.id)
+                          }
+                          className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition"
+                          title="Reset password"
+                        >
+                          <KeyRound className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setConfirmRemove(member.id)}
+                          className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition"
+                          title="Remove member"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {(member.roles ?? []).map((r) => (
-                    <RoleBadge key={r} role={r} />
-                  ))}
-                  {confirmRemove === member.id ? (
-                    <div className="flex items-center gap-1">
+                {resetOpenId === member.id && (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleResetPassword(member.id);
+                    }}
+                    className="mt-3 pl-12 space-y-2"
+                  >
+                    <p className="text-xs text-muted-foreground">
+                      Set a new password for this member. They will be signed out of all
+                      sessions and must sign in again.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="password"
+                        value={resetPassword}
+                        onChange={(e) => setResetPassword(e.target.value)}
+                        placeholder="New password (min 8 chars)"
+                        autoComplete="new-password"
+                        className="flex-1 bg-secondary border border-border text-foreground text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
                       <button
-                        onClick={() => handleRemove(member.id)}
-                        className="px-2 py-1 rounded bg-destructive text-white text-xs"
+                        type="submit"
+                        disabled={resetSubmitting}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 transition disabled:opacity-50"
                       >
-                        {removingId === member.id ? (
+                        {resetSubmitting ? (
                           <Loader2 className="h-3 w-3 animate-spin" />
                         ) : (
-                          "Remove"
+                          "Set password"
                         )}
                       </button>
                       <button
-                        onClick={() => setConfirmRemove(null)}
-                        className="px-2 py-1 rounded bg-secondary text-xs text-foreground"
+                        type="button"
+                        onClick={cancelReset}
+                        className="px-3 py-1.5 rounded-lg bg-secondary text-xs text-foreground hover:bg-secondary/80 transition"
                       >
                         Cancel
                       </button>
                     </div>
-                  ) : (
-                    <button
-                      onClick={() => setConfirmRemove(member.id)}
-                      className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition"
-                      title="Remove member"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
+                    {resetError && (
+                      <p className="flex items-center gap-1 text-xs text-destructive">
+                        <AlertTriangle className="h-3 w-3" />
+                        {resetError}
+                      </p>
+                    )}
+                  </form>
+                )}
               </div>
             ))}
           </div>
