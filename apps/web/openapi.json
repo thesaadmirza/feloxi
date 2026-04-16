@@ -2137,6 +2137,46 @@
         }
       }
     },
+    "/api/v1/team/members/{member_id}/password": {
+      "post": {
+        "tags": [
+          "settings"
+        ],
+        "operationId": "reset_member_password",
+        "parameters": [
+          {
+            "name": "member_id",
+            "in": "path",
+            "description": "Member ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetMemberPasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workers": {
       "get": {
         "tags": [
@@ -4178,6 +4218,17 @@
             "type": "string"
           },
           "tenant_slug": {
+            "type": "string"
+          }
+        }
+      },
+      "ResetMemberPasswordRequest": {
+        "type": "object",
+        "required": [
+          "password"
+        ],
+        "properties": {
+          "password": {
             "type": "string"
           }
         }

@@ -82,6 +82,7 @@ use utoipa::OpenApi;
         crate::routes::tenants::get_team,
         crate::routes::tenants::invite_member,
         crate::routes::tenants::remove_member,
+        crate::routes::tenants::reset_member_password,
         crate::routes::tenants::get_retention,
         crate::routes::tenants::update_retention,
         crate::routes::tenants::get_notifications,
@@ -129,6 +130,7 @@ use utoipa::OpenApi;
         crate::routes::metrics::MetricsParams,
         crate::routes::api_keys::CreateKeyRequest,
         crate::routes::tenants::InviteMemberRequest,
+        crate::routes::tenants::ResetMemberPasswordRequest,
         crate::routes::tenants::RetentionInput,
         crate::routes::tenants::TestNotificationRequest,
         // Health

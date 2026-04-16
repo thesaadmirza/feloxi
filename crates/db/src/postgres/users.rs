@@ -111,6 +111,28 @@ pub async fn update_user_display_name(
     Ok(user)
 }
 
+pub async fn update_password_hash(
+    pool: &PgPool,
+    id: Uuid,
+    tenant_id: Uuid,
+    password_hash: &str,
+) -> Result<(), AppError> {
+    let result = sqlx::query(
+        "UPDATE users SET password_hash = $3, updated_at = NOW()
+         WHERE id = $1 AND tenant_id = $2 AND is_active = true",
+    )
+    .bind(id)
+    .bind(tenant_id)
+    .bind(password_hash)
+    .execute(pool)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound("User not found".into()));
+    }
+    Ok(())
+}
+
 pub async fn deactivate_user(pool: &PgPool, id: Uuid) -> Result<(), AppError> {
     sqlx::query("UPDATE users SET is_active = false, updated_at = NOW() WHERE id = $1")
         .bind(id)

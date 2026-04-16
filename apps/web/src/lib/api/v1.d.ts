@@ -867,6 +867,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/team/members/{member_id}/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["reset_member_password"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workers": {
         parameters: {
             query?: never;
@@ -1512,6 +1528,9 @@ export interface components {
             password: string;
             tenant_name: string;
             tenant_slug: string;
+        };
+        ResetMemberPasswordRequest: {
+            password: string;
         };
         RetentionInput: {
             /** Format: int32 */
@@ -3520,6 +3539,33 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    reset_member_password: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Member ID */
+                member_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResetMemberPasswordRequest"];
+            };
+        };
         responses: {
             /** @description Success */
             200: {

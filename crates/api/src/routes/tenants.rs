@@ -225,6 +225,38 @@ pub async fn remove_member(
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+pub struct ResetMemberPasswordRequest {
+    pub password: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/team/members/{member_id}/password",
+    tag = "settings",
+    params(("member_id" = Uuid, Path, description = "Member ID")),
+    request_body = ResetMemberPasswordRequest,
+    responses((status = 200, description = "Success", body = serde_json::Value))
+)]
+pub async fn reset_member_password(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+    Path(member_id): Path<Uuid>,
+    Json(req): Json<ResetMemberPasswordRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    auth::rbac::check_permission(&user, "team_manage")?;
+    auth::password::validate_password(&req.password)?;
+
+    let password_hash = auth::password::hash_password(&req.password)
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+    db::postgres::users::update_password_hash(&state.pg, member_id, user.tenant_id, &password_hash)
+        .await?;
+    db::postgres::refresh_tokens::revoke_all_for_user(&state.pg, member_id).await?;
+
+    Ok(Json(serde_json::json!({ "reset": true })))
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct RetentionInput {
     pub task_events_days: i32,
     pub worker_events_days: i32,
@@ -452,4 +484,5 @@ pub fn router() -> Router<AppState> {
         .route("/team", get(get_team))
         .route("/team/members", post(invite_member))
         .route("/team/members/{member_id}", delete(remove_member))
+        .route("/team/members/{member_id}/password", post(reset_member_password))
 }
