@@ -2,6 +2,18 @@ use argon2::{
     password_hash::{rand_core::OsRng, SaltString},
     Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
 };
+use common::AppError;
+
+pub const MIN_PASSWORD_CHARS: usize = 8;
+
+pub fn validate_password(password: &str) -> Result<(), AppError> {
+    if password.chars().count() < MIN_PASSWORD_CHARS {
+        return Err(AppError::Validation(format!(
+            "Password must be at least {MIN_PASSWORD_CHARS} characters"
+        )));
+    }
+    Ok(())
+}
 
 /// Hash a password using Argon2id.
 pub fn hash_password(password: &str) -> Result<String, argon2::password_hash::Error> {

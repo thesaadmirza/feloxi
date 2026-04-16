@@ -12,17 +12,6 @@ use common::AppError;
 
 const ACCESS_TOKEN_TTL_SECS: i64 = 900;
 const REFRESH_TOKEN_TTL_DAYS: i64 = 30;
-const MIN_PASSWORD_CHARS: usize = 8;
-
-fn validate_password(password: &str) -> Result<(), AppError> {
-    if password.chars().count() < MIN_PASSWORD_CHARS {
-        return Err(AppError::Validation(format!(
-            "Password must be at least {MIN_PASSWORD_CHARS} characters"
-        )));
-    }
-    Ok(())
-}
-
 fn is_secure_context() -> bool {
     std::env::var("CORS_ORIGIN").map(|v| v.contains("https://")).unwrap_or(false)
 }
@@ -175,7 +164,7 @@ pub async fn register(
     State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<(HeaderMap, Json<AuthResponse>), AppError> {
-    validate_password(&req.password)?;
+    auth::password::validate_password(&req.password)?;
 
     let has_tenants = db::postgres::tenants::has_tenants(&state.pg).await?;
     if has_tenants && !state.config.allow_signup {
@@ -500,7 +489,7 @@ pub async fn accept_invite(
     State(state): State<AppState>,
     Json(req): Json<AcceptInviteRequest>,
 ) -> Result<(HeaderMap, Json<AuthResponse>), AppError> {
-    validate_password(&req.password)?;
+    auth::password::validate_password(&req.password)?;
 
     let token_hash = auth::api_key::hash_api_key(&req.token);
     let invite = db::postgres::user_invites::claim_invite(&state.pg, &token_hash).await?;
