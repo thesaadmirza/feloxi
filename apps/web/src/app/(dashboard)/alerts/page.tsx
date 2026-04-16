@@ -91,6 +91,61 @@ type ChannelForm = {
   [key: string]: unknown;
 };
 
+function normalizeChannel(ch: ChannelForm): AlertChannel {
+  switch (ch.type) {
+    case "slack":
+      return { type: "slack", webhook_url: (ch.webhook_url as string) ?? "" } as AlertChannel;
+    case "email": {
+      const raw = ch.to;
+      const to = Array.isArray(raw)
+        ? (raw as string[])
+        : ((raw as string) ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+      return { type: "email", to } as AlertChannel;
+    }
+    case "webhook":
+      return {
+        type: "webhook",
+        url: (ch.url as string) ?? "",
+        headers: (ch.headers as Record<string, string> | null) ?? null,
+      } as AlertChannel;
+    case "pagerduty":
+      return { type: "pagerduty", routing_key: (ch.routing_key as string) ?? "" } as AlertChannel;
+  }
+}
+
+function normalizeCondition(
+  type: ConditionType,
+  values: Record<string, unknown>
+): Record<string, unknown> {
+  switch (type) {
+    case "task_failure_rate":
+      return {
+        type,
+        threshold: (values.threshold as number) ?? 0.1,
+        window_minutes: (values.window_minutes as number) ?? 10,
+        task_name: ((values.task_name as string) || "").trim() || "*",
+      };
+    case "queue_depth":
+      return {
+        type,
+        threshold: (values.threshold as number) ?? 100,
+        queue: (values.queue as string) ?? "",
+      };
+    case "worker_offline":
+      return {
+        type,
+        grace_period_seconds: (values.grace_period_seconds as number) ?? 60,
+      };
+    case "task_duration":
+      return {
+        type,
+        threshold_seconds: (values.threshold_seconds as number) ?? 300,
+        percentile: (values.percentile as number) ?? 0.95,
+        task_name: ((values.task_name as string) || "").trim() || "*",
+      };
+  }
+}
+
 function ConditionFields({
   type,
   values,
@@ -114,15 +169,11 @@ function ConditionFields({
             <input type="number" min="1" value={(values.window_minutes as number) ?? 10}
               onChange={(e) => onChange("window_minutes", parseInt(e.target.value))} className={inputClass} />
           </div>
-          <div>
-            <label className={labelClass}>Task Name (optional)</label>
+          <div className="sm:col-span-2">
+            <label className={labelClass}>Task Name (use * for all tasks)</label>
             <input type="text" value={(values.task_name as string) ?? ""}
-              onChange={(e) => onChange("task_name", e.target.value)} className={inputClass} />
-          </div>
-          <div>
-            <label className={labelClass}>Queue (optional)</label>
-            <input type="text" value={(values.queue as string) ?? ""}
-              onChange={(e) => onChange("queue", e.target.value)} className={inputClass} />
+              onChange={(e) => onChange("task_name", e.target.value)} className={inputClass}
+              placeholder="*" />
           </div>
         </div>
       );
@@ -143,31 +194,30 @@ function ConditionFields({
       );
     case "worker_offline":
       return (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className={labelClass}>Offline Timeout (seconds)</label>
-            <input type="number" min="10" value={(values.timeout_seconds as number) ?? 60}
-              onChange={(e) => onChange("timeout_seconds", parseInt(e.target.value))} className={inputClass} />
-          </div>
-          <div>
-            <label className={labelClass}>Worker ID (optional)</label>
-            <input type="text" value={(values.worker_id as string) ?? ""}
-              onChange={(e) => onChange("worker_id", e.target.value)} className={inputClass} />
-          </div>
+        <div>
+          <label className={labelClass}>Grace Period (seconds)</label>
+          <input type="number" min="10" value={(values.grace_period_seconds as number) ?? 60}
+            onChange={(e) => onChange("grace_period_seconds", parseInt(e.target.value))} className={inputClass} />
         </div>
       );
     case "task_duration":
       return (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <label className={labelClass}>Task Name</label>
             <input type="text" value={(values.task_name as string) ?? ""}
-              onChange={(e) => onChange("task_name", e.target.value)} className={inputClass} required />
+              onChange={(e) => onChange("task_name", e.target.value)} className={inputClass} required
+              placeholder="*" />
           </div>
           <div>
-            <label className={labelClass}>Duration Threshold (seconds)</label>
+            <label className={labelClass}>Duration Threshold (s)</label>
             <input type="number" min="1" value={(values.threshold_seconds as number) ?? 300}
               onChange={(e) => onChange("threshold_seconds", parseInt(e.target.value))} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Percentile (0–1)</label>
+            <input type="number" min="0" max="1" step="0.01" value={(values.percentile as number) ?? 0.95}
+              onChange={(e) => onChange("percentile", parseFloat(e.target.value))} className={inputClass} />
           </div>
         </div>
       );
@@ -207,10 +257,11 @@ function ChannelEditor({
       )}
       {channel.type === "email" && (
         <div className="flex items-center gap-2">
-          <label className="text-sm text-muted-foreground w-24 shrink-0">Email</label>
-          <input type="email" value={(channel.email as string) ?? ""}
-            onChange={(e) => onChange(index, "email", e.target.value)} className={fieldClass}
-            placeholder="ops@company.com" />
+          <label className="text-sm text-muted-foreground w-24 shrink-0">To</label>
+          <input type="text"
+            value={Array.isArray(channel.to) ? (channel.to as string[]).join(", ") : (channel.to as string) ?? ""}
+            onChange={(e) => onChange(index, "to", e.target.value)} className={fieldClass}
+            placeholder="ops@company.com, team@company.com" />
         </div>
       )}
       {channel.type === "webhook" && (
@@ -268,8 +319,8 @@ function AlertRuleModal({
       const body = {
         name,
         is_enabled: isEnabled,
-        condition: { type: conditionType, ...conditionValues },
-        channels: channels as AlertChannel[],
+        condition: normalizeCondition(conditionType, conditionValues),
+        channels: channels.map(normalizeChannel),
         cooldown_secs: cooldownSecs,
       };
       if (isEditing)
@@ -303,7 +354,11 @@ function AlertRuleModal({
   function updateChannel(index: number, key: string, value: unknown) {
     setChannels((prev) => {
       const next = [...prev];
-      next[index] = { ...next[index], [key]: value };
+      if (key === "type") {
+        next[index] = { type: value as ChannelForm["type"] };
+      } else {
+        next[index] = { ...next[index], [key]: value };
+      }
       return next;
     });
   }
@@ -359,10 +414,10 @@ function AlertRuleModal({
                   const ct = e.target.value as ConditionType;
                   setConditionType(ct);
                   const defaults: Record<ConditionType, Record<string, unknown>> = {
-                    task_failure_rate: { threshold: 0.1, window_minutes: 10 },
+                    task_failure_rate: { threshold: 0.1, window_minutes: 10, task_name: "*" },
                     queue_depth: { threshold: 100 },
-                    worker_offline: { timeout_seconds: 60 },
-                    task_duration: { threshold_seconds: 300 },
+                    worker_offline: { grace_period_seconds: 60 },
+                    task_duration: { threshold_seconds: 300, percentile: 0.95, task_name: "*" },
                   };
                   setConditionValues(defaults[ct] ?? {});
                 }}
