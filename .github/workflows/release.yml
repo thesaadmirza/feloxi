@@ -33,6 +33,7 @@ jobs:
           file: deploy/docker/Dockerfile.api
           push: true
           tags: |
+            ${{ env.IMAGE_PREFIX }}/api:${{ github.ref_name }}
             ${{ env.IMAGE_PREFIX }}/api:${{ steps.version.outputs.version }}
             ${{ env.IMAGE_PREFIX }}/api:latest
 
@@ -58,5 +59,6 @@ jobs:
           file: deploy/docker/Dockerfile.web
           push: true
           tags: |
+            ${{ env.IMAGE_PREFIX }}/web:${{ github.ref_name }}
             ${{ env.IMAGE_PREFIX }}/web:${{ steps.version.outputs.version }}
             ${{ env.IMAGE_PREFIX }}/web:latest
