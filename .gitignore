@@ -46,7 +46,11 @@ lcov.info
 
 # Claude Code
 .claude/
+
+# AI assistant context files — kept locally, not for version control
+CLAUDE.md
 CLAUDE.local.md
+AGENTS.md
 
 # Internal planning docs
 plan.md
