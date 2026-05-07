@@ -193,7 +193,8 @@ async fn consume_loop(
                             }
                         };
 
-                        // Parse the event
+                        // Parse the event — Celery sends single events as JSON objects
+                        // but batches worker task events as JSON arrays. Handle both.
                         let body: serde_json::Value = match serde_json::from_str(body_str) {
                             Ok(v) => v,
                             Err(_) => {
@@ -202,35 +203,42 @@ async fn consume_loop(
                             }
                         };
 
-                        let event_type = body
-                            .get("type")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("unknown")
-                            .to_string();
+                        let events_to_process: Vec<serde_json::Value> = match body {
+                            serde_json::Value::Array(arr) => arr,
+                            obj => vec![obj],
+                        };
 
-                        if event_type.starts_with("task-") {
-                            if let Some(raw_event) = common::parse_celery_event(&event_type, &body) {
-                                task_batch.push(raw_event);
-                                if task_batch.len() >= 100 {
-                                    let events = std::mem::take(&mut task_batch);
-                                    pipeline::ingest_raw_task_events(
-                                        &state, tenant_id, config_id, "celery", events,
-                                    ).await;
+                        for event in events_to_process {
+                            let event_type = event
+                                .get("type")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown")
+                                .to_string();
+
+                            if event_type.starts_with("task-") {
+                                if let Some(raw_event) = common::parse_celery_event(&event_type, &event) {
+                                    task_batch.push(raw_event);
+                                    if task_batch.len() >= 100 {
+                                        let events = std::mem::take(&mut task_batch);
+                                        pipeline::ingest_raw_task_events(
+                                            &state, tenant_id, config_id, "celery", events,
+                                        ).await;
+                                    }
+                                } else {
+                                    let _ = db::redis::cache::incr_pipeline_counter(&state.redis, "events_parse_failed", 1).await;
                                 }
-                            } else {
-                                let _ = db::redis::cache::incr_pipeline_counter(&state.redis, "events_parse_failed", 1).await;
-                            }
-                        } else if event_type.starts_with("worker-") {
-                            if let Some(raw_event) = common::parse_celery_worker_event(&event_type, &body) {
-                                worker_batch.push(raw_event);
-                                if worker_batch.len() >= 20 {
-                                    let events = std::mem::take(&mut worker_batch);
-                                    pipeline::ingest_raw_worker_events(
-                                        &state, tenant_id, config_id, events,
-                                    ).await;
+                            } else if event_type.starts_with("worker-") {
+                                if let Some(raw_event) = common::parse_celery_worker_event(&event_type, &event) {
+                                    worker_batch.push(raw_event);
+                                    if worker_batch.len() >= 20 {
+                                        let events = std::mem::take(&mut worker_batch);
+                                        pipeline::ingest_raw_worker_events(
+                                            &state, tenant_id, config_id, events,
+                                        ).await;
+                                    }
+                                } else {
+                                    let _ = db::redis::cache::incr_pipeline_counter(&state.redis, "events_parse_failed", 1).await;
                                 }
-                            } else {
-                                let _ = db::redis::cache::incr_pipeline_counter(&state.redis, "events_parse_failed", 1).await;
                             }
                         }
                     }
