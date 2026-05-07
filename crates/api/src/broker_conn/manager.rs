@@ -90,12 +90,6 @@ impl BrokerConnectionManager {
         }
     }
 
-    /// Check if a broker connection is active.
-    #[allow(dead_code)]
-    pub fn is_running(&self, config_id: Uuid) -> bool {
-        self.connections.contains_key(&config_id)
-    }
-
     /// Test connectivity to a broker URL without starting a persistent connection.
     pub async fn test_connection(broker_type: &str, url: &str) -> Result<(), String> {
         match broker_type {
@@ -123,12 +117,4 @@ impl BrokerConnectionManager {
         }
     }
 
-    /// Stop all active connections.
-    #[allow(dead_code)]
-    pub fn stop_all(&self) {
-        let ids: Vec<Uuid> = self.connections.iter().map(|r| *r.key()).collect();
-        for id in ids {
-            self.stop(id);
-        }
-    }
 }

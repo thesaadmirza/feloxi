@@ -15,9 +15,7 @@ use auth::middleware::CurrentUser;
 use common::AppError;
 
 #[derive(Deserialize, ToSchema, IntoParams)]
-#[allow(dead_code)]
 pub struct WorkerListParams {
-    pub status: Option<String>,
     pub limit: Option<u64>,
 }
 
