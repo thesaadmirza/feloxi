@@ -14,6 +14,7 @@
   <a href="https://github.com/thesaadmirza/feloxi/actions/workflows/ci-frontend.yml"><img src="https://img.shields.io/github/actions/workflow/status/thesaadmirza/feloxi/ci-frontend.yml?branch=main&label=Frontend%20CI&style=flat-square" alt="Frontend CI" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue?style=flat-square" alt="License" /></a>
   <a href="https://github.com/thesaadmirza/feloxi/releases"><img src="https://img.shields.io/github/v/release/thesaadmirza/feloxi?include_prereleases&style=flat-square&label=Release" alt="Release" /></a>
+  <a href="charts/feloxi"><img src="https://img.shields.io/badge/Helm-0F1689?style=flat-square&logo=helm&logoColor=white" alt="Helm Chart" /></a>
 </p>
 
 ---
@@ -152,6 +153,29 @@ All configuration is via environment variables. See [docs/configuration.md](docs
 
 ## Production deployment
 
+### Kubernetes (Helm)
+
+Install on any Kubernetes cluster (EKS, GKE, AKS, bare-metal) in a single command:
+
+```bash
+helm install feloxi oci://ghcr.io/thesaadmirza/charts/feloxi \
+  --namespace feloxi --create-namespace \
+  --set auth.jwtSecret="<min-32-char-secret>" \
+  --set postgresql.auth.password="<pgpassword>" \
+  --set clickhouse.auth.password="<chpassword>"
+```
+
+Then access the dashboard:
+
+```bash
+kubectl port-forward -n feloxi svc/feloxi-web 3000:80
+# open http://localhost:3000
+```
+
+The chart bundles PostgreSQL, ClickHouse, and Redis by default. Point to your own managed instances by setting `postgresql.enabled=false` and `externalPostgresql.host=...` (same pattern for ClickHouse and Redis). See [charts/feloxi/README.md](charts/feloxi/README.md) for the full values reference, ingress setup, and `existingSecret` pattern for production credentials.
+
+### Docker Compose
+
 For production, use the production compose overrides:
 
 ```bash
@@ -178,7 +202,7 @@ See [docs/self-hosting.md](docs/self-hosting.md) for the full production guide c
 | Frontend       | Next.js 15, React 19, Tailwind CSS v4, Recharts, Zustand                |
 | Protocol       | WebSocket with JSON messages, auto-reconnect                            |
 | Alerting       | Slack, Email (SMTP via lettre), Webhook, PagerDuty                      |
-| Infrastructure | Docker Compose, PostgreSQL 17, Redis 7, ClickHouse 24.12                |
+| Infrastructure | Docker Compose, Kubernetes (Helm chart), PostgreSQL 17, Redis 7, ClickHouse 24.12 |
 
 ## Documentation
 
@@ -188,6 +212,7 @@ See [docs/self-hosting.md](docs/self-hosting.md) for the full production guide c
 | [Configuration](docs/configuration.md) | All environment variables and defaults         |
 | [Self-Hosting](docs/self-hosting.md)   | Production deployment guide                    |
 | [Sizing](docs/sizing.md)               | Resource planning from <100K to 10M+ tasks/day |
+| [Helm Chart](charts/feloxi/README.md)  | Kubernetes deployment, values reference, ingress, external DBs |
 
 ## Contributing
 
