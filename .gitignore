@@ -46,6 +46,7 @@ lcov.info
 
 # Claude Code
 .claude/
+CLAUDE.local.md
 
 # Internal planning docs
 plan.md
