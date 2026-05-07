@@ -288,7 +288,7 @@ async fn backfill_task_names(
 
     if !need.is_empty() {
         if let Ok(vals) = db::redis::cache::get_task_names(redis, tenant_id, &need).await {
-            for (tid, name) in need.iter().zip(vals.into_iter()) {
+            for (tid, name) in need.iter().zip(vals) {
                 if let Some(name) = name {
                     known.insert(tid.clone(), name);
                 }

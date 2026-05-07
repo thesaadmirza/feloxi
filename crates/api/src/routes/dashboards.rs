@@ -92,7 +92,7 @@ pub async fn get_dashboard_live(
             pool_size: s.pool_size,
         })
         .collect();
-    workers.sort_by(|a, b| b.active_tasks.cmp(&a.active_tasks));
+    workers.sort_by_key(|b| std::cmp::Reverse(b.active_tasks));
 
     let active_tasks_total: u64 = workers.iter().map(|w| w.active_tasks as u64).sum();
     let worker_capacity_total: u64 = workers.iter().map(|w| w.pool_size as u64).sum();
@@ -107,7 +107,7 @@ pub async fn get_dashboard_live(
         .into_iter()
         .map(|(queue_name, depth)| DashboardLiveQueue { queue_name, depth })
         .collect();
-    queues.sort_by(|a, b| b.depth.cmp(&a.depth));
+    queues.sort_by_key(|b| std::cmp::Reverse(b.depth));
     queues.truncate(LIVE_QUEUE_DISPLAY_LIMIT);
 
     Ok(Json(DashboardLiveResponse {
