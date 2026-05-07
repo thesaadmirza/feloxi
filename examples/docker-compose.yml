@@ -1,0 +1,241 @@
+# Feloxi Example — Redis broker
+#
+# Starts the full Feloxi stack plus three specialized Celery workers and a
+# continuous load generator. After startup, open http://localhost:3000, sign in
+# with demo@feloxi.dev / password123, then add the broker:
+#
+#   Brokers → Add Broker → Redis → redis://redis:6379 → Connect
+#
+# Tasks start flowing within seconds of adding the broker.
+#
+# Scale any worker tier:
+#   docker compose up --scale worker-default=3
+
+services:
+  # ── Feloxi infrastructure ──────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_USER: fp
+      POSTGRES_PASSWORD: feloxi
+      POSTGRES_DB: feloxi
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fp -d feloxi"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - feloxi
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.12
+    environment:
+      CLICKHOUSE_DB: feloxi
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: feloxi
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ../deploy/docker/clickhouse-config.xml:/etc/clickhouse-server/config.d/custom.xml
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - feloxi
+
+  # Redis serves two roles here:
+  #   1. Feloxi internal state (worker cache, real-time counters)
+  #   2. Celery broker — where your workers publish events that Feloxi reads
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - feloxi
+
+  feloxi-api:
+    build:
+      context: ..
+      dockerfile: deploy/docker/Dockerfile.api
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgresql://fp:feloxi@postgres:5432/feloxi
+      REDIS_URL: redis://redis:6379
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: feloxi
+      JWT_SECRET: example-dev-secret-do-not-use-in-production-xyz
+      CORS_ORIGIN: http://localhost:3000,http://127.0.0.1:3000
+      RUST_LOG: api=info,tower_http=info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - feloxi
+
+  feloxi-web:
+    build:
+      context: ..
+      dockerfile: deploy/docker/Dockerfile.web
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      API_URL: http://feloxi-api:8080
+    depends_on:
+      feloxi-api:
+        condition: service_healthy
+    networks:
+      - feloxi
+
+  # Seeds the demo account (demo@feloxi.dev / password123) and 50K historical
+  # task events so the dashboard is populated on first login.
+  seed:
+    build:
+      context: ..
+      dockerfile: deploy/docker/Dockerfile.seed
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PG_HOST: postgres
+      PG_PORT: "5432"
+      PG_USER: fp
+      PG_PASS: feloxi
+      PG_DB: feloxi
+      CH_HOST: clickhouse
+      CH_PORT: "8123"
+      CH_USER: default
+      CH_PASSWORD: feloxi
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+    networks:
+      - feloxi
+    restart: "no"
+
+  # ── Celery workers ─────────────────────────────────────────────────────────
+  # Each worker subscribes to specific queues. Scale any tier independently.
+
+  worker-default:
+    build:
+      context: ./app
+    command: celery -A app worker -Q default --loglevel=info --concurrency=4 --events
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - feloxi
+    restart: unless-stopped
+
+  worker-payments:
+    build:
+      context: ./app
+    command: celery -A app worker -Q payments,high-priority --loglevel=info --concurrency=4 --events
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - feloxi
+    restart: unless-stopped
+
+  worker-media:
+    build:
+      context: ./app
+    # Lower concurrency for media — these tasks are CPU/memory heavy.
+    command: celery -A app worker -Q media --loglevel=info --concurrency=2 --events
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - feloxi
+    restart: unless-stopped
+
+  worker-data:
+    build:
+      context: ./app
+    command: celery -A app worker -Q data,emails --loglevel=info --concurrency=4 --events
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - feloxi
+    restart: unless-stopped
+
+  # Celery Beat — publishes periodic tasks on schedule.
+  # Add the broker in Feloxi and watch these appear at their scheduled times.
+  beat:
+    build:
+      context: ./app
+    command: celery -A beat_schedule beat --loglevel=info
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - feloxi
+    restart: unless-stopped
+
+  # Continuous load generator — submits a realistic mix of tasks at ~2/sec.
+  # Includes chains, groups, chords, and tasks that fail or retry.
+  load-generator:
+    build:
+      context: ./app
+    command: python generate_load.py
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      TASKS_PER_SEC: "2"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - feloxi
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  clickhouse_data:
+  redis_data:
+
+networks:
+  feloxi:
+    driver: bridge

@@ -1,0 +1,86 @@
+# Feloxi Example — RabbitMQ broker overlay
+#
+# Use this file on top of docker-compose.yml to switch the Celery broker from
+# Redis to RabbitMQ. The Feloxi stack stays the same — only the broker changes.
+#
+# Start:
+#   docker compose -f docker-compose.yml -f docker-compose.rabbitmq.yml up -d
+#
+# After startup, open http://localhost:3000, sign in with demo@feloxi.dev /
+# password123, then add the broker:
+#
+#   Brokers → Add Broker → RabbitMQ → amqp://guest:guest@rabbitmq:5672// → Connect
+#
+# RabbitMQ management UI is available at http://localhost:15672 (guest / guest).
+
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"    # management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - feloxi
+
+  # Override all worker services to point at RabbitMQ instead of Redis.
+  worker-default:
+    environment:
+      CELERY_BROKER_URL: amqp://guest:guest@rabbitmq:5672//
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  worker-payments:
+    environment:
+      CELERY_BROKER_URL: amqp://guest:guest@rabbitmq:5672//
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  worker-media:
+    environment:
+      CELERY_BROKER_URL: amqp://guest:guest@rabbitmq:5672//
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  worker-data:
+    environment:
+      CELERY_BROKER_URL: amqp://guest:guest@rabbitmq:5672//
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  beat:
+    environment:
+      CELERY_BROKER_URL: amqp://guest:guest@rabbitmq:5672//
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  load-generator:
+    environment:
+      CELERY_BROKER_URL: amqp://guest:guest@rabbitmq:5672//
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  rabbitmq_data:
