@@ -112,11 +112,13 @@ async fn connect_with_retry(url: &str, max_retries: u32) -> Result<Connection, S
 }
 
 async fn setup_celery_consumer(channel: &Channel) -> Result<Consumer, lapin::Error> {
-    // Declare the celeryev exchange (fanout, durable — Celery creates this)
+    // Celery declares celeryev as a topic exchange (routing keys like "task.succeeded").
+    // Must match here — declaring as fanout causes PRECONDITION_FAILED when workers
+    // try to use the exchange, silently dropping all events.
     channel
         .exchange_declare(
             "celeryev",
-            lapin::ExchangeKind::Fanout,
+            lapin::ExchangeKind::Topic,
             ExchangeDeclareOptions { durable: true, ..Default::default() },
             FieldTable::default(),
         )
