@@ -88,6 +88,51 @@ The backend is a Cargo workspace with 6 crates:
 | `alerting` | Library | 10 alert condition types, notification dispatch to 4 channels (Slack, email via lettre, webhook, PagerDuty), per-rule cooldown throttling |
 | `common` | Library | Shared types (AppError, BrokerType, CollectorType), error handling helpers, utility functions |
 
+## Event Flow — Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    participant W as Celery Worker
+    participant B as Broker (Redis / RabbitMQ)
+    participant C as Feloxi Consumer
+    participant CH as ClickHouse
+    participant R as Redis Cache
+    participant WS as WebSocket Clients
+
+    W->>B: publish Kombu envelope (task-started event)
+    Note over B,C: Redis: pub/sub /celeryev/*<br/>RabbitMQ: fanout exchange celeryev
+
+    C->>B: subscribe (at broker connect time)
+    B-->>C: deliver event message
+    C->>C: decode Kombu envelope (base64 + JSON)
+    C->>C: extract event_type from headers or body
+    C->>C: normalize event_type → state (task-started → STARTED)
+
+    alt batch_size reached OR flush_interval elapsed
+        C->>CH: batch insert task events
+        C->>CH: batch insert worker events (deduplicated per worker)
+    end
+
+    C->>R: update worker state cache
+    C->>WS: broadcast EventPayload::TaskUpdate (all connected dashboards)
+```
+
+## Event Type Mapping
+
+| Celery event | Feloxi state | Notes |
+|-------------|-------------|-------|
+| `task-sent` | `PENDING` | Published by the producer when a task is submitted to the broker |
+| `task-received` | `RECEIVED` | Worker pulled the task from the queue |
+| `task-started` | `STARTED` | Worker began executing — requires `task_track_started = True` |
+| `task-succeeded` | `SUCCESS` | Task returned a result |
+| `task-failed` | `FAILURE` | Task raised an unhandled exception |
+| `task-retried` | `RETRY` | Task raised a retryable exception; will be re-queued |
+| `task-revoked` | `REVOKED` | Revoked via `celery control revoke` or the Feloxi UI |
+| `task-rejected` | `REJECTED` | Task rejected by the worker (rare) |
+| `worker-online` | online | Worker process started |
+| `worker-offline` | offline | Worker process stopped |
+| `worker-heartbeat` | (sampled) | CPU, memory, pool size, active tasks — updates Redis live state |
+
 ## API Startup Sequence
 
 1. Load configuration from environment variables

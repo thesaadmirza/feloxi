@@ -85,20 +85,37 @@ This boots PostgreSQL, ClickHouse, Redis, the Rust API server, the Next.js front
 
 ### Connect your workers
 
-Enable Celery events on your existing workers. No agent required.
+No agent to install. No SDK to wrap your tasks with. Three config settings and your broker URL is all Feloxi needs.
+
+**Step 1** — Add to your `celeryconfig.py` (or `app.conf`):
+
+```python
+worker_send_task_events = True   # task-started, task-succeeded, task-failed
+task_send_sent_event = True      # task-sent (shows PENDING state)
+task_track_started = True        # task-started (shows STARTED state)
+```
+
+**Step 2** — Restart workers with `--events`:
 
 ```bash
 celery -A myapp worker --loglevel=info --events
 ```
 
-Or in `celeryconfig.py`:
+**Step 3** — Add your broker in Feloxi: **Brokers → Add Broker**. Enter your Redis or RabbitMQ URL and click **Connect**. Tasks start appearing within seconds.
 
-```python
-worker_send_task_events = True
-task_send_sent_event = True
+See [docs/connecting-celery.md](docs/connecting-celery.md) for a full guide including API-based registration, Kubernetes setups, and troubleshooting.
+
+### Try the example app
+
+The [`examples/`](examples/) directory contains a ready-made Python Celery app with Redis and RabbitMQ variants — chains, groups, chords, realistic failure rates, Celery Beat periodic tasks, and a load generator. One command:
+
+```bash
+cd examples
+docker compose up -d
+# open http://localhost:3000 → Brokers → Add Broker → redis://redis:6379
 ```
 
-Then add your broker URL in the dashboard under **Brokers → Add Broker**. Events start flowing as soon as the connection is live.
+See [examples/README.md](examples/README.md) for full instructions.
 
 ## Architecture
 
@@ -206,13 +223,16 @@ See [docs/self-hosting.md](docs/self-hosting.md) for the full production guide c
 
 ## Documentation
 
-| Document                               | Description                                    |
-| -------------------------------------- | ---------------------------------------------- |
-| [Architecture](docs/architecture.md)   | System design, data flow, Rust crate structure |
-| [Configuration](docs/configuration.md) | All environment variables and defaults         |
-| [Self-Hosting](docs/self-hosting.md)   | Production deployment guide                    |
-| [Sizing](docs/sizing.md)               | Resource planning from <100K to 10M+ tasks/day |
-| [Helm Chart](charts/feloxi/README.md)  | Kubernetes deployment, values reference, ingress, external DBs |
+| Document                                               | Description                                              |
+| ------------------------------------------------------ | -------------------------------------------------------- |
+| [Architecture](docs/architecture.md)                   | System design, event flow sequence diagram, crate structure |
+| [Connecting Celery](docs/connecting-celery.md)         | Step-by-step guide for existing Celery apps              |
+| [Broker Configuration](docs/broker-configuration.md)   | FP_* tuning vars, reconnect behavior, event type mapping |
+| [Configuration](docs/configuration.md)                 | All environment variables and defaults                   |
+| [Self-Hosting](docs/self-hosting.md)                   | Production deployment guide                              |
+| [Sizing](docs/sizing.md)                               | Resource planning from <100K to 10M+ tasks/day           |
+| [Helm Chart](charts/feloxi/README.md)                  | Kubernetes deployment, values reference, ingress, external DBs |
+| [Example App](examples/README.md)                      | Runnable demo with Redis + RabbitMQ, workers, load generator |
 
 ## Contributing
 
