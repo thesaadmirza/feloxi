@@ -20,7 +20,7 @@
 ---
 
 <p align="center">
-  <img src=".github/screenshots/dashboard.png" width="900" alt="Feloxi dashboard with throughput, failure-rate trends, top failing tasks, and worker leaderboard" />
+  <img src=".github/screenshots/dashboard.png" width="900" alt="Feloxi dashboard showing task throughput and failure-rate charts, metric cards, task breakdown by name, and recent task list" />
 </p>
 
 Feloxi is a self-hosted Celery monitoring platform. It connects to your broker (Redis or RabbitMQ), reads the events Celery already emits, and stores them in ClickHouse so they outlive a restart. The dashboard runs on WebSocket for live updates. There's no agent to install and no SDK to integrate.
@@ -32,7 +32,7 @@ Feloxi is a self-hosted Celery monitoring platform. It connects to your broker (
 Full-text search across task ID, name, args, kwargs, result, and exception. Filter by state, worker, and time range. Click any task for the state timeline, traceback, runtime, retries, and retry/revoke actions sent through the broker.
 
 <p align="center">
-  <img src=".github/screenshots/tasks.png" width="900" alt="Task explorer with full-text search, state filters, time range chips, and detail view" />
+  <img src=".github/screenshots/tasks.png" width="900" alt="Task explorer with state filter, queue filter, colored state badges, worker assignment, and per-task runtime" />
 </p>
 
 ### Watch worker health
@@ -40,7 +40,7 @@ Full-text search across task ID, name, args, kwargs, result, and exception. Filt
 CPU, memory, pool size, active task counts, and heartbeat gaps. Load averages over 1m/5m/15m. Remote shutdown from the UI. Color-coded health indicators at a glance.
 
 <p align="center">
-  <img src=".github/screenshots/workers.png" width="900" alt="Worker monitoring with CPU, memory, and pool stats" />
+  <img src=".github/screenshots/workers.png" width="900" alt="Worker monitoring grouped by hostname showing online status, pending, running, done, and failed task counts per group" />
 </p>
 
 ### Visualize workflows
@@ -48,7 +48,7 @@ CPU, memory, pool size, active task counts, and heartbeat gaps. Load averages ov
 Celery chains, groups, and chords rendered as interactive DAGs. When a multi-stage pipeline fails, you can see which step broke without reading logs or correlating task IDs.
 
 <p align="center">
-  <img src=".github/screenshots/workflow-chain.png" width="900" alt="Workflow chain visualized as an interactive DAG" />
+  <img src=".github/screenshots/workflow-chain.png" width="900" alt="Workflow chain DAG showing three linked tasks with state badges, queue labels, and runtime — created from a Celery chain" />
 </p>
 
 ### Alert on what matters
@@ -56,7 +56,7 @@ Celery chains, groups, and chords rendered as interactive DAGs. When a multi-sta
 Ten alert condition types: failure rate, slow tasks, worker offline, queue depth, throughput anomaly, latency anomaly, error rate spike, beat missed, no events, task failed. Route to Slack, email, webhook, or PagerDuty. Cooldown periods prevent alert storms. Delivery logs show which channels actually received each firing.
 
 <p align="center">
-  <img src=".github/screenshots/alerts.png" width="900" alt="Alert rules with conditions and channel routing" />
+  <img src=".github/screenshots/alerts.png" width="900" alt="Alert rules list showing Worker Down, Slow Task, and High Failure Rate rules with active status, conditions, and last-fired timestamps" />
 </p>
 
 ### Manage brokers in one place
@@ -64,7 +64,7 @@ Ten alert condition types: failure rate, slow tasks, worker offline, queue depth
 Add Redis or RabbitMQ brokers through a 3-step wizard with connection testing. Start, stop, and monitor each broker independently. Per-broker stats include total events, hourly throughput, success rate, queue depths, and top tasks. Monitor staging and production from the same dashboard.
 
 <p align="center">
-  <img src=".github/screenshots/brokers.png" width="900" alt="Broker management with live queue depths" />
+  <img src=".github/screenshots/brokers.png" width="900" alt="Broker management page showing a connected Redis broker with type badge, live status, and stop/delete actions" />
 </p>
 
 ## Quick start
