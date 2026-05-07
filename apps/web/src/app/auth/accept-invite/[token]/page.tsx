@@ -8,6 +8,7 @@ import { FeloxiLogo } from "@/components/icons/feloxi-logo";
 import { PasswordInput } from "@/components/shared/password-input";
 import { $api, fetchClient, unwrap } from "@/lib/api";
 import { saveUser } from "@/lib/auth";
+import { AUTH_INPUT_BASE, AUTH_INPUT_NORMAL } from "@/lib/constants";
 
 export default function AcceptInvitePage() {
   const router = useRouter();
@@ -60,9 +61,8 @@ export default function AcceptInvitePage() {
     }
   }
 
-  const inputBase =
-    "w-full px-3 py-2.5 rounded-lg bg-zinc-800/50 border text-zinc-200 placeholder:text-zinc-600 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-colors";
-  const inputNormal = "border-zinc-800 hover:border-zinc-700";
+  const inputBase = AUTH_INPUT_BASE;
+  const inputNormal = AUTH_INPUT_NORMAL;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-zinc-950 px-4 py-12">

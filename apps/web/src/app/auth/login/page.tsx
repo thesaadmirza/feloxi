@@ -8,6 +8,7 @@ import { FeloxiLogo } from "@/components/icons/feloxi-logo";
 import { PasswordInput } from "@/components/shared/password-input";
 import { fetchClient, unwrap } from "@/lib/api";
 import { saveUser } from "@/lib/auth";
+import { AUTH_INPUT_BASE, AUTH_INPUT_NORMAL, AUTH_INPUT_ERROR } from "@/lib/constants";
 import type { OrgSummary, LoginResponse } from "@/types/api";
 
 type FormValues = {
@@ -314,13 +315,7 @@ export default function LoginPage() {
                   value={values.email}
                   onChange={handleChange}
                   placeholder="you@example.com"
-                  className={[
-                    "w-full px-3 py-2.5 rounded-lg bg-zinc-800/50 border text-zinc-200 placeholder:text-zinc-600",
-                    "text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-colors",
-                    errors.email
-                      ? "border-red-500/50 focus:ring-red-500"
-                      : "border-zinc-800 hover:border-zinc-700",
-                  ].join(" ")}
+                  className={[AUTH_INPUT_BASE, errors.email ? AUTH_INPUT_ERROR : AUTH_INPUT_NORMAL].join(" ")}
                 />
                 {errors.email && (
                   <p className="mt-1.5 text-xs text-red-400">{errors.email}</p>
@@ -367,13 +362,7 @@ export default function LoginPage() {
                   value={values.email}
                   onChange={handleChange}
                   placeholder="you@example.com"
-                  className={[
-                    "w-full px-3 py-2.5 rounded-lg bg-zinc-800/50 border text-zinc-200 placeholder:text-zinc-600",
-                    "text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-colors",
-                    errors.email
-                      ? "border-red-500/50 focus:ring-red-500"
-                      : "border-zinc-800 hover:border-zinc-700",
-                  ].join(" ")}
+                  className={[AUTH_INPUT_BASE, errors.email ? AUTH_INPUT_ERROR : AUTH_INPUT_NORMAL].join(" ")}
                 />
                 {errors.email && (
                   <p className="mt-1.5 text-xs text-red-400">{errors.email}</p>
