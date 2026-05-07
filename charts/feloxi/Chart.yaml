@@ -1,0 +1,40 @@
+apiVersion: v2
+name: feloxi
+version: 0.1.0
+appVersion: "0.3.1"
+description: >-
+  Open-source Celery task queue monitoring platform. Real-time task and worker
+  visibility via a Rust API, Next.js dashboard, PostgreSQL, ClickHouse, and Redis.
+type: application
+home: https://github.com/thesaadmirza/feloxi
+sources:
+  - https://github.com/thesaadmirza/feloxi
+maintainers:
+  - name: Saad Mirza
+    email: thesaadmirza@gmail.com
+keywords:
+  - celery
+  - monitoring
+  - task-queue
+  - flower-alternative
+  - rust
+  - nextjs
+  - redis
+  - clickhouse
+  - postgresql
+  - real-time
+  - workers
+  - broker
+icon: https://raw.githubusercontent.com/thesaadmirza/feloxi/main/apps/web/public/logo.png
+annotations:
+  artifacthub.io/category: monitoring-logging
+  artifacthub.io/license: MIT
+  artifacthub.io/changes: |
+    - kind: added
+      description: Initial Helm chart release
+  artifacthub.io/containsSecurityUpdates: "false"
+  artifacthub.io/prerelease: "true"
+  artifacthub.io/recommendations: |
+    - For production, use existingSecret instead of inline passwords
+    - Set postgresql.persistence.storageClass to your cluster's storage class
+    - Set clickhouse.persistence.storageClass to your cluster's storage class

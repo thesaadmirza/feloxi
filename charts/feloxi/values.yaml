@@ -1,0 +1,264 @@
+# -- Override the chart name
+nameOverride: ""
+# -- Override the full release name
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Create a ServiceAccount for the Feloxi pods
+  create: false
+  # -- Annotations to add to the ServiceAccount
+  annotations: {}
+  # -- Name of the ServiceAccount to use. Defaults to fullname if create=true.
+  name: ""
+
+# -- Container image configuration for API and web
+image:
+  api:
+    # -- API image repository
+    repository: ghcr.io/thesaadmirza/feloxi/api
+    # -- API image tag. Defaults to Chart.appVersion when empty.
+    tag: ""
+    # -- API image pull policy
+    pullPolicy: Always
+  web:
+    # -- Web image repository
+    repository: ghcr.io/thesaadmirza/feloxi/web
+    # -- Web image tag. Defaults to Chart.appVersion when empty.
+    tag: ""
+    # -- Web image pull policy
+    pullPolicy: Always
+
+# -- Image pull secrets for private registries
+imagePullSecrets: []
+
+# -- Auth / JWT configuration
+auth:
+  # -- JWT signing secret. Required (min 32 chars) when existingSecret is not set.
+  jwtSecret: ""
+  # -- Name of an existing Secret that contains the JWT secret (and optionally
+  #    postgres/clickhouse credentials). When set, no Secret is generated.
+  existingSecret: ""
+  secretKeys:
+    # -- Key in the secret containing the JWT secret
+    jwtSecretKey: jwt-secret
+
+# ---------------------------------------------------------------------------
+# Rust API backend
+# ---------------------------------------------------------------------------
+api:
+  # -- Number of API replicas
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 500m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  env:
+    # -- Rust log filter
+    rustLog: "api=info,tower_http=warn"
+    # -- Disable Swagger UI in production
+    disableSwagger: "true"
+    # -- Allow new user registration
+    allowSignup: "false"
+    # -- CORS allowed origins. Defaults to ingress host when ingress is enabled.
+    corsOrigin: ""
+  tuning:
+    # -- Broadcast channel capacity for real-time events
+    pubsubChannelCapacity: "500000"
+    # -- ClickHouse flush interval in seconds
+    flushIntervalSecs: "1"
+    # -- Dead-letter drain interval in seconds
+    drainIntervalSecs: "30"
+    # -- Max messages per drain cycle
+    drainMaxMessages: "500"
+    # -- Task event batch size
+    taskBatchSize: "200"
+    # -- Worker event batch size
+    workerBatchSize: "50"
+
+# ---------------------------------------------------------------------------
+# Next.js web frontend
+# ---------------------------------------------------------------------------
+web:
+  # -- Number of web replicas
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+# ---------------------------------------------------------------------------
+# Ingress
+# ---------------------------------------------------------------------------
+ingress:
+  # -- Enable Ingress
+  enabled: false
+  # -- Ingress class name (nginx | traefik | alb | gce | …)
+  className: nginx
+  # -- Additional annotations passed to the Ingress resource
+  annotations: {}
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+    # nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    # nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  # -- Public hostname for Feloxi (required when ingress.enabled=true)
+  host: ""
+  # -- Enable TLS
+  tls: false
+  # -- Name of the TLS Secret (created separately or by cert-manager)
+  tlsSecretName: ""
+
+# ---------------------------------------------------------------------------
+# PostgreSQL (embedded)
+# ---------------------------------------------------------------------------
+postgresql:
+  # -- Deploy embedded PostgreSQL. Set false to use externalPostgresql.
+  enabled: true
+  image:
+    repository: postgres
+    tag: "17-bookworm"
+    pullPolicy: IfNotPresent
+  auth:
+    # -- PostgreSQL username
+    username: feloxi
+    # -- PostgreSQL password. Required when auth.existingSecret is not set.
+    password: ""
+    # -- PostgreSQL database name
+    database: feloxi
+    # -- Name of an existing Secret with postgres credentials.
+    #    Must contain keys matching secretKeys below.
+    existingSecret: ""
+    secretKeys:
+      usernameKey: postgres-user
+      passwordKey: postgres-password
+      databaseKey: postgres-db
+  persistence:
+    # -- Enable persistent storage for PostgreSQL
+    enabled: true
+    # -- Storage size
+    size: 5Gi
+    # -- StorageClass name. Empty = cluster default.
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# ---------------------------------------------------------------------------
+# External PostgreSQL (used when postgresql.enabled=false)
+# ---------------------------------------------------------------------------
+externalPostgresql:
+  # -- PostgreSQL hostname
+  host: ""
+  # -- PostgreSQL port
+  port: 5432
+  # -- PostgreSQL database name
+  database: feloxi
+  # -- PostgreSQL username
+  username: feloxi
+  # -- Name of an existing Secret with a password key
+  existingSecret: ""
+  secretKeys:
+    passwordKey: postgres-password
+
+# ---------------------------------------------------------------------------
+# ClickHouse (embedded)
+# ---------------------------------------------------------------------------
+clickhouse:
+  # -- Deploy embedded ClickHouse. Set false to use externalClickhouse.
+  enabled: true
+  image:
+    repository: clickhouse/clickhouse-server
+    tag: "24.12"
+    pullPolicy: IfNotPresent
+  auth:
+    # -- ClickHouse username
+    username: default
+    # -- ClickHouse password. Required when auth.existingSecret is not set.
+    password: ""
+    # -- Name of an existing Secret with clickhouse credentials.
+    existingSecret: ""
+    secretKeys:
+      usernameKey: clickhouse-user
+      passwordKey: clickhouse-password
+  persistence:
+    # -- Enable persistent storage for ClickHouse
+    enabled: true
+    # -- Storage size
+    size: 10Gi
+    # -- StorageClass name. Empty = cluster default.
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  # -- TTL for ClickHouse system log tables (days)
+  systemLogTtlDays: 3
+
+# ---------------------------------------------------------------------------
+# External ClickHouse (used when clickhouse.enabled=false)
+# ---------------------------------------------------------------------------
+externalClickhouse:
+  # -- ClickHouse hostname
+  host: ""
+  # -- ClickHouse HTTP port
+  port: 8123
+  # -- ClickHouse database name
+  database: feloxi
+  # -- ClickHouse username
+  username: default
+  # -- Name of an existing Secret with a password key
+  existingSecret: ""
+  secretKeys:
+    passwordKey: clickhouse-password
+
+# ---------------------------------------------------------------------------
+# Redis (embedded)
+# ---------------------------------------------------------------------------
+redis:
+  # -- Deploy embedded Redis. Set false to use externalRedis.
+  enabled: true
+  image:
+    repository: redis
+    tag: "7-alpine"
+    pullPolicy: IfNotPresent
+  # -- Redis maxmemory limit
+  maxmemory: "256mb"
+  # -- Redis maxmemory eviction policy
+  maxmemoryPolicy: allkeys-lru
+  persistence:
+    # -- Enable AOF persistence with a PVC.
+    #    Disabled by default — Redis is used for pub/sub, data loss is acceptable.
+    enabled: false
+    size: 1Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+# ---------------------------------------------------------------------------
+# External Redis (used when redis.enabled=false)
+# ---------------------------------------------------------------------------
+externalRedis:
+  # -- Redis hostname
+  host: ""
+  # -- Redis port
+  port: 6379
+  # -- Name of an existing Secret with a password key (optional, for auth-enabled Redis)
+  existingSecret: ""
+  secretKeys:
+    passwordKey: redis-password

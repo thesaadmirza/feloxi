@@ -1,0 +1,194 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "feloxi.fullname" . }}-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "feloxi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.api.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "feloxi.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        {{- include "feloxi.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ include "feloxi.serviceAccountName" . }}
+      {{- end }}
+      initContainers:
+        {{- if .Values.postgresql.enabled }}
+        - name: wait-for-postgres
+          image: busybox:1.35
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ include "feloxi.fullname" . }}-postgres 5432; do
+                echo "waiting for postgres..."; sleep 2
+              done
+        {{- end }}
+        {{- if .Values.clickhouse.enabled }}
+        - name: wait-for-clickhouse
+          image: busybox:1.35
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ include "feloxi.fullname" . }}-clickhouse 8123; do
+                echo "waiting for clickhouse..."; sleep 2
+              done
+        {{- end }}
+        {{- if .Values.redis.enabled }}
+        - name: wait-for-redis
+          image: busybox:1.35
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ include "feloxi.fullname" . }}-redis 6379; do
+                echo "waiting for redis..."; sleep 2
+              done
+        {{- end }}
+      containers:
+        - name: api
+          image: {{ include "feloxi.apiImage" . | quote }}
+          imagePullPolicy: {{ .Values.image.api.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            # JWT
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "feloxi.secretName" . }}
+                  key: {{ .Values.auth.secretKeys.jwtSecretKey }}
+
+            # PostgreSQL
+            {{- if .Values.postgresql.enabled }}
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "feloxi.pgSecretName" . }}
+                  key: {{ .Values.postgresql.auth.secretKeys.usernameKey }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "feloxi.pgSecretName" . }}
+                  key: {{ .Values.postgresql.auth.secretKeys.passwordKey }}
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "feloxi.pgSecretName" . }}
+                  key: {{ .Values.postgresql.auth.secretKeys.databaseKey }}
+            - name: DATABASE_URL
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ include "feloxi.postgresHost" . }}:5432/$(POSTGRES_DB)"
+            {{- else }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "externalPostgresql.existingSecret is required when postgresql.enabled=false" .Values.externalPostgresql.existingSecret }}
+                  key: {{ .Values.externalPostgresql.secretKeys.passwordKey }}
+            - name: DATABASE_URL
+              value: "postgresql://{{ .Values.externalPostgresql.username }}:$(POSTGRES_PASSWORD)@{{ include "feloxi.postgresHost" . }}:{{ .Values.externalPostgresql.port }}/{{ .Values.externalPostgresql.database }}"
+            {{- end }}
+
+            # ClickHouse
+            {{- if .Values.clickhouse.enabled }}
+            - name: CLICKHOUSE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "feloxi.chSecretName" . }}
+                  key: {{ .Values.clickhouse.auth.secretKeys.usernameKey }}
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "feloxi.chSecretName" . }}
+                  key: {{ .Values.clickhouse.auth.secretKeys.passwordKey }}
+            {{- else }}
+            - name: CLICKHOUSE_USER
+              value: {{ .Values.externalClickhouse.username | quote }}
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "externalClickhouse.existingSecret is required when clickhouse.enabled=false" .Values.externalClickhouse.existingSecret }}
+                  key: {{ .Values.externalClickhouse.secretKeys.passwordKey }}
+            {{- end }}
+            - name: CLICKHOUSE_URL
+              value: "http://{{ include "feloxi.clickhouseHost" . }}:8123"
+
+            # Redis
+            {{- if .Values.redis.enabled }}
+            - name: REDIS_URL
+              value: "redis://{{ include "feloxi.redisHost" . }}:6379"
+            {{- else if .Values.externalRedis.existingSecret }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.externalRedis.existingSecret }}
+                  key: {{ .Values.externalRedis.secretKeys.passwordKey }}
+            - name: REDIS_URL
+              value: "redis://:$(REDIS_PASSWORD)@{{ include "feloxi.redisHost" . }}:{{ .Values.externalRedis.port }}"
+            {{- else }}
+            - name: REDIS_URL
+              value: "redis://{{ include "feloxi.redisHost" . }}:{{ .Values.externalRedis.port }}"
+            {{- end }}
+
+            # App configuration
+            - name: PORT
+              value: "8080"
+            - name: RUST_LOG
+              value: {{ .Values.api.env.rustLog | quote }}
+            - name: DISABLE_SWAGGER
+              value: {{ .Values.api.env.disableSwagger | quote }}
+            - name: ALLOW_SIGNUP
+              value: {{ .Values.api.env.allowSignup | quote }}
+            {{- $corsOrigin := include "feloxi.corsOrigin" . }}
+            {{- if $corsOrigin }}
+            - name: CORS_ORIGIN
+              value: {{ $corsOrigin | quote }}
+            {{- end }}
+
+            # Performance tuning
+            - name: FP_PUBSUB_CHANNEL_CAPACITY
+              value: {{ .Values.api.tuning.pubsubChannelCapacity | quote }}
+            - name: FP_FLUSH_INTERVAL_SECS
+              value: {{ .Values.api.tuning.flushIntervalSecs | quote }}
+            - name: FP_DRAIN_INTERVAL_SECS
+              value: {{ .Values.api.tuning.drainIntervalSecs | quote }}
+            - name: FP_DRAIN_MAX_MESSAGES
+              value: {{ .Values.api.tuning.drainMaxMessages | quote }}
+            - name: FP_TASK_BATCH_SIZE
+              value: {{ .Values.api.tuning.taskBatchSize | quote }}
+            - name: FP_WORKER_BATCH_SIZE
+              value: {{ .Values.api.tuning.workerBatchSize | quote }}
+
+          livenessProbe:
+            httpGet:
+              path: /api/v1/healthz
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/v1/readyz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}

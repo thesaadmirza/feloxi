@@ -1,0 +1,36 @@
+Feloxi has been deployed successfully!
+
+{{- if .Values.ingress.enabled }}
+
+  Access your dashboard at:
+    {{ ternary "https" "http" .Values.ingress.tls }}://{{ .Values.ingress.host }}
+
+{{- else }}
+
+  Access your dashboard via port-forward:
+    kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "feloxi.fullname" . }}-web 3000:80
+    Then open: http://localhost:3000
+
+  Access the API directly:
+    kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "feloxi.fullname" . }}-api 8080:80
+    curl http://localhost:8080/api/v1/healthz
+
+{{- end }}
+
+Check pod status:
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+Check persistent volumes:
+  kubectl get pvc -n {{ .Release.Namespace }}
+
+View API logs:
+  kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=api -f
+
+View web logs:
+  kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=web -f
+
+Demo credentials (Docker Compose seed only — not seeded via Helm):
+  Email:    demo@feloxi.dev
+  Password: password123
+
+Documentation: https://github.com/thesaadmirza/feloxi

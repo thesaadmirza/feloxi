@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "Feloxi Helm Chart Values",
+  "type": "object",
+  "properties": {
+    "nameOverride": { "type": "string" },
+    "fullnameOverride": { "type": "string" },
+    "imagePullSecrets": { "type": "array" },
+    "serviceAccount": {
+      "type": "object",
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string" }
+      }
+    },
+    "image": {
+      "type": "object",
+      "properties": {
+        "api": {
+          "type": "object",
+          "required": ["repository"],
+          "properties": {
+            "repository": { "type": "string", "minLength": 1 },
+            "tag": { "type": "string" },
+            "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+          }
+        },
+        "web": {
+          "type": "object",
+          "required": ["repository"],
+          "properties": {
+            "repository": { "type": "string", "minLength": 1 },
+            "tag": { "type": "string" },
+            "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+          }
+        }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "properties": {
+        "jwtSecret": { "type": "string" },
+        "existingSecret": { "type": "string" },
+        "secretKeys": {
+          "type": "object",
+          "properties": {
+            "jwtSecretKey": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "api": {
+      "type": "object",
+      "properties": {
+        "replicaCount": { "type": "integer", "minimum": 1 },
+        "resources": { "type": "object" },
+        "env": {
+          "type": "object",
+          "properties": {
+            "rustLog": { "type": "string" },
+            "disableSwagger": { "type": "string", "enum": ["true", "false"] },
+            "allowSignup": { "type": "string", "enum": ["true", "false"] },
+            "corsOrigin": { "type": "string" }
+          }
+        },
+        "tuning": {
+          "type": "object",
+          "properties": {
+            "pubsubChannelCapacity": { "type": "string" },
+            "flushIntervalSecs": { "type": "string" },
+            "drainIntervalSecs": { "type": "string" },
+            "drainMaxMessages": { "type": "string" },
+            "taskBatchSize": { "type": "string" },
+            "workerBatchSize": { "type": "string" }
+          }
+        }
+      }
+    },
+    "web": {
+      "type": "object",
+      "properties": {
+        "replicaCount": { "type": "integer", "minimum": 1 },
+        "resources": { "type": "object" }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "className": { "type": "string" },
+        "annotations": { "type": "object" },
+        "host": { "type": "string" },
+        "tls": { "type": "boolean" },
+        "tlsSecretName": { "type": "string" }
+      }
+    },
+    "postgresql": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "image": {
+          "type": "object",
+          "properties": {
+            "repository": { "type": "string" },
+            "tag": { "type": "string" },
+            "pullPolicy": { "type": "string" }
+          }
+        },
+        "auth": {
+          "type": "object",
+          "properties": {
+            "username": { "type": "string", "minLength": 1 },
+            "password": { "type": "string" },
+            "database": { "type": "string", "minLength": 1 },
+            "existingSecret": { "type": "string" },
+            "secretKeys": { "type": "object" }
+          }
+        },
+        "persistence": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "size": { "type": "string", "minLength": 1 },
+            "storageClass": { "type": "string" }
+          }
+        },
+        "resources": { "type": "object" }
+      }
+    },
+    "externalPostgresql": {
+      "type": "object",
+      "properties": {
+        "host": { "type": "string" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "database": { "type": "string" },
+        "username": { "type": "string" },
+        "existingSecret": { "type": "string" },
+        "secretKeys": { "type": "object" }
+      }
+    },
+    "clickhouse": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "image": {
+          "type": "object",
+          "properties": {
+            "repository": { "type": "string" },
+            "tag": { "type": "string" },
+            "pullPolicy": { "type": "string" }
+          }
+        },
+        "auth": {
+          "type": "object",
+          "properties": {
+            "username": { "type": "string" },
+            "password": { "type": "string" },
+            "existingSecret": { "type": "string" },
+            "secretKeys": { "type": "object" }
+          }
+        },
+        "persistence": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "size": { "type": "string" },
+            "storageClass": { "type": "string" }
+          }
+        },
+        "resources": { "type": "object" },
+        "systemLogTtlDays": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "externalClickhouse": {
+      "type": "object",
+      "properties": {
+        "host": { "type": "string" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "database": { "type": "string" },
+        "username": { "type": "string" },
+        "existingSecret": { "type": "string" },
+        "secretKeys": { "type": "object" }
+      }
+    },
+    "redis": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "image": {
+          "type": "object",
+          "properties": {
+            "repository": { "type": "string" },
+            "tag": { "type": "string" },
+            "pullPolicy": { "type": "string" }
+          }
+        },
+        "maxmemory": { "type": "string" },
+        "maxmemoryPolicy": { "type": "string" },
+        "persistence": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "size": { "type": "string" },
+            "storageClass": { "type": "string" }
+          }
+        },
+        "resources": { "type": "object" }
+      }
+    },
+    "externalRedis": {
+      "type": "object",
+      "properties": {
+        "host": { "type": "string" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "existingSecret": { "type": "string" },
+        "secretKeys": { "type": "object" }
+      }
+    }
+  }
+}
