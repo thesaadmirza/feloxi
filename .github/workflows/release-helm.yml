@@ -1,0 +1,56 @@
+name: Release Helm Chart
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release-chart:
+    name: Package and push Helm chart
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+
+      - uses: oras-project/setup-oras@v1
+
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Stamp chart versions
+        run: |
+          sed -i "s/^version:.*/version: ${{ steps.version.outputs.version }}/" charts/feloxi/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${{ steps.version.outputs.version }}\"/" charts/feloxi/Chart.yaml
+
+      - name: Lint
+        run: helm lint charts/feloxi
+
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
+            --username "${{ github.actor }}" \
+            --password-stdin
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io \
+            --username "${{ github.actor }}" \
+            --password-stdin
+
+      - name: Package chart
+        run: helm package charts/feloxi --destination /tmp/chart-pkg
+
+      - name: Push chart to GHCR
+        run: |
+          helm push /tmp/chart-pkg/feloxi-${{ steps.version.outputs.version }}.tgz \
+            oci://ghcr.io/${{ github.repository_owner }}/charts
+
+      - name: Push ArtifactHub repository metadata
+        run: |
+          oras push \
+            ghcr.io/${{ github.repository_owner }}/charts/feloxi:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.repository.metadata.layer.v1.yaml \
+            artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository.metadata.layer.v1.yaml
