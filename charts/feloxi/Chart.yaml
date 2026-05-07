@@ -25,16 +25,12 @@ keywords:
   - real-time
   - workers
   - broker
-icon: https://raw.githubusercontent.com/thesaadmirza/feloxi/main/apps/web/public/logo.png
+icon: https://raw.githubusercontent.com/thesaadmirza/feloxi/main/.github/logo.svg
 annotations:
   artifacthub.io/category: monitoring-logging
-  artifacthub.io/license: MIT
+  artifacthub.io/license: Apache-2.0
   artifacthub.io/changes: |
     - kind: added
       description: Initial Helm chart release
   artifacthub.io/containsSecurityUpdates: "false"
-  artifacthub.io/prerelease: "true"
-  artifacthub.io/recommendations: |
-    - For production, use existingSecret instead of inline passwords
-    - Set postgresql.persistence.storageClass to your cluster's storage class
-    - Set clickhouse.persistence.storageClass to your cluster's storage class
+  artifacthub.io/prerelease: "false"
