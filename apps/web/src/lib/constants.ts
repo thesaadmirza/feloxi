@@ -40,6 +40,11 @@ export const TIME_RANGE_PRESETS: readonly {
 
 export const DEFAULT_TIME_RANGE: TimeRangeId = "24h";
 
+export const AUTH_INPUT_BASE =
+  "w-full px-3 py-2.5 rounded-lg bg-zinc-800/50 border text-zinc-200 placeholder:text-zinc-600 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-colors";
+export const AUTH_INPUT_NORMAL = "border-zinc-800 hover:border-zinc-700";
+export const AUTH_INPUT_ERROR = "border-red-500/50 focus:ring-red-500";
+
 export function getStateColor(state: string): string {
   return STATE_COLORS[state.toUpperCase()] ?? "#6b7280";
 }

@@ -55,6 +55,14 @@ export function displayTaskName(name: string | undefined | null): string {
   return name;
 }
 
+export function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-");
+}
+
 export function timeAgo(dateInput: string | number): string {
   const now = Date.now();
   const date = typeof dateInput === "number" ? dateInput : new Date(dateInput).getTime();
