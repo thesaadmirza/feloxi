@@ -24,6 +24,7 @@ import type { TaskState, TaskEvent } from "@/types/api";
 import { DEFAULT_TIME_RANGE, TIME_RANGE_PRESETS, type TimeRangeId } from "@/lib/constants";
 
 const TASKS_LIMIT = 50;
+const SUGGESTIONS_STALE_MS = 10 * 60 * 1000;
 
 function exportTasks(tasks: TaskEvent[], format: "csv" | "json") {
   if (tasks.length === 0) return;
@@ -183,6 +184,7 @@ export default function TasksPage() {
   const stateFilterCsv = stateFilters.join(",");
   const stateFilterSet = useMemo(() => new Set(stateFilters), [stateFilters]);
   const nameFilter = searchParams.get("task_name") || "";
+  const queueFilter = searchParams.get("queue") || "";
   const searchFilter = searchParams.get("search") || "";
   const errorsOnlyFilter = searchParams.get("errors_only") === "true";
   const sinceMsParam = searchParams.get("since_ms");
@@ -256,11 +258,17 @@ export default function TasksPage() {
     : (bucketMinute - rangeMinutes) * 60_000;
   const effectiveUntilMs = customRange ? customRange.until : undefined;
 
+  const taskNamesQuery = $api.useQuery("get", "/api/v1/metrics/task-names", undefined, { staleTime: SUGGESTIONS_STALE_MS });
+  const queueNamesQuery = $api.useQuery("get", "/api/v1/metrics/queue-names", undefined, { staleTime: SUGGESTIONS_STALE_MS });
+  const taskNameSuggestions = taskNamesQuery.data?.data ?? [];
+  const queueNameSuggestions = queueNamesQuery.data?.data ?? [];
+
   const queryParams = useMemo(() => ({
     params: {
       query: {
         state: stateFilterCsv || undefined,
         task_name: nameFilter || undefined,
+        queue: queueFilter || undefined,
         search: searchFilter || undefined,
         errors_only: errorsOnlyFilter || undefined,
         since_ms: effectiveSinceMs,
@@ -270,7 +278,7 @@ export default function TasksPage() {
         count: true,
       },
     },
-  }), [stateFilterCsv, nameFilter, searchFilter, errorsOnlyFilter, effectiveSinceMs, effectiveUntilMs, cursor]);
+  }), [stateFilterCsv, nameFilter, queueFilter, searchFilter, errorsOnlyFilter, effectiveSinceMs, effectiveUntilMs, cursor]);
 
   const summaryQuery = $api.useQuery(
     "get",
@@ -374,6 +382,12 @@ export default function TasksPage() {
           updateParam("task_name", "");
         },
       });
+    if (queueFilter)
+      chips.push({
+        key: "queue",
+        label: `queue: ${queueFilter}`,
+        onRemove: () => updateParam("queue", ""),
+      });
     if (searchFilter)
       chips.push({
         key: "search",
@@ -413,6 +427,7 @@ export default function TasksPage() {
   }, [
     stateFilters,
     nameFilter,
+    queueFilter,
     searchFilter,
     errorsOnlyFilter,
     rangeFilter,
@@ -677,18 +692,34 @@ export default function TasksPage() {
             })}
           </div>
 
-          <div className="relative">
-            <input
-              type="text"
-              value={nameInput}
-              onChange={(e) => setNameInput(e.target.value)}
-              onKeyDown={handleNameKeyDown}
-              onBlur={handleNameBlur}
-              placeholder="Task name…"
-              className="px-3 py-2 bg-secondary border border-border text-foreground text-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-ring w-44"
-              aria-label="Task name filter"
-            />
-          </div>
+          <datalist id="task-name-suggestions">
+            {taskNameSuggestions.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+          <input
+            type="text"
+            list="task-name-suggestions"
+            value={nameInput}
+            onChange={(e) => setNameInput(e.target.value)}
+            onKeyDown={handleNameKeyDown}
+            onBlur={handleNameBlur}
+            placeholder="Task name…"
+            className="px-3 py-2 bg-secondary border border-border text-foreground text-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-ring w-48"
+            aria-label="Task name filter"
+          />
+
+          <select
+            value={queueFilter}
+            onChange={(e) => updateParam("queue", e.target.value)}
+            className="px-3 py-2 bg-secondary border border-border text-foreground text-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-ring w-40 cursor-pointer"
+            aria-label="Queue filter"
+          >
+            <option value="">All queues</option>
+            {queueNameSuggestions.map((q) => (
+              <option key={q} value={q}>{q}</option>
+            ))}
+          </select>
 
           <label className="flex items-center gap-2 px-3 py-2 bg-secondary border border-border rounded-lg text-sm text-foreground cursor-pointer select-none">
             <input
@@ -792,8 +823,10 @@ export default function TasksPage() {
                     onClick={() => handleTaskRowClick(task.task_id)}
                     className="border-b border-border hover:bg-secondary/30 cursor-pointer transition-colors group"
                   >
-                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
-                      {truncateId(task.task_id, 8)}
+                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground max-w-[160px]">
+                      <span title={task.task_id} className="truncate block">
+                        {task.task_id}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-foreground max-w-[220px] truncate">
                       {task.task_name}
