@@ -23,6 +23,14 @@
   <img src=".github/screenshots/dashboard.png" width="900" alt="Feloxi dashboard showing task throughput and failure-rate charts, metric cards, task breakdown by name, and recent task list" />
 </p>
 
+<p align="center">
+  <a href="https://youtu.be/rcOrdcSi4gE">
+    <img src=".github/screenshots/youtube-thumbnail.png" width="720" alt="Watch the Feloxi walkthrough on YouTube" />
+  </a>
+  <br/>
+  <sub><a href="https://youtu.be/rcOrdcSi4gE">▶ Watch the walkthrough on YouTube</a></sub>
+</p>
+
 Feloxi is a self-hosted Celery monitoring platform. It connects to your broker (Redis or RabbitMQ), reads the events Celery already emits, and stores them in ClickHouse so they outlive a restart. The dashboard runs on WebSocket for live updates. There's no agent to install and no SDK to integrate.
 
 ## What you can do
