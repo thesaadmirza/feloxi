@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { X, LayoutDashboard, ListChecks, Server, Cable, Bell, Settings, Layers, Activity } from "lucide-react";
+import { X, LayoutDashboard, ListChecks, Server, Cable, Bell, Settings, Layers, Activity, CalendarClock } from "lucide-react";
 import { FeloxiLogo } from "@/components/icons/feloxi-logo";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { userHasPermission } from "@/lib/auth";
@@ -24,6 +24,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Workers", href: "/workers", icon: <Server className="w-4 h-4" />, requires: "workers_read" },
   { label: "Brokers", href: "/brokers", icon: <Cable className="w-4 h-4" />, requires: "brokers_manage" },
   { label: "Alerts", href: "/alerts", icon: <Bell className="w-4 h-4" />, requires: "alerts_read" },
+  { label: "Beat", href: "/beat", icon: <CalendarClock className="w-4 h-4" />, requires: "beat_read" },
   { label: "System", href: "/system", icon: <Activity className="w-4 h-4" />, requires: "metrics_read" },
   { label: "Settings", href: "/settings", icon: <Settings className="w-4 h-4" />, requires: "settings_read" },
 ];
