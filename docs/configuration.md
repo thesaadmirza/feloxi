@@ -17,6 +17,7 @@ All Feloxi configuration is done through environment variables. Copy `.env.examp
 | `CLICKHOUSE_USER` | No     | —                             | ClickHouse username (if auth is enabled)                                                                                              |
 | `CLICKHOUSE_PASSWORD` | No | —                             | ClickHouse password (if auth is enabled)                                                                                              |
 | `DISABLE_SWAGGER` | No     | `false`                       | Set to `true` to disable Swagger UI in production                                                                                     |
+| `DISABLE_PROMETHEUS` | No  | `false`                       | Set to `true` to disable the `GET /metrics` Prometheus scrape endpoint                                                                |
 
 ## Frontend
 

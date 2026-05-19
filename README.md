@@ -37,7 +37,7 @@ Feloxi is a self-hosted Celery monitoring platform. It connects to your broker (
 
 ### Find any task
 
-Full-text search across task ID, name, args, kwargs, result, and exception. Filter by state, worker, and time range. Click any task for the state timeline, traceback, runtime, retries, and retry/revoke actions sent through the broker.
+Full-text search across task ID, name, args, kwargs, result, and exception. Filter by state, queue, worker, and time range. Click any task for the state timeline, traceback, runtime, retries, and retry/revoke actions sent through the broker. Switch to the failures view to see exceptions grouped by type — one row per unique exception with occurrence counts, affected task names, and an expandable traceback.
 
 <p align="center">
   <img src=".github/screenshots/tasks.png" width="900" alt="Task explorer with state filter, queue filter, colored state badges, worker assignment, and per-task runtime" />
@@ -59,6 +59,10 @@ Celery chains, groups, and chords rendered as interactive DAGs. When a multi-sta
   <img src=".github/screenshots/workflow-chain.png" width="900" alt="Workflow chain DAG showing three linked tasks with state badges, queue labels, and runtime — created from a Celery chain" />
 </p>
 
+### Track periodic tasks
+
+The Beat Scheduler page shows every periodic task registered with Celery Beat — schedule expression, last run, next expected run, and how many beats have been missed. A missed-beat alert condition fires when a scheduled task stops running on time.
+
 ### Alert on what matters
 
 Ten alert condition types: failure rate, slow tasks, worker offline, queue depth, throughput anomaly, latency anomaly, error rate spike, beat missed, no events, task failed. Route to Slack, email, webhook, or PagerDuty. Cooldown periods prevent alert storms. Delivery logs show which channels actually received each firing.
@@ -74,6 +78,32 @@ Add Redis or RabbitMQ brokers through a 3-step wizard with connection testing. S
 <p align="center">
   <img src=".github/screenshots/brokers.png" width="900" alt="Broker management page showing a connected Redis broker with type badge, live status, and stop/delete actions" />
 </p>
+
+### Export to Prometheus
+
+`GET /metrics` on the API server exposes a Prometheus-compatible scrape endpoint. No authentication required — protect it at the network level in production.
+
+```
+# HELP feloxi_tasks_total Number of tasks in the last 60 minutes by state
+feloxi_tasks_total{state="total"} 4821
+feloxi_tasks_total{state="succeeded"} 4612
+feloxi_tasks_total{state="failed"} 209
+
+# HELP feloxi_task_failure_rate_percent Task failure rate over the last 60 minutes
+feloxi_task_failure_rate_percent 4.33
+
+# HELP feloxi_task_avg_runtime_seconds Average task runtime over the last 60 minutes
+feloxi_task_avg_runtime_seconds 1.042
+
+# HELP feloxi_queue_depth Live queue depth reported by the broker
+feloxi_queue_depth{queue="celery"} 12
+feloxi_queue_depth{queue="priority"} 0
+
+# HELP feloxi_workers_online Number of workers that sent a heartbeat recently
+feloxi_workers_online 6
+```
+
+To disable it, set `DISABLE_PROMETHEUS=true`.
 
 ## Quick start
 
