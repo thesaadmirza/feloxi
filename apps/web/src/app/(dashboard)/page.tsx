@@ -39,6 +39,7 @@ const TIME_RANGES: TimeRange[] = [
   { label: "6h", minutes: 360 },
   { label: "24h", minutes: 1440 },
   { label: "7d", minutes: 10080 },
+  { label: "30d", minutes: 43200 },
 ];
 
 const ONBOARDING_STEPS = [
@@ -109,6 +110,7 @@ type KpiProps = {
   icon: React.ReactNode;
   accent?: string;
   loading?: boolean;
+  href?: string;
 };
 
 function Kpi({
@@ -118,9 +120,10 @@ function Kpi({
   icon,
   accent = "text-foreground",
   loading,
+  href,
 }: KpiProps) {
-  return (
-    <div className="bg-card border border-border rounded-xl p-5 flex items-start gap-4">
+  const inner = (
+    <>
       <div className={`mt-0.5 ${accent}`}>{icon}</div>
       <div className="flex-1 min-w-0">
         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">
@@ -133,6 +136,20 @@ function Kpi({
         )}
         {sub && !loading && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
       </div>
+    </>
+  );
+
+  if (href && !loading) {
+    return (
+      <Link href={href} className="bg-card border border-border rounded-xl p-5 flex items-start gap-4 hover:border-border/60 hover:bg-card/80 transition-colors">
+        {inner}
+      </Link>
+    );
+  }
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-5 flex items-start gap-4">
+      {inner}
     </div>
   );
 }
@@ -153,6 +170,15 @@ export default function DashboardPage() {
   );
 
   const handleSelectRange = useCallback((r: TimeRange) => setTimeRange(r), []);
+
+  const taskHref = (state?: string) => {
+    const rangeIdMap: Record<number, string> = { 60: "1h", 360: "6h", 1440: "24h", 10080: "7d", 43200: "30d" };
+    const params = new URLSearchParams();
+    const rangeId = rangeIdMap[timeRange.minutes];
+    if (rangeId) params.set("range", rangeId);
+    if (state) params.set("state", state);
+    return `/tasks?${params.toString()}`;
+  };
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -210,6 +236,7 @@ export default function DashboardPage() {
           sub={`last ${timeRange.label}`}
           icon={<Layers className="w-5 h-5" />}
           loading={isLoading}
+          href={taskHref()}
         />
         <Kpi
           title="Successful"
@@ -219,6 +246,7 @@ export default function DashboardPage() {
           icon={<CheckCircle2 className="w-5 h-5" />}
           accent="text-emerald-400"
           loading={isLoading}
+          href={taskHref("SUCCESS")}
         />
         <Kpi
           title="Failed"
@@ -228,6 +256,7 @@ export default function DashboardPage() {
           icon={<XCircle className="w-5 h-5" />}
           accent="text-red-400"
           loading={isLoading}
+          href={taskHref("FAILURE")}
         />
         <Kpi
           title="Failure rate"
@@ -239,6 +268,7 @@ export default function DashboardPage() {
             (overview?.failure_rate ?? 0) > 0.1 ? "text-red-400" : "text-emerald-400"
           }
           loading={isLoading}
+          href={taskHref("FAILURE")}
         />
         <Kpi
           title="Avg runtime"
@@ -253,6 +283,7 @@ export default function DashboardPage() {
           icon={<Clock className="w-5 h-5" />}
           accent="text-yellow-400"
           loading={isLoading}
+          href={taskHref()}
         />
       </div>
 
