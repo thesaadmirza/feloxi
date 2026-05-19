@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   Cpu,
@@ -18,6 +18,8 @@ import {
   Play,
   Layers,
   HeartPulse,
+  Search,
+  ChevronsUpDown,
 } from "lucide-react";
 import { $api, fetchClient, unwrap } from "@/lib/api";
 import { timeAgo, truncateId } from "@/lib/utils";
@@ -373,6 +375,14 @@ export default function WorkersPage() {
   const [shutdownConfirm, setShutdownConfirm] = useState<string | null>(null);
   const [shuttingDown, setShuttingDown] = useState<string | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [searchInput, setSearchInput] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [sortBy, setSortBy] = useState<"total" | "online" | "name" | "failed">("total");
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(searchInput), 300);
+    return () => clearTimeout(id);
+  }, [searchInput]);
 
   const { data, isLoading, isError, error, refetch } = $api.useQuery(
     "get",
@@ -547,6 +557,36 @@ export default function WorkersPage() {
     [mergedWorkers],
   );
 
+  const filteredAndSortedGroups = useMemo(() => {
+    const q = debouncedSearch.trim().toLowerCase();
+    let result = groups;
+    if (q) {
+      result = groups
+        .map((g) => {
+          const groupMatches = g.name.toLowerCase().includes(q);
+          const filteredWorkers = groupMatches
+            ? g.workers
+            : g.workers.filter((w) => w.hostname.toLowerCase().includes(q));
+          return { ...g, workers: filteredWorkers };
+        })
+        .filter((g) => g.workers.length > 0);
+    }
+    return [...result].sort((a, b) => {
+      switch (sortBy) {
+        case "online": return b.online - a.online || b.stats.total - a.stats.total;
+        case "name": return a.name.localeCompare(b.name);
+        case "failed": return b.stats.failed - a.stats.failed;
+        default: return b.stats.total - a.stats.total || b.online - a.online;
+      }
+    });
+  }, [groups, debouncedSearch, sortBy]);
+
+  const allExpanded = groups.length > 0 && groups.every((g) => expandedGroups.has(g.name));
+
+  function toggleExpandAll() {
+    setExpandedGroups(allExpanded ? new Set() : new Set(groups.map((g) => g.name)));
+  }
+
   function toggleGroup(name: string) {
     setExpandedGroups((prev) => {
       const next = new Set(prev);
@@ -583,27 +623,53 @@ export default function WorkersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Workers</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Monitor worker health, resource usage, and task distribution
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           {mergedWorkers.length > 0 && (
-            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              <span>{totalOnline} online / {mergedWorkers.length} total</span>
-              <span>·</span>
-              <span>{groups.length} group{groups.length !== 1 ? "s" : ""}</span>
-            </div>
+            <span className="text-sm text-muted-foreground hidden sm:block">
+              {totalOnline} online / {mergedWorkers.length} total · {groups.length} group{groups.length !== 1 ? "s" : ""}
+            </span>
           )}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+            <input
+              type="text"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search hostname…"
+              className="pl-9 pr-3 py-2 bg-secondary border border-border text-foreground text-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-ring w-44"
+            />
+          </div>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+            className="px-3 py-2 bg-secondary border border-border text-foreground text-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+            aria-label="Sort workers by"
+          >
+            <option value="total">Sort: Total tasks</option>
+            <option value="online">Sort: Online count</option>
+            <option value="failed">Sort: Failed tasks</option>
+            <option value="name">Sort: Name</option>
+          </select>
+          <button
+            onClick={toggleExpandAll}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-secondary text-secondary-foreground text-sm hover:bg-secondary/80 transition"
+            title={allExpanded ? "Collapse all groups" : "Expand all groups"}
+          >
+            <ChevronsUpDown className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">{allExpanded ? "Collapse all" : "Expand all"}</span>
+          </button>
           <button
             onClick={() => refetch()}
             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary text-secondary-foreground text-sm hover:bg-secondary/80 transition"
           >
             <RefreshCw className="h-4 w-4" />
-            Refresh
           </button>
         </div>
       </div>
@@ -624,8 +690,15 @@ export default function WorkersPage() {
         </div>
       )}
 
+      {!isLoading && groups.length > 0 && filteredAndSortedGroups.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
+          <Search className="h-8 w-8 opacity-30" />
+          <p className="font-medium">No workers match &ldquo;{debouncedSearch}&rdquo;</p>
+        </div>
+      )}
+
       <div className="space-y-3">
-        {groups.map((group) => (
+        {filteredAndSortedGroups.map((group) => (
           <GroupCard
             key={group.name}
             group={group}
