@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State},
-    routing::{get, post},
+    routing::{delete, get, post},
     Extension, Json, Router,
 };
 use serde::Deserialize;
@@ -250,6 +250,44 @@ pub async fn list_queues(
     Ok(Json(StringListResponse { data: names }))
 }
 
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub struct PurgeQueueResponse {
+    pub purged: u64,
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/brokers/{id}/queues/{queue_name}",
+    tag = "brokers",
+    params(
+        ("id" = Uuid, Path, description = "Broker ID"),
+        ("queue_name" = String, Path, description = "Queue name to purge"),
+    ),
+    responses(
+        (status = 200, description = "Number of messages purged", body = PurgeQueueResponse),
+    )
+)]
+pub async fn purge_queue(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+    Path((id, queue_name)): Path<(Uuid, String)>,
+) -> Result<Json<PurgeQueueResponse>, AppError> {
+    auth::rbac::check_permission(&user, "brokers_manage")?;
+
+    let config =
+        db::postgres::broker_configs::get_broker_config(&state.pg, id, user.tenant_id).await?;
+
+    let purged = crate::broker_conn::commands::purge_queue(
+        &config.broker_type,
+        &config.connection_enc,
+        &queue_name,
+    )
+    .await
+    .map_err(AppError::BadRequest)?;
+
+    Ok(Json(PurgeQueueResponse { purged }))
+}
+
 // ─── Router ────────────────────────────────────────────────────
 
 pub fn router() -> Router<AppState> {
@@ -261,5 +299,6 @@ pub fn router() -> Router<AppState> {
         .route("/brokers/{id}/stop", post(stop_broker))
         .route("/brokers/{id}/stats", get(get_broker_stats))
         .route("/brokers/{id}/queues", get(get_broker_queues))
+        .route("/brokers/{id}/queues/{queue_name}", delete(purge_queue))
         .route("/queues", get(list_queues))
 }

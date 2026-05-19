@@ -404,6 +404,39 @@ pub async fn queue_stats(
     }
 }
 
+/// Purge all messages from a queue (Redis: DEL, AMQP: queue.purge).
+pub async fn purge_queue(
+    broker_type: &str,
+    connection_url: &str,
+    queue_name: &str,
+) -> Result<u64, String> {
+    match broker_type {
+        "redis" => redis_purge_queue(connection_url, queue_name).await,
+        "rabbitmq" | "amqp" => amqp_purge_queue(connection_url, queue_name).await,
+        other => Err(format!("Unsupported broker type: {other}")),
+    }
+}
+
+async fn redis_purge_queue(connection_url: &str, queue_name: &str) -> Result<u64, String> {
+    let client = connect_redis(connection_url).await?;
+    let count: u64 = client.llen(queue_name).await.unwrap_or(0);
+    client.del::<(), _>(queue_name).await.map_err(|e| format!("Failed to DEL queue: {e}"))?;
+    Ok(count)
+}
+
+async fn amqp_purge_queue(connection_url: &str, queue_name: &str) -> Result<u64, String> {
+    let conn = connect_amqp(connection_url).await?;
+    let channel =
+        conn.create_channel().await.map_err(|e| format!("Failed to create AMQP channel: {e}"))?;
+    let purged: u32 = channel
+        .queue_purge(queue_name, lapin::options::QueuePurgeOptions::default())
+        .await
+        .map_err(|e| format!("Failed to purge AMQP queue: {e}"))?;
+    let _ = channel.close(200, "done").await;
+    let _ = conn.close(200, "done").await;
+    Ok(purged as u64)
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async fn connect_redis(url: &str) -> Result<Client, String> {
