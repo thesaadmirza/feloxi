@@ -41,8 +41,13 @@ pub fn create_router(state: AppState) -> Router {
     // WebSocket routes
     let ws_routes = Router::new().route("/ws/dashboard", get(ws::handler::dashboard_ws));
 
+    // Prometheus metrics endpoint (no auth, scraped by Prometheus)
+    let disable_prom =
+        std::env::var("DISABLE_PROMETHEUS").map(|v| v == "true" || v == "1").unwrap_or(false);
+    let prom_routes = if disable_prom { Router::new() } else { routes::prometheus::router() };
+
     // Combine all routes
-    let mut app = Router::new().nest("/api/v1", api_v1).merge(ws_routes);
+    let mut app = Router::new().nest("/api/v1", api_v1).merge(ws_routes).merge(prom_routes);
 
     // OpenAPI spec + Swagger UI (disabled when DISABLE_SWAGGER=true)
     let disable_swagger =

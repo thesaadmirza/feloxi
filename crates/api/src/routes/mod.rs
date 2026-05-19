@@ -6,6 +6,7 @@ pub mod brokers;
 pub mod dashboards;
 pub mod health;
 pub mod metrics;
+pub mod prometheus;
 pub mod responses;
 pub mod setup;
 pub mod system;
