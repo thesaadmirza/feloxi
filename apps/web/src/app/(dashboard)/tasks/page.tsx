@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
   RotateCcw,
   XCircle,
@@ -13,13 +13,15 @@ import {
   RefreshCw,
   X,
   AlertTriangle,
+  ChevronDown,
+  Bug,
 } from "lucide-react";
 import { $api, fetchClient, unwrap } from "@/lib/api";
 import { formatDuration, formatDateTimeLocal, truncateId, timeAgo } from "@/lib/utils";
 import { Pagination } from "@/components/shared/pagination";
 import { StateBadge } from "@/components/shared/state-badge";
 import { useHasPermission } from "@/hooks/use-current-user";
-import type { TaskState, TaskEvent } from "@/types/api";
+import type { TaskState, TaskEvent, FailureGroupRow } from "@/types/api";
 
 import { DEFAULT_TIME_RANGE, TIME_RANGE_PRESETS, type TimeRangeId } from "@/lib/constants";
 
@@ -80,7 +82,7 @@ function SkeletonRow() {
   );
 }
 
-type ViewMode = "summary" | "events";
+type ViewMode = "summary" | "events" | "failures";
 
 function CustomRangePanel({
   initialSince,
@@ -168,6 +170,126 @@ function CustomRangePanel({
   );
 }
 
+function FailureGroupsView({
+  groups,
+  isLoading,
+  isError,
+  expandedGroup,
+  onToggleExpand,
+  onTaskClick,
+}: {
+  groups: FailureGroupRow[];
+  isLoading: boolean;
+  isError: boolean;
+  expandedGroup: string | null;
+  onToggleExpand: (exception: string) => void;
+  onTaskClick: (taskId: string) => void;
+}) {
+  if (isLoading) {
+    return (
+      <div className="rounded-xl border border-border bg-card flex items-center justify-center py-16">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="rounded-xl border border-border bg-card flex items-center gap-2 px-6 py-12 text-destructive text-sm">
+        <AlertTriangle className="h-4 w-4 shrink-0" />
+        Failed to load failure groups
+      </div>
+    );
+  }
+
+  if (groups.length === 0) {
+    return (
+      <div className="rounded-xl border border-border bg-card flex flex-col items-center gap-3 py-16 text-muted-foreground">
+        <Bug className="h-10 w-10 opacity-30" />
+        <p className="font-medium">No failures in this time range</p>
+        <p className="text-sm">Try widening your time range</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border bg-secondary/40">
+              <th className="px-4 py-3 w-8" />
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Exception</th>
+              <th className="px-4 py-3 text-right font-medium text-muted-foreground">Count</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Tasks</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">First Seen</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Last Seen</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Latest Task</th>
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map((group) => {
+              const isExpanded = expandedGroup === group.exception;
+              return (
+                <Fragment key={group.exception}>
+                  <tr
+                    className="border-b border-border hover:bg-secondary/30 cursor-pointer transition-colors"
+                    onClick={() => onToggleExpand(group.exception)}
+                  >
+                    <td className="px-4 py-3">
+                      <ChevronDown
+                        className={`h-3.5 w-3.5 text-muted-foreground transition-transform duration-150 ${isExpanded ? "rotate-180" : ""}`}
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <Bug className="h-3.5 w-3.5 text-destructive shrink-0" />
+                        <span className="font-mono text-xs text-foreground">{group.exception}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-destructive/15 text-destructive border border-destructive/20">
+                        {group.count.toLocaleString()}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs max-w-[200px] truncate">
+                      {group.task_names.slice(0, 3).join(", ")}
+                      {group.task_names.length > 3 && ` +${group.task_names.length - 3} more`}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs">{timeAgo(group.first_seen)}</td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs">{timeAgo(group.last_seen)}</td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onTaskClick(group.latest_task_id); }}
+                        className="font-mono text-xs text-primary hover:underline"
+                        title={group.latest_task_id}
+                      >
+                        {truncateId(group.latest_task_id, 12)}
+                      </button>
+                    </td>
+                  </tr>
+                  {isExpanded && (
+                    <tr className="border-b border-border bg-secondary/20">
+                      <td colSpan={7} className="px-6 py-4">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
+                          Latest Traceback
+                        </p>
+                        <pre className="text-xs font-mono text-foreground/80 bg-secondary rounded-lg p-4 overflow-x-auto whitespace-pre-wrap break-all max-h-64 overflow-y-auto">
+                          {group.latest_traceback || "No traceback available"}
+                        </pre>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function TasksPage() {
   const router = useRouter();
   const pathname = usePathname();
@@ -212,6 +334,7 @@ export default function TasksPage() {
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [cursorStack, setCursorStack] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>("summary");
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
 
   const updateParam = useCallback(
     (key: string, value: string) => {
@@ -248,7 +371,6 @@ export default function TasksPage() {
         ?? TIME_RANGE_PRESETS.find((p) => p.id === DEFAULT_TIME_RANGE)!).minutes,
     [rangeFilter]
   );
-
   // Bucket to the minute so React Query can still dedupe identical polls,
   // but the lower bound advances as the clock does instead of being frozen
   // at the moment the user picked the preset.
@@ -292,6 +414,13 @@ export default function TasksPage() {
     "/api/v1/tasks",
     queryParams,
     { enabled: viewMode === "events", refetchInterval: autoRefresh ? 5_000 : false }
+  );
+
+  const failureGroupsQuery = $api.useQuery(
+    "get",
+    "/api/v1/metrics/failure-groups",
+    { params: { query: { from_minutes: customRange ? Math.ceil((Date.now() - customRange.since) / 60_000) : rangeMinutes } } },
+    { enabled: viewMode === "failures", refetchInterval: autoRefresh ? 30_000 : false }
   );
 
   const activeQuery = viewMode === "summary" ? summaryQuery : eventsQuery;
@@ -523,6 +652,8 @@ export default function TasksPage() {
           <p className="text-sm text-muted-foreground mt-1">
             {viewMode === "summary"
               ? "One row per task — latest state"
+              : viewMode === "failures"
+              ? "Failures grouped by exception type"
               : "All task events in chronological order"
             }
           </p>
@@ -548,6 +679,17 @@ export default function TasksPage() {
               }`}
             >
               Events
+            </button>
+            <button
+              onClick={() => handleViewModeChange("failures")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${
+                viewMode === "failures"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Bug className="h-3.5 w-3.5" />
+              Failures
             </button>
           </div>
 
@@ -773,129 +915,144 @@ export default function TasksPage() {
         )}
       </div>
 
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-secondary/40">
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Task ID</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Task Name</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">State</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Queue</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Worker</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Runtime</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                  {viewMode === "summary" ? "Last Seen" : "Timestamp"}
-                </th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {activeQuery.isLoading &&
-                Array.from({ length: 8 }).map((_, i) => (
-                  <SkeletonRow key={i} />
-                ))}
-
-              {activeQuery.isError && (
-                <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-destructive">
-                    Failed to load tasks: {(activeQuery.error as Error)?.message ?? "Unknown error"}
-                  </td>
+      {viewMode !== "failures" && (
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-secondary/40">
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Task ID</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Task Name</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">State</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Queue</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Worker</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Runtime</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                    {viewMode === "summary" ? "Last Seen" : "Timestamp"}
+                  </th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Actions</th>
                 </tr>
-              )}
+              </thead>
+              <tbody>
+                {activeQuery.isLoading &&
+                  Array.from({ length: 8 }).map((_, i) => (
+                    <SkeletonRow key={i} />
+                  ))}
 
-              {!activeQuery.isLoading && !activeQuery.isError && tasks.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="px-4 py-16 text-center">
-                    <div className="flex flex-col items-center gap-3 text-muted-foreground">
-                      <ListTodo className="h-10 w-10 opacity-40" />
-                      <p className="font-medium">No tasks found</p>
-                      <p className="text-sm">Try adjusting your filters or check back later</p>
-                    </div>
-                  </td>
-                </tr>
-              )}
+                {activeQuery.isError && (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-12 text-center text-destructive">
+                      Failed to load tasks: {(activeQuery.error as Error)?.message ?? "Unknown error"}
+                    </td>
+                  </tr>
+                )}
 
-              {!activeQuery.isLoading &&
-                tasks.map((task) => (
-                  <tr
-                    key={`${task.task_id}-${task.timestamp}`}
-                    onClick={() => handleTaskRowClick(task.task_id)}
-                    className="border-b border-border hover:bg-secondary/30 cursor-pointer transition-colors group"
-                  >
-                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground max-w-[160px]">
-                      <span title={task.task_id} className="truncate block">
-                        {task.task_id}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-foreground max-w-[220px] truncate">
-                      {task.task_name}
-                    </td>
-                    <td className="px-4 py-3">
-                      <StateBadge state={task.state} />
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">{task.queue || "—"}</td>
-                    <td className="px-4 py-3 text-muted-foreground font-mono text-xs truncate max-w-[140px]">
-                      {task.worker_id ? truncateId(task.worker_id, 16) : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {task.runtime != null && task.runtime > 0 ? formatDuration(task.runtime) : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {timeAgo(task.timestamp)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {canRetry && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setConfirmAction({ type: "retry", task: task as TaskEvent }); }}
-                            disabled={retrying === task.task_id}
-                            title="Retry task"
-                            className="flex items-center gap-1 px-2 py-1 rounded bg-secondary hover:bg-secondary/70 text-xs text-foreground transition disabled:opacity-50"
-                          >
-                            {retrying === task.task_id ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <RotateCcw className="h-3 w-3" />
-                            )}
-                            Retry
-                          </button>
-                        )}
-                        {canRevoke && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setConfirmAction({ type: "revoke", task: task as TaskEvent }); }}
-                            disabled={revoking === task.task_id}
-                            title="Revoke task"
-                            className="flex items-center gap-1 px-2 py-1 rounded bg-destructive/20 hover:bg-destructive/30 text-xs text-destructive transition disabled:opacity-50"
-                          >
-                            {revoking === task.task_id ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <XCircle className="h-3 w-3" />
-                            )}
-                            Revoke
-                          </button>
-                        )}
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                {!activeQuery.isLoading && !activeQuery.isError && tasks.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-16 text-center">
+                      <div className="flex flex-col items-center gap-3 text-muted-foreground">
+                        <ListTodo className="h-10 w-10 opacity-40" />
+                        <p className="font-medium">No tasks found</p>
+                        <p className="text-sm">Try adjusting your filters or check back later</p>
                       </div>
                     </td>
                   </tr>
-                ))}
-            </tbody>
-          </table>
-        </div>
+                )}
 
-        {activeQuery.data && (
-          <Pagination
-            limit={TASKS_LIMIT}
-            hasMore={activeQuery.data.has_more}
-            currentCount={tasks.length}
-            page={cursorStack.length + 1}
-            onNext={handleNextPage}
-            onPrev={handlePrevPage}
-          />
-        )}
-      </div>
+                {!activeQuery.isLoading &&
+                  tasks.map((task) => (
+                    <tr
+                      key={`${task.task_id}-${task.timestamp}`}
+                      onClick={() => handleTaskRowClick(task.task_id)}
+                      className="border-b border-border hover:bg-secondary/30 cursor-pointer transition-colors group"
+                    >
+                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground max-w-[160px]">
+                        <span title={task.task_id} className="truncate block">
+                          {task.task_id}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-foreground max-w-[220px] truncate">
+                        {task.task_name}
+                      </td>
+                      <td className="px-4 py-3">
+                        <StateBadge state={task.state} />
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">{task.queue || "—"}</td>
+                      <td className="px-4 py-3 text-muted-foreground font-mono text-xs truncate max-w-[140px]">
+                        {task.worker_id ? truncateId(task.worker_id, 16) : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {task.runtime != null && task.runtime > 0 ? formatDuration(task.runtime) : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {timeAgo(task.timestamp)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {canRetry && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setConfirmAction({ type: "retry", task: task as TaskEvent }); }}
+                              disabled={retrying === task.task_id}
+                              title="Retry task"
+                              className="flex items-center gap-1 px-2 py-1 rounded bg-secondary hover:bg-secondary/70 text-xs text-foreground transition disabled:opacity-50"
+                            >
+                              {retrying === task.task_id ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <RotateCcw className="h-3 w-3" />
+                              )}
+                              Retry
+                            </button>
+                          )}
+                          {canRevoke && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setConfirmAction({ type: "revoke", task: task as TaskEvent }); }}
+                              disabled={revoking === task.task_id}
+                              title="Revoke task"
+                              className="flex items-center gap-1 px-2 py-1 rounded bg-destructive/20 hover:bg-destructive/30 text-xs text-destructive transition disabled:opacity-50"
+                            >
+                              {revoking === task.task_id ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <XCircle className="h-3 w-3" />
+                              )}
+                              Revoke
+                            </button>
+                          )}
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+
+          {activeQuery.data && (
+            <Pagination
+              limit={TASKS_LIMIT}
+              hasMore={activeQuery.data.has_more}
+              currentCount={tasks.length}
+              page={cursorStack.length + 1}
+              onNext={handleNextPage}
+              onPrev={handlePrevPage}
+            />
+          )}
+        </div>
+      )}
+
+      {viewMode === "failures" && (
+        <FailureGroupsView
+          groups={failureGroupsQuery.data?.data ?? []}
+          isLoading={failureGroupsQuery.isLoading}
+          isError={failureGroupsQuery.isError}
+          expandedGroup={expandedGroup}
+          onToggleExpand={(exception) =>
+            setExpandedGroup((prev) => (prev === exception ? null : exception))
+          }
+          onTaskClick={(taskId) => router.push(`/tasks/${taskId}`)}
+        />
+      )}
 
       {confirmAction && (
         <>
