@@ -33,13 +33,25 @@ type ConditionType =
   | "task_failure_rate"
   | "queue_depth"
   | "worker_offline"
-  | "task_duration";
+  | "task_duration"
+  | "beat_missed"
+  | "task_failed"
+  | "no_events"
+  | "throughput_anomaly"
+  | "latency_anomaly"
+  | "error_rate_spike";
 
 const CONDITION_TYPES: { value: ConditionType; label: string; description: string }[] = [
-  { value: "task_failure_rate", label: "Task Failure Rate", description: "Alert when task failure rate exceeds a threshold" },
-  { value: "queue_depth", label: "Queue Depth", description: "Alert when queue length exceeds a threshold" },
-  { value: "worker_offline", label: "Worker Offline", description: "Alert when a worker goes offline" },
-  { value: "task_duration", label: "Task Duration", description: "Alert when task runtime exceeds a threshold" },
+  { value: "task_failure_rate", label: "Task Failure Rate", description: "Alert when task failure rate exceeds a threshold over a rolling window" },
+  { value: "queue_depth", label: "Queue Depth", description: "Alert when a queue's pending task count exceeds a threshold" },
+  { value: "worker_offline", label: "Worker Offline", description: "Alert when a worker stops sending heartbeats" },
+  { value: "task_duration", label: "Task Duration", description: "Alert when a task's runtime percentile exceeds a threshold" },
+  { value: "beat_missed", label: "Beat Missed", description: "Alert when a Celery Beat scheduled task stops running" },
+  { value: "task_failed", label: "Task Failed", description: "Alert immediately when a specific task fails" },
+  { value: "no_events", label: "No Events", description: "Alert when no task events are received for a period (dead broker / all workers down)" },
+  { value: "throughput_anomaly", label: "Throughput Anomaly", description: "Alert when task throughput deviates significantly from the historical baseline (z-score)" },
+  { value: "latency_anomaly", label: "Latency Anomaly", description: "Alert when task latency deviates significantly from the historical baseline (z-score)" },
+  { value: "error_rate_spike", label: "Error Rate Spike", description: "Alert when the error rate spikes relative to the recent baseline" },
 ];
 
 const CHANNEL_TYPES = ["slack", "email", "webhook", "pagerduty"] as const;
@@ -80,9 +92,21 @@ function conditionSummary(rule: AlertRule): string {
     case "worker_offline":
       return `Worker offline for > ${c.grace_period_seconds}s`;
     case "task_duration":
-      return `Task "${c.task_name}" > ${c.threshold_seconds}s`;
+      return `Task "${c.task_name}" > ${c.threshold_seconds}s (p${Math.round((c.percentile ?? 0.95) * 100)})`;
+    case "beat_missed":
+      return c.schedule_name ? `Beat schedule "${c.schedule_name}" missed` : "Any beat schedule missed";
+    case "task_failed":
+      return `Task "${c.task_name}" failed`;
+    case "no_events":
+      return `No events for > ${c.silence_minutes}m`;
+    case "throughput_anomaly":
+      return `Throughput anomaly (z > ${c.zscore_threshold}) over ${c.window_minutes}m`;
+    case "latency_anomaly":
+      return `Latency anomaly (z > ${c.zscore_threshold}) over ${c.window_minutes}m`;
+    case "error_rate_spike":
+      return `Error rate spike > ${c.spike_factor}× baseline (${c.baseline_hours}h window)`;
     default:
-      return c.type;
+      return (c as { type: string }).type;
   }
 }
 
@@ -141,6 +165,42 @@ function normalizeCondition(
         type,
         threshold_seconds: (values.threshold_seconds as number) ?? 300,
         percentile: (values.percentile as number) ?? 0.95,
+        task_name: ((values.task_name as string) || "").trim() || "*",
+      };
+    case "beat_missed":
+      return {
+        type,
+        schedule_name: ((values.schedule_name as string) || "").trim(),
+      };
+    case "task_failed":
+      return {
+        type,
+        task_name: ((values.task_name as string) || "").trim() || "*",
+      };
+    case "no_events":
+      return {
+        type,
+        silence_minutes: (values.silence_minutes as number) ?? 15,
+      };
+    case "throughput_anomaly":
+      return {
+        type,
+        zscore_threshold: (values.zscore_threshold as number) ?? 3.0,
+        window_minutes: (values.window_minutes as number) ?? 30,
+        task_name: ((values.task_name as string) || "").trim() || "*",
+      };
+    case "latency_anomaly":
+      return {
+        type,
+        zscore_threshold: (values.zscore_threshold as number) ?? 3.0,
+        window_minutes: (values.window_minutes as number) ?? 30,
+        task_name: ((values.task_name as string) || "").trim() || "*",
+      };
+    case "error_rate_spike":
+      return {
+        type,
+        spike_factor: (values.spike_factor as number) ?? 2.0,
+        baseline_hours: (values.baseline_hours as number) ?? 24,
         task_name: ((values.task_name as string) || "").trim() || "*",
       };
   }
@@ -219,6 +279,97 @@ function ConditionFields({
             <input type="number" min="0" max="1" step="0.01" value={(values.percentile as number) ?? 0.95}
               onChange={(e) => onChange("percentile", parseFloat(e.target.value))} className={inputClass} />
           </div>
+        </div>
+      );
+    case "beat_missed":
+      return (
+        <div>
+          <label className={labelClass}>Schedule Name</label>
+          <input type="text" value={(values.schedule_name as string) ?? ""}
+            onChange={(e) => onChange("schedule_name", e.target.value)} className={inputClass}
+            placeholder="e.g. cleanup, send-digest" />
+          <p className="text-xs text-muted-foreground mt-1.5">The name of the periodic task as defined in your beat schedule. Leave blank to alert on any missed beat.</p>
+        </div>
+      );
+    case "task_failed":
+      return (
+        <div>
+          <label className={labelClass}>Task Name (use * for any task)</label>
+          <input type="text" value={(values.task_name as string) ?? ""}
+            onChange={(e) => onChange("task_name", e.target.value)} className={inputClass}
+            placeholder="*" />
+        </div>
+      );
+    case "no_events":
+      return (
+        <div>
+          <label className={labelClass}>Silence Window (minutes)</label>
+          <input type="number" min="1" value={(values.silence_minutes as number) ?? 15}
+            onChange={(e) => onChange("silence_minutes", parseInt(e.target.value))} className={inputClass} />
+          <p className="text-xs text-muted-foreground mt-1.5">Alert if no task events arrive within this window. Useful for detecting dead brokers or all workers going down.</p>
+        </div>
+      );
+    case "throughput_anomaly":
+      return (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label className={labelClass}>Task Name (use * for all)</label>
+            <input type="text" value={(values.task_name as string) ?? ""}
+              onChange={(e) => onChange("task_name", e.target.value)} className={inputClass} placeholder="*" />
+          </div>
+          <div>
+            <label className={labelClass}>Z-Score Threshold</label>
+            <input type="number" min="1" step="0.1" value={(values.zscore_threshold as number) ?? 3.0}
+              onChange={(e) => onChange("zscore_threshold", parseFloat(e.target.value))} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Window (minutes)</label>
+            <input type="number" min="5" value={(values.window_minutes as number) ?? 30}
+              onChange={(e) => onChange("window_minutes", parseInt(e.target.value))} className={inputClass} />
+          </div>
+          <p className="text-xs text-muted-foreground sm:col-span-3">Alert when throughput deviates more than this many standard deviations from the historical mean. Higher = less sensitive.</p>
+        </div>
+      );
+    case "latency_anomaly":
+      return (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label className={labelClass}>Task Name (use * for all)</label>
+            <input type="text" value={(values.task_name as string) ?? ""}
+              onChange={(e) => onChange("task_name", e.target.value)} className={inputClass} placeholder="*" />
+          </div>
+          <div>
+            <label className={labelClass}>Z-Score Threshold</label>
+            <input type="number" min="1" step="0.1" value={(values.zscore_threshold as number) ?? 3.0}
+              onChange={(e) => onChange("zscore_threshold", parseFloat(e.target.value))} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Window (minutes)</label>
+            <input type="number" min="5" value={(values.window_minutes as number) ?? 30}
+              onChange={(e) => onChange("window_minutes", parseInt(e.target.value))} className={inputClass} />
+          </div>
+          <p className="text-xs text-muted-foreground sm:col-span-3">Alert when task latency deviates more than this many standard deviations from the historical mean.</p>
+        </div>
+      );
+    case "error_rate_spike":
+      return (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label className={labelClass}>Task Name (use * for all)</label>
+            <input type="text" value={(values.task_name as string) ?? ""}
+              onChange={(e) => onChange("task_name", e.target.value)} className={inputClass} placeholder="*" />
+          </div>
+          <div>
+            <label className={labelClass}>Spike Factor</label>
+            <input type="number" min="1.1" step="0.1" value={(values.spike_factor as number) ?? 2.0}
+              onChange={(e) => onChange("spike_factor", parseFloat(e.target.value))} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Baseline Window (hours)</label>
+            <input type="number" min="1" value={(values.baseline_hours as number) ?? 24}
+              onChange={(e) => onChange("baseline_hours", parseInt(e.target.value))} className={inputClass} />
+          </div>
+          <p className="text-xs text-muted-foreground sm:col-span-3">Alert when current error rate is this many times higher than the baseline. E.g. 2.0 = double the usual error rate.</p>
         </div>
       );
     default:
@@ -418,6 +569,12 @@ function AlertRuleModal({
                     queue_depth: { threshold: 100 },
                     worker_offline: { grace_period_seconds: 60 },
                     task_duration: { threshold_seconds: 300, percentile: 0.95, task_name: "*" },
+                    beat_missed: { schedule_name: "" },
+                    task_failed: { task_name: "*" },
+                    no_events: { silence_minutes: 15 },
+                    throughput_anomaly: { zscore_threshold: 3.0, window_minutes: 30, task_name: "*" },
+                    latency_anomaly: { zscore_threshold: 3.0, window_minutes: 30, task_name: "*" },
+                    error_rate_spike: { spike_factor: 2.0, baseline_hours: 24, task_name: "*" },
                   };
                   setConditionValues(defaults[ct] ?? {});
                 }}
