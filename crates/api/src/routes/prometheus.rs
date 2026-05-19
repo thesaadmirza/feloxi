@@ -45,15 +45,13 @@ pub async fn metrics_handler(State(state): State<AppState>) -> Response<String> 
     let mut avg_runtime_sum = 0f64;
     let mut avg_runtime_count = 0u64;
 
-    for result in overview_results {
-        if let Ok(stats) = result {
-            total += stats.total_tasks;
-            succeeded += stats.success_count;
-            failed += stats.failure_count;
-            if stats.avg_runtime > 0.0 {
-                avg_runtime_sum += stats.avg_runtime;
-                avg_runtime_count += 1;
-            }
+    for stats in overview_results.into_iter().flatten() {
+        total += stats.total_tasks;
+        succeeded += stats.success_count;
+        failed += stats.failure_count;
+        if stats.avg_runtime > 0.0 {
+            avg_runtime_sum += stats.avg_runtime;
+            avg_runtime_count += 1;
         }
     }
 
@@ -82,12 +80,10 @@ pub async fn metrics_handler(State(state): State<AppState>) -> Response<String> 
     out.push_str("# HELP feloxi_queue_depth Live queue depth reported by the broker\n");
     out.push_str("# TYPE feloxi_queue_depth gauge\n");
 
-    for result in depths_results {
-        if let Ok(depths) = result {
-            for (queue, depth) in depths {
-                let safe = queue.replace('"', "\\\"");
-                out.push_str(&format!("feloxi_queue_depth{{queue=\"{safe}\"}} {depth}\n"));
-            }
+    for depths in depths_results.into_iter().flatten() {
+        for (queue, depth) in depths {
+            let safe = queue.replace('"', "\\\"");
+            out.push_str(&format!("feloxi_queue_depth{{queue=\"{safe}\"}} {depth}\n"));
         }
     }
 
