@@ -8,11 +8,13 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps/web/package.json apps/web/
 RUN pnpm install --frozen-lockfile
 
-# Build — API_URL must be set at build time for Next.js rewrites (standalone mode bakes them in)
+# Next.js standalone bakes API_URL into the routes manifest at build time.
+# The runtime entrypoint script patches the manifest from the value below
+# to whatever API_URL is set in the container's environment.
 COPY apps/web/ apps/web/
 ARG API_URL=http://api:8080
 ENV API_URL=${API_URL}
-RUN pnpm --filter web build
+RUN pnpm --filter web build && printf '%s' "$API_URL" > /tmp/.api-url
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────
 FROM node:22-alpine AS runner
@@ -28,8 +30,11 @@ RUN addgroup --system --gid 1001 feloxi && \
 COPY --from=builder --chown=feloxi:feloxi /app/apps/web/.next/standalone ./
 COPY --from=builder --chown=feloxi:feloxi /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=builder --chown=feloxi:feloxi /app/apps/web/public ./apps/web/public
+COPY --from=builder --chown=feloxi:feloxi /tmp/.api-url ./.api-url
+COPY --chown=feloxi:feloxi deploy/docker/web-entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
 
 USER feloxi
 EXPOSE 3000
 ENV HOSTNAME="0.0.0.0"
-CMD ["node", "apps/web/server.js"]
+ENTRYPOINT ["./entrypoint.sh"]
