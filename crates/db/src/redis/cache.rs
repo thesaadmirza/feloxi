@@ -279,20 +279,50 @@ pub async fn cache_task_names(
 /// a few hundred MB per queue during prolonged outages.
 pub const MAX_RETRY_QUEUE_LEN: i64 = 2_000;
 
-/// Serialize a batch and enqueue it for later replay in one round-trip.
+/// Serialize a batch and enqueue it for later replay.
+///
+/// Returns the number of *events* that were evicted to make room (0 in the
+/// normal case). The buffer is hard-capped at [`MAX_RETRY_QUEUE_LEN`] batches;
+/// when a prolonged ClickHouse outage overflows it, the oldest batches are
+/// dropped. The previous implementation used a silent `LTRIM`, so this loss was
+/// invisible — the cardinal observability bug behind the disk-full incident
+/// ("we were blind from those events"). We now evict explicitly and report the
+/// exact event count so the caller can account for it in `events_dropped`.
 pub async fn push_retry_batch<T: Serialize + ?Sized>(
     pool: &Pool,
     kind: &str,
     batch: &T,
-) -> Result<(), Error> {
+) -> Result<u64, Error> {
     let json =
         serde_json::to_string(batch).map_err(|e| Error::new(ErrorKind::Parse, e.to_string()))?;
     let key = keys::retry_queue(kind);
-    let pipe = pool.next().pipeline();
-    let _: () = pipe.lpush(&key, json).await?;
-    let _: () = pipe.ltrim(&key, 0, MAX_RETRY_QUEUE_LEN - 1).await?;
-    pipe.all::<()>().await?;
-    Ok(())
+
+    // LPUSH returns the new length; if it exceeds the cap we must evict the
+    // overflow from the tail (oldest batches) ourselves so we can count it.
+    let new_len: i64 = pool.lpush(&key, json).await?;
+    let overflow = new_len - MAX_RETRY_QUEUE_LEN;
+    if overflow <= 0 {
+        return Ok(0);
+    }
+
+    // Pop the oldest `overflow` batches and tally their events before they go.
+    let evicted: Option<Vec<String>> = pool.rpop(&key, Some(overflow as usize)).await?;
+    let evicted_events = evicted
+        .unwrap_or_default()
+        .iter()
+        .map(|j| serde_json::from_str::<Vec<serde_json::Value>>(j).map(|v| v.len()).unwrap_or(1))
+        .sum::<usize>() as u64;
+    Ok(evicted_events)
+}
+
+/// Current depth (number of buffered batches) of a retry queue. Used as a
+/// saturation gauge on the System Health page — a rising depth is the early
+/// warning that ClickHouse ingestion is failing, well before events are
+/// evicted. Returns `(depth, capacity)`.
+pub async fn retry_queue_depth(pool: &Pool, kind: &str) -> Result<(u64, u64), Error> {
+    let key = keys::retry_queue(kind);
+    let len: i64 = pool.llen(&key).await?;
+    Ok((len.max(0) as u64, MAX_RETRY_QUEUE_LEN as u64))
 }
 
 /// Pop up to `count` oldest buffered batches (FIFO) in a single round-trip.

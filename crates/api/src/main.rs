@@ -307,6 +307,15 @@ async fn run_alert_evaluation(
     let tenants =
         db::postgres::tenants::list_tenants(&state.pg, 1000, 0).await.map_err(|e| e.to_string())?;
 
+    // ClickHouse disk usage is a server-wide signal, so compute it once per
+    // cycle and share it across tenants (drives the storage-pressure alert).
+    let disk_used_ratio = match db::clickhouse::system::get_disk_usage(&state.ch).await {
+        Ok(Some(d)) if d.total_space > 0 => {
+            (d.total_space.saturating_sub(d.free_space)) as f64 / d.total_space as f64
+        }
+        _ => 0.0,
+    };
+
     for tenant in &tenants {
         let tid = tenant.id;
 
@@ -320,7 +329,8 @@ async fn run_alert_evaluation(
         }
 
         // Build evaluation context from ClickHouse metrics
-        let ctx = build_evaluation_context(state, tid).await;
+        let mut ctx = build_evaluation_context(state, tid).await;
+        ctx.disk_used_ratio = disk_used_ratio;
 
         for db_rule in &db_rules {
             // condition and channels are already concrete types (via sqlx::types::Json<T>)

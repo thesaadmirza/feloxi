@@ -20,6 +20,14 @@ data:
         <max_connections>100</max_connections>
         <max_concurrent_queries>50</max_concurrent_queries>
 
+        <!-- Disk-full guard: reject INSERTs cleanly while configurable headroom
+             remains so the disk never hits 100% (a full CH can't run the
+             merges/mutations needed to recover). Buffered events replay from
+             Redis once space is freed. -->
+        <merge_tree>
+            <min_free_disk_ratio_to_perform_insert>{{ .Values.clickhouse.minFreeDiskRatioToInsert | default 0.05 }}</min_free_disk_ratio_to_perform_insert>
+        </merge_tree>
+
         <!-- Cap system log tables to prevent disk fill -->
         <text_log>
             <database>system</database>

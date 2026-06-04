@@ -54,6 +54,10 @@ pub fn evaluate_condition(condition: &AlertCondition, context: &EvaluationContex
         AlertCondition::ErrorRateSpike { spike_factor, baseline_hours: _, task_name: _ } => {
             context.error_rate_spike_factor > *spike_factor
         }
+
+        AlertCondition::StoragePressure { threshold_percent } => {
+            context.disk_used_ratio > *threshold_percent
+        }
     }
 }
 
@@ -85,6 +89,8 @@ pub struct EvaluationContext {
     pub current_error_rate: f64,
     /// Baseline error rate for summary messages.
     pub baseline_error_rate: f64,
+    /// ClickHouse used-disk ratio (0.0–1.0) for the storage-pressure alert.
+    pub disk_used_ratio: f64,
 }
 
 /// Determine alert severity from condition type and severity of breach.
@@ -108,6 +114,10 @@ pub fn determine_severity(condition: &AlertCondition) -> &'static str {
         AlertCondition::LatencyAnomaly { .. } => "warning",
         AlertCondition::ErrorRateSpike { spike_factor, .. } if *spike_factor > 5.0 => "critical",
         AlertCondition::ErrorRateSpike { .. } => "warning",
+        AlertCondition::StoragePressure { threshold_percent } if *threshold_percent >= 0.9 => {
+            "critical"
+        }
+        AlertCondition::StoragePressure { .. } => "warning",
     }
 }
 
@@ -174,6 +184,13 @@ pub fn generate_summary(rule: &ResolvedAlertRule, context: &EvaluationContext) -
                 context.error_rate_spike_factor
             )
         }
+        AlertCondition::StoragePressure { threshold_percent } => {
+            format!(
+                "ClickHouse disk usage is {:.1}% (threshold: {:.0}%) — free space before inserts start failing",
+                context.disk_used_ratio * 100.0,
+                threshold_percent * 100.0
+            )
+        }
     }
 }
 
@@ -190,6 +207,7 @@ pub fn condition_type_str(condition: &AlertCondition) -> &'static str {
         AlertCondition::ThroughputAnomaly { .. } => "throughput_anomaly",
         AlertCondition::LatencyAnomaly { .. } => "latency_anomaly",
         AlertCondition::ErrorRateSpike { .. } => "error_rate_spike",
+        AlertCondition::StoragePressure { .. } => "storage_pressure",
     }
 }
 
@@ -269,6 +287,12 @@ pub fn generate_details(condition: &AlertCondition, ctx: &EvaluationContext) -> 
                 "spike_factor": ctx.error_rate_spike_factor,
                 "spike_threshold": spike_factor,
                 "baseline_hours": baseline_hours,
+            })
+        }
+        AlertCondition::StoragePressure { threshold_percent } => {
+            serde_json::json!({
+                "disk_used_ratio": ctx.disk_used_ratio,
+                "threshold_percent": threshold_percent,
             })
         }
     }

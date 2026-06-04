@@ -16,6 +16,14 @@ data:
       <max_connections>100</max_connections>
       <max_concurrent_queries>50</max_concurrent_queries>
 
+      <!-- Disk-full guard: reject INSERTs cleanly while ~5% headroom remains so
+           the disk never hits 100% (a full CH can't run the merges/mutations
+           needed to recover). Buffered events replay from Redis once freed. -->
+      <merge_tree>
+        <min_free_disk_ratio_to_perform_insert>0.05</min_free_disk_ratio_to_perform_insert>
+        <max_bytes_to_merge_at_max_space_in_pool>10737418240</max_bytes_to_merge_at_max_space_in_pool>
+      </merge_tree>
+
       <!-- Cap system log tables to prevent disk fill (3 days) -->
       <text_log>
         <database>system</database>

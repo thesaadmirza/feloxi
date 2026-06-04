@@ -2185,17 +2185,6 @@
         "operationId": "list_workers",
         "parameters": [
           {
-            "name": "status",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          },
-          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -2754,6 +2743,27 @@
                 "type": "string",
                 "enum": [
                   "error_rate_spike"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Trigger when ClickHouse disk usage exceeds a percentage. This is the\nproactive guard against the disk-full incident: it fires while there is\nstill headroom, before inserts start failing and events are dropped.",
+            "required": [
+              "threshold_percent",
+              "type"
+            ],
+            "properties": {
+              "threshold_percent": {
+                "type": "number",
+                "format": "double",
+                "description": "Used-disk ratio that triggers the alert, e.g. 0.85 = 85%."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "storage_pressure"
                 ]
               }
             }
@@ -4008,7 +4018,9 @@
           "events_parse_failed",
           "insert_retries",
           "drop_rate",
-          "success_rate"
+          "success_rate",
+          "retry_buffer_depth",
+          "retry_buffer_capacity"
         ],
         "properties": {
           "drop_rate": {
@@ -4038,6 +4050,18 @@
           "insert_retries": {
             "type": "integer",
             "format": "int64",
+            "minimum": 0
+          },
+          "retry_buffer_capacity": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Maximum batches the retry buffer holds before it evicts (and drops) the\noldest. `retry_buffer_depth / retry_buffer_capacity` is the saturation.",
+            "minimum": 0
+          },
+          "retry_buffer_depth": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Buffered batches currently awaiting replay because ClickHouse inserts are\nfailing. A rising depth is the early warning of an ingestion stall — well\nbefore events overflow the buffer and are dropped.",
             "minimum": 0
           },
           "success_rate": {
@@ -5615,12 +5639,6 @@
             ],
             "format": "int64",
             "minimum": 0
-          },
-          "status": {
-            "type": [
-              "string",
-              "null"
-            ]
           }
         }
       },

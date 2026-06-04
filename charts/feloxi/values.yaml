@@ -204,6 +204,9 @@ clickhouse:
       memory: 4Gi
   # -- TTL for ClickHouse system log tables (days)
   systemLogTtlDays: 3
+  # -- Reject INSERTs while free disk drops below this ratio (0.05 = 5%). Keeps
+  # -- recovery headroom so a full disk never becomes unrecoverable. CH 24.10+.
+  minFreeDiskRatioToInsert: 0.05
 
 # ---------------------------------------------------------------------------
 # External ClickHouse (used when clickhouse.enabled=false)

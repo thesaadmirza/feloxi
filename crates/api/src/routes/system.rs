@@ -21,6 +21,13 @@ pub struct PipelineStatsResponse {
     pub insert_retries: u64,
     pub drop_rate: f64,
     pub success_rate: f64,
+    /// Buffered batches currently awaiting replay because ClickHouse inserts are
+    /// failing. A rising depth is the early warning of an ingestion stall — well
+    /// before events overflow the buffer and are dropped.
+    pub retry_buffer_depth: u64,
+    /// Maximum batches the retry buffer holds before it evicts (and drops) the
+    /// oldest. `retry_buffer_depth / retry_buffer_capacity` is the saturation.
+    pub retry_buffer_capacity: u64,
 }
 
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
@@ -83,6 +90,8 @@ pub async fn pipeline_stats(
     let drop_rate = if received > 0 { dropped as f64 / received as f64 } else { 0.0 };
     let success_rate = if received > 0 { inserted as f64 / received as f64 } else { 1.0 };
 
+    let (retry_buffer_depth, retry_buffer_capacity) = retry_buffer_saturation(&state).await;
+
     Ok(Json(PipelineStatsResponse {
         events_received: received,
         events_inserted: inserted,
@@ -91,7 +100,21 @@ pub async fn pipeline_stats(
         insert_retries: *counters.get("insert_retries").unwrap_or(&0),
         drop_rate,
         success_rate,
+        retry_buffer_depth,
+        retry_buffer_capacity,
     }))
+}
+
+/// Combined depth across the task + worker retry queues, plus the shared cap.
+async fn retry_buffer_saturation(state: &AppState) -> (u64, u64) {
+    let task = db::redis::cache::retry_queue_depth(&state.redis, db::redis::keys::RETRY_KIND_TASK)
+        .await
+        .unwrap_or((0, 0));
+    let worker =
+        db::redis::cache::retry_queue_depth(&state.redis, db::redis::keys::RETRY_KIND_WORKER)
+            .await
+            .unwrap_or((0, 0));
+    (task.0 + worker.0, task.1.max(worker.1))
 }
 
 /// Get full system health: component statuses, pipeline metrics, storage info.
@@ -260,6 +283,8 @@ async fn build_pipeline_stats(state: &AppState) -> PipelineStatsResponse {
     let inserted = *counters.get("events_inserted").unwrap_or(&0);
     let dropped = *counters.get("events_dropped").unwrap_or(&0);
 
+    let (retry_buffer_depth, retry_buffer_capacity) = retry_buffer_saturation(state).await;
+
     PipelineStatsResponse {
         events_received: received,
         events_inserted: inserted,
@@ -268,6 +293,8 @@ async fn build_pipeline_stats(state: &AppState) -> PipelineStatsResponse {
         insert_retries: *counters.get("insert_retries").unwrap_or(&0),
         drop_rate: if received > 0 { dropped as f64 / received as f64 } else { 0.0 },
         success_rate: if received > 0 { inserted as f64 / received as f64 } else { 1.0 },
+        retry_buffer_depth,
+        retry_buffer_capacity,
     }
 }
 

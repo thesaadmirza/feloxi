@@ -241,13 +241,33 @@ async fn buffer_for_retry<T: serde::Serialize>(
 ) {
     let count = rows.len() as u64;
     match db::redis::cache::push_retry_batch(&state.redis, kind, rows).await {
-        Ok(_) => {
-            tracing::warn!(
-                count,
-                kind,
-                error = ?ch_err,
-                "ClickHouse insert failed; batch buffered for replay"
-            );
+        Ok(evicted) => {
+            if evicted > 0 {
+                // Prolonged outage: the retry buffer is full and the oldest
+                // batches were evicted to make room. This IS data loss — count
+                // it so the System Health "Lost" metric is accurate instead of
+                // silently under-reporting (the disk-full incident root cause).
+                let _ = db::redis::cache::incr_pipeline_counter(
+                    &state.redis,
+                    "events_dropped",
+                    evicted,
+                )
+                .await;
+                tracing::error!(
+                    count,
+                    evicted,
+                    kind,
+                    error = ?ch_err,
+                    "Retry buffer full; oldest events evicted and counted as dropped"
+                );
+            } else {
+                tracing::warn!(
+                    count,
+                    kind,
+                    error = ?ch_err,
+                    "ClickHouse insert failed; batch buffered for replay"
+                );
+            }
         }
         Err(buf_err) => {
             let _ = db::redis::cache::incr_pipeline_counter(&state.redis, "events_dropped", count)

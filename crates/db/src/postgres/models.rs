@@ -70,6 +70,14 @@ pub enum AlertCondition {
     /// Trigger when error rate spikes compared to recent baseline.
     #[serde(rename = "error_rate_spike")]
     ErrorRateSpike { spike_factor: f64, baseline_hours: u64, task_name: String },
+    /// Trigger when ClickHouse disk usage exceeds a percentage. This is the
+    /// proactive guard against the disk-full incident: it fires while there is
+    /// still headroom, before inserts start failing and events are dropped.
+    #[serde(rename = "storage_pressure")]
+    StoragePressure {
+        /// Used-disk ratio that triggers the alert, e.g. 0.85 = 85%.
+        threshold_percent: f64,
+    },
 }
 
 /// Alert notification channel configuration.

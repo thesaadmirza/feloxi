@@ -1073,6 +1073,14 @@ export interface components {
             task_name: string;
             /** @enum {string} */
             type: "error_rate_spike";
+        } | {
+            /**
+             * Format: double
+             * @description Used-disk ratio that triggers the alert, e.g. 0.85 = 85%.
+             */
+            threshold_percent: number;
+            /** @enum {string} */
+            type: "storage_pressure";
         };
         AlertHistoryParams: {
             /** Format: int64 */
@@ -1473,6 +1481,19 @@ export interface components {
             events_received: number;
             /** Format: int64 */
             insert_retries: number;
+            /**
+             * Format: int64
+             * @description Maximum batches the retry buffer holds before it evicts (and drops) the
+             *     oldest. `retry_buffer_depth / retry_buffer_capacity` is the saturation.
+             */
+            retry_buffer_capacity: number;
+            /**
+             * Format: int64
+             * @description Buffered batches currently awaiting replay because ClickHouse inserts are
+             *     failing. A rising depth is the early warning of an ingestion stall — well
+             *     before events overflow the buffer and are dropped.
+             */
+            retry_buffer_depth: number;
             /** Format: double */
             success_rate: number;
         };
@@ -1972,7 +1993,6 @@ export interface components {
         WorkerListParams: {
             /** Format: int64 */
             limit?: number | null;
-            status?: string | null;
         };
         /** @description Worker list with online set, ClickHouse events, and Redis states. */
         WorkerListResponse: {
@@ -3581,7 +3601,6 @@ export interface operations {
     list_workers: {
         parameters: {
             query?: {
-                status?: string | null;
                 limit?: number | null;
             };
             header?: never;

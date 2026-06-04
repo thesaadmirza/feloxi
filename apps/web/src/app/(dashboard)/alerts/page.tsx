@@ -39,7 +39,8 @@ type ConditionType =
   | "no_events"
   | "throughput_anomaly"
   | "latency_anomaly"
-  | "error_rate_spike";
+  | "error_rate_spike"
+  | "storage_pressure";
 
 const CONDITION_TYPES: { value: ConditionType; label: string; description: string }[] = [
   { value: "task_failure_rate", label: "Task Failure Rate", description: "Alert when task failure rate exceeds a threshold over a rolling window" },
@@ -52,6 +53,7 @@ const CONDITION_TYPES: { value: ConditionType; label: string; description: strin
   { value: "throughput_anomaly", label: "Throughput Anomaly", description: "Alert when task throughput deviates significantly from the historical baseline (z-score)" },
   { value: "latency_anomaly", label: "Latency Anomaly", description: "Alert when task latency deviates significantly from the historical baseline (z-score)" },
   { value: "error_rate_spike", label: "Error Rate Spike", description: "Alert when the error rate spikes relative to the recent baseline" },
+  { value: "storage_pressure", label: "Storage Pressure", description: "Alert when ClickHouse disk usage crosses a threshold — fires with headroom to spare, before inserts fail and events are dropped" },
 ];
 
 const CHANNEL_TYPES = ["slack", "email", "webhook", "pagerduty"] as const;
@@ -105,6 +107,8 @@ function conditionSummary(rule: AlertRule): string {
       return `Latency anomaly (z > ${c.zscore_threshold}) over ${c.window_minutes}m`;
     case "error_rate_spike":
       return `Error rate spike > ${c.spike_factor}× baseline (${c.baseline_hours}h window)`;
+    case "storage_pressure":
+      return `ClickHouse disk usage > ${Math.round((c.threshold_percent ?? 0.85) * 100)}%`;
     default:
       return (c as { type: string }).type;
   }
@@ -202,6 +206,11 @@ function normalizeCondition(
         spike_factor: (values.spike_factor as number) ?? 2.0,
         baseline_hours: (values.baseline_hours as number) ?? 24,
         task_name: ((values.task_name as string) || "").trim() || "*",
+      };
+    case "storage_pressure":
+      return {
+        type,
+        threshold_percent: (values.threshold_percent as number) ?? 0.85,
       };
   }
 }
@@ -370,6 +379,17 @@ function ConditionFields({
               onChange={(e) => onChange("baseline_hours", parseInt(e.target.value))} className={inputClass} />
           </div>
           <p className="text-xs text-muted-foreground sm:col-span-3">Alert when current error rate is this many times higher than the baseline. E.g. 2.0 = double the usual error rate.</p>
+        </div>
+      );
+    case "storage_pressure":
+      return (
+        <div>
+          <label className={labelClass}>Disk Usage Threshold (%)</label>
+          <input type="number" min="50" max="99" step="1"
+            value={Math.round(((values.threshold_percent as number) ?? 0.85) * 100)}
+            onChange={(e) => onChange("threshold_percent", parseInt(e.target.value) / 100)}
+            className={inputClass} />
+          <p className="text-xs text-muted-foreground mt-1.5">Alert when ClickHouse used disk crosses this percentage. Set it below the point where inserts start failing (recommend 80–85%) so you have time to add capacity or drop old partitions before the disk fills.</p>
         </div>
       );
     default:
@@ -575,6 +595,7 @@ function AlertRuleModal({
                     throughput_anomaly: { zscore_threshold: 3.0, window_minutes: 30, task_name: "*" },
                     latency_anomaly: { zscore_threshold: 3.0, window_minutes: 30, task_name: "*" },
                     error_rate_spike: { spike_factor: 2.0, baseline_hours: 24, task_name: "*" },
+                    storage_pressure: { threshold_percent: 0.85 },
                   };
                   setConditionValues(defaults[ct] ?? {});
                 }}

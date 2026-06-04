@@ -166,8 +166,8 @@ export default function SystemPage() {
                 label="Lost"
                 value={formatNumber(health.pipeline.events_dropped)}
                 sub={health.pipeline.events_dropped > 0 ? `${(health.pipeline.drop_rate * 100).toFixed(2)}% of total` : undefined}
-                accent="text-zinc-400"
-                description="Failed to save after retry"
+                accent={health.pipeline.events_dropped > 0 ? "text-red-400" : "text-zinc-400"}
+                description="Dropped: buffer overflow or unparseable"
               />
               <MetricCard
                 label="Unreadable"
@@ -182,6 +182,39 @@ export default function SystemPage() {
                 description="Auto-retry attempts"
               />
             </div>
+
+            {/* Retry buffer saturation — early warning of an ingestion stall.
+                A rising depth means ClickHouse inserts are failing and events
+                are queueing in Redis; at 100% the oldest are dropped. */}
+            {health.pipeline.retry_buffer_capacity > 0 && (
+              <div className="mt-3 p-4 bg-zinc-900 border border-zinc-800 rounded-xl">
+                <div className="flex items-center justify-between text-xs text-zinc-400 mb-1.5">
+                  <span>Retry Buffer (batches awaiting replay)</span>
+                  <span className="tabular-nums">
+                    {formatNumber(health.pipeline.retry_buffer_depth)} / {formatNumber(health.pipeline.retry_buffer_capacity)}
+                  </span>
+                </div>
+                <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      health.pipeline.retry_buffer_depth / health.pipeline.retry_buffer_capacity > 0.9
+                        ? "bg-red-500"
+                        : health.pipeline.retry_buffer_depth / health.pipeline.retry_buffer_capacity > 0.5
+                          ? "bg-yellow-500"
+                          : "bg-emerald-500"
+                    }`}
+                    style={{
+                      width: `${Math.min((health.pipeline.retry_buffer_depth / health.pipeline.retry_buffer_capacity) * 100, 100)}%`,
+                    }}
+                  />
+                </div>
+                <p className="text-xs text-zinc-500 mt-1">
+                  {health.pipeline.retry_buffer_depth === 0
+                    ? "Empty — all events are being written to ClickHouse."
+                    : "Non-empty — ClickHouse inserts are failing and events are buffered. If this fills, the oldest events are dropped (and counted under “Lost”)."}
+                </p>
+              </div>
+            )}
           </section>
 
           {/* Recent Failures — dead-letter viewer */}
