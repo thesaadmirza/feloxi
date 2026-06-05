@@ -21,11 +21,19 @@ pub struct IntegrationsResponse {
 /// Which OAuth "Connect" providers are configured on this instance (i.e. the
 /// operator set the client id/secret). The frontend hides buttons for the
 /// unconfigured ones; webhook-paste remains available regardless.
+///
+/// Also returns the exact OAuth **redirect URLs** this server uses (derived from
+/// `APP_BASE_URL`). Self-hosters must register these byte-for-byte in their
+/// provider app (e.g. Slack → OAuth & Permissions → Redirect URLs), so the UI
+/// shows them. They're returned even when creds aren't set yet, so operators can
+/// register the URL before pasting their client id/secret.
 #[derive(Serialize, ToSchema)]
 pub struct OAuthProvidersResponse {
     pub slack: bool,
     pub discord: bool,
     pub google: bool,
+    /// The redirect URL to register in the Slack app for this deployment.
+    pub slack_redirect_url: String,
 }
 
 #[utoipa::path(
@@ -43,6 +51,7 @@ pub async fn oauth_providers(
         slack: state.config.oauth.slack.is_some(),
         discord: state.config.oauth.discord.is_some(),
         google: state.config.oauth.google.is_some(),
+        slack_redirect_url: crate::oauth::redirect_uri(&state, "/integrations/slack/callback"),
     }))
 }
 
@@ -94,6 +103,8 @@ pub async fn delete_integration(
     if !deleted {
         return Err(AppError::NotFound("Integration not found".into()));
     }
+    // Drop any cached channel list for this integration.
+    let _ = db::redis::cache::clear_slack_channels(&state.redis, id).await;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
@@ -149,9 +160,9 @@ pub async fn test_integration(
     let tenant = db::postgres::tenants::get_tenant_by_id(&state.pg, user.tenant_id).await?;
     let integrations = std::iter::once((id, integration)).collect();
     let alert = test_alert();
-    let client = test_http_client();
 
-    let result = deliver_channel(&state, &client, &tenant, &integrations, &channel, &alert).await;
+    let result =
+        deliver_channel(&state, &state.http, &tenant, &integrations, &channel, &alert).await;
     Ok(Json(TestIntegrationResponse { success: result.success, error: result.error }))
 }
 
@@ -168,13 +179,6 @@ fn test_alert() -> alerting::engine::FiredAlert {
         details: serde_json::json!({ "source": "integration test" }),
         fired_at: chrono::Utc::now().timestamp() as f64,
     }
-}
-
-fn test_http_client() -> reqwest::Client {
-    reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .unwrap_or_default()
 }
 
 pub fn router() -> Router<AppState> {

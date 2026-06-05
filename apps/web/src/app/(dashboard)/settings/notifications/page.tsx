@@ -13,6 +13,8 @@ import {
   Send,
   Plug,
   Trash2,
+  Copy,
+  Check,
 } from "lucide-react";
 import { $api, fetchClient, unwrap } from "@/lib/api";
 
@@ -61,6 +63,21 @@ function ConnectedIntegrationsCard() {
   const [connecting, setConnecting] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const slackRedirectUrl = (providers as { slack_redirect_url?: string } | undefined)
+    ?.slack_redirect_url;
+
+  function copyRedirect() {
+    if (!slackRedirectUrl) return;
+    navigator.clipboard?.writeText(slackRedirectUrl).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      },
+      () => {}
+    );
+  }
 
   // Listen for any OAuth popup's postMessage and refresh the list on success.
   useEffect(() => {
@@ -238,6 +255,35 @@ function ConnectedIntegrationsCard() {
             paste a webhook URL directly on an alert rule.
           </p>
         )
+      )}
+
+      {/* Self-hosted setup: the exact redirect URL to register in the provider app. */}
+      {slackRedirectUrl && (
+        <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-1.5">
+          <p className="text-xs font-medium text-foreground">Setting up the Slack app?</p>
+          <p className="text-xs text-muted-foreground">
+            Add this <span className="font-medium">Redirect URL</span> in your Slack app under{" "}
+            <span className="font-mono">OAuth &amp; Permissions → Redirect URLs</span> (must match
+            exactly):
+          </p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 truncate rounded bg-background px-2 py-1.5 text-xs text-foreground">
+              {slackRedirectUrl}
+            </code>
+            <button
+              type="button"
+              onClick={copyRedirect}
+              className="inline-flex items-center gap-1 rounded-lg border border-border bg-secondary px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground transition"
+            >
+              {copied ? <Check className="h-3.5 w-3.5 text-[#22c55e]" /> : <Copy className="h-3.5 w-3.5" />}
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Bot token scopes: <span className="font-mono">chat:write, chat:write.public,
+            channels:read, groups:read</span>.
+          </p>
+        </div>
       )}
     </div>
   );
