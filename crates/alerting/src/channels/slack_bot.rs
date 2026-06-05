@@ -57,14 +57,23 @@ pub fn is_workspace_revoked(error: &str) -> bool {
     error.contains("account_inactive")
         || error.contains("invalid_auth")
         || error.contains("token_revoked")
+        || error.contains("token_expired")
 }
 
 fn actionable_message(code: &str) -> String {
     match code {
-        "not_in_channel" | "channel_not_found" => format!(
-            "{code}: Feloxi isn't in this channel. Run `/invite @Feloxi` in the channel, then retry."
+        // With chat:write.public the bot posts to public channels without
+        // joining, so a public channel rarely errors here. `not_in_channel`
+        // means a known channel the bot hasn't joined; `channel_not_found`
+        // means the bot can't see it — most often a private channel it was
+        // never invited to (or one renamed/archived).
+        "not_in_channel" => {
+            format!("{code}: invite the Feloxi bot to this channel (`/invite @Feloxi`), then retry.")
+        }
+        "channel_not_found" => format!(
+            "{code}: can't see this channel — if it's private, invite the Feloxi bot (`/invite @Feloxi`) and Refresh; otherwise it may be archived or renamed."
         ),
-        "account_inactive" | "invalid_auth" | "token_revoked" => {
+        "account_inactive" | "invalid_auth" | "token_revoked" | "token_expired" => {
             format!("{code}: Slack connection is no longer valid — reconnect the workspace.")
         }
         other => other.to_string(),
