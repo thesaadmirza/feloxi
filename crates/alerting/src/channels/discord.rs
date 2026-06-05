@@ -14,8 +14,8 @@ const MAX_FIELD_VALUE: usize = 1024;
 ///
 /// Builds an embed (color is a decimal int, fields truncated to Discord's
 /// limits, description never empty). A deleted webhook returns HTTP 404 with
-/// error `code: 10015`; a 429 carries a `retry_after` (seconds) which is
-/// surfaced for the retry queue to honor.
+/// error `code: 10015`; a 429's `retry_after` (seconds) is captured on the
+/// result for a future retry queue to honor.
 pub async fn send_discord_alert(
     client: &Client,
     webhook_url: &str,
@@ -90,7 +90,7 @@ fn build_embed(alert: &FiredAlert) -> Value {
     if let Some(obj) = alert.details.as_object() {
         for (key, value) in obj.iter().take(MAX_FIELDS) {
             fields.push(json!({
-                "name": truncate(&snake_to_title(key), MAX_TITLE),
+                "name": truncate(&super::snake_to_title(key), MAX_TITLE),
                 "value": truncate(&value_to_string(value), MAX_FIELD_VALUE),
                 "inline": true,
             }));
@@ -122,19 +122,6 @@ fn truncate(s: &str, max: usize) -> String {
     } else {
         s.chars().take(max.saturating_sub(1)).collect::<String>() + "…"
     }
-}
-
-fn snake_to_title(s: &str) -> String {
-    s.split('_')
-        .map(|w| {
-            let mut c = w.chars();
-            match c.next() {
-                None => String::new(),
-                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 fn value_to_string(value: &Value) -> String {

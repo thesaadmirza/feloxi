@@ -114,7 +114,7 @@ fn format_detail_fields(details: &Value) -> Vec<Value> {
 
     obj.iter()
         .map(|(key, value)| {
-            let label = snake_to_title(key);
+            let label = super::snake_to_title(key);
             let display = format_value(key, value);
             json!({
                 "type": "mrkdwn",
@@ -122,19 +122,6 @@ fn format_detail_fields(details: &Value) -> Vec<Value> {
             })
         })
         .collect()
-}
-
-fn snake_to_title(s: &str) -> String {
-    s.split('_')
-        .map(|w| {
-            let mut c = w.chars();
-            match c.next() {
-                None => String::new(),
-                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 fn format_value(key: &str, value: &Value) -> String {
