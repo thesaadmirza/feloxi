@@ -57,6 +57,11 @@ spec:
                 secretKeyRef:
                   name: feloxi-secrets
                   key: jwt-secret
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: feloxi-secrets
+                  key: encryption-key
 
             # ── Application config ──
             - name: PORT

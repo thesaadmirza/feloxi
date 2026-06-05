@@ -75,6 +75,13 @@ spec:
                   name: {{ include "feloxi.secretName" . }}
                   key: {{ .Values.auth.secretKeys.jwtSecretKey }}
 
+            # Secrets-at-rest encryption key
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "feloxi.secretName" . }}
+                  key: {{ .Values.auth.secretKeys.encryptionKeyKey }}
+
             # PostgreSQL
             {{- if .Values.postgresql.enabled }}
             - name: POSTGRES_USER

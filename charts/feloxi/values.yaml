@@ -35,12 +35,18 @@ imagePullSecrets: []
 auth:
   # -- JWT signing secret. Required (min 32 chars) when existingSecret is not set.
   jwtSecret: ""
+  # -- Secrets-at-rest key (base64-encoded 32 bytes; `openssl rand -base64 32`).
+  #    Required when existingSecret is not set. Encrypts integration tokens and
+  #    the SMTP password. WARNING: losing it makes stored secrets unrecoverable.
+  encryptionKey: ""
   # -- Name of an existing Secret that contains the JWT secret (and optionally
   #    postgres/clickhouse credentials). When set, no Secret is generated.
   existingSecret: ""
   secretKeys:
     # -- Key in the secret containing the JWT secret
     jwtSecretKey: jwt-secret
+    # -- Key in the secret containing the encryption key
+    encryptionKeyKey: encryption-key
 
 # ---------------------------------------------------------------------------
 # Rust API backend

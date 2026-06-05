@@ -13,6 +13,7 @@ services:
       - CLICKHOUSE_USER=default
       - CLICKHOUSE_PASSWORD=feloxi
       - "JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set - generate one with: openssl rand -hex 32}"
+      - "ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set - generate one with: openssl rand -base64 32}"
       - CORS_ORIGIN=http://localhost:3000,http://127.0.0.1:3000
       - RUST_LOG=${RUST_LOG:-api=info,tower_http=info}
     depends_on:
