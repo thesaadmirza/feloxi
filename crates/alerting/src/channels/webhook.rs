@@ -36,6 +36,8 @@ pub async fn send_webhook_alert(
     match req.send().await {
         Ok(resp) if resp.status().is_success() => SendResult::ok("webhook"),
         Ok(resp) => SendResult::err("webhook", format!("HTTP {}", resp.status())),
-        Err(e) => SendResult::err("webhook", e),
+        // Strip the URL from the error — for a connected webhook the URL IS the
+        // secret, and it would otherwise be persisted to alert history.
+        Err(e) => SendResult::err("webhook", e.without_url()),
     }
 }
