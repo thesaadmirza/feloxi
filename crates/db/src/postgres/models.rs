@@ -73,6 +73,11 @@ pub enum AlertCondition {
 }
 
 /// Alert notification channel configuration.
+///
+/// The `*_connection` variants reference a reusable, encrypted `integrations`
+/// row instead of embedding a plaintext secret. The legacy inline variants
+/// (`slack`/`webhook`/`pagerduty`) are retained so existing rules keep working
+/// untouched — this enum is internally tagged, so old rows deserialize as-is.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type")]
 pub enum AlertChannel {
@@ -84,6 +89,31 @@ pub enum AlertChannel {
     Webhook { url: String, headers: Option<HashMap<String, String>> },
     #[serde(rename = "pagerduty")]
     PagerDuty { routing_key: String },
+    /// Slack via a connected bot-token integration; posts to a chosen channel.
+    #[serde(rename = "slack_connection")]
+    SlackConnection { integration_id: Uuid, channel_id: String, channel_name: String },
+    /// Discord via a connected incoming-webhook integration.
+    #[serde(rename = "discord_connection")]
+    DiscordConnection { integration_id: Uuid },
+    /// PagerDuty via a connected (encrypted routing-key) integration.
+    #[serde(rename = "pagerduty_connection")]
+    PagerDutyConnection { integration_id: Uuid },
+    /// Generic webhook via a connected (encrypted) integration.
+    #[serde(rename = "webhook_connection")]
+    WebhookConnection { integration_id: Uuid },
+}
+
+impl AlertChannel {
+    /// The integration this channel references, if any (`*_connection` variants).
+    pub fn integration_id(&self) -> Option<Uuid> {
+        match self {
+            AlertChannel::SlackConnection { integration_id, .. }
+            | AlertChannel::DiscordConnection { integration_id }
+            | AlertChannel::PagerDutyConnection { integration_id }
+            | AlertChannel::WebhookConnection { integration_id } => Some(*integration_id),
+            _ => None,
+        }
+    }
 }
 
 /// Delivery status for a single notification channel.
@@ -92,6 +122,66 @@ pub struct ChannelDeliveryStatus {
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+// ─────────────────────────── Integrations ───────────────────────────
+
+/// A reusable, connected notification service (Slack workspace, Discord
+/// webhook, PagerDuty service, generic webhook). The secret (bot token /
+/// webhook URL / routing key) is stored encrypted in `secret_enc`; non-secret
+/// metadata (team_id, channel_id, …) lives in `config`.
+#[derive(Debug, Clone, FromRow)]
+pub struct Integration {
+    pub id: Uuid,
+    pub tenant_id: Uuid,
+    pub kind: String,
+    pub name: String,
+    pub status: String,
+    pub config: Json<serde_json::Value>,
+    /// Versioned AES-GCM ciphertext. Never serialized to API responses.
+    pub secret_enc: Option<Vec<u8>>,
+    pub created_by: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl Integration {
+    /// Project to the API-safe view (drops `secret_enc`).
+    pub fn to_view(&self) -> IntegrationView {
+        IntegrationView {
+            id: self.id,
+            kind: self.kind.clone(),
+            name: self.name.clone(),
+            status: self.status.clone(),
+            config: self.config.0.clone(),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        }
+    }
+}
+
+/// API-facing integration shape — deliberately has no secret field so the
+/// ciphertext can never leak into responses or the generated OpenAPI schema.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct IntegrationView {
+    pub id: Uuid,
+    pub kind: String,
+    pub name: String,
+    pub status: String,
+    pub config: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Insert/upsert payload for an integration.
+#[derive(Debug, Clone)]
+pub struct NewIntegration {
+    pub tenant_id: Uuid,
+    pub kind: String,
+    pub name: String,
+    pub config: serde_json::Value,
+    pub secret_enc: Vec<u8>,
+    pub created_by: Option<Uuid>,
 }
 
 // ─────────────────────────── Tenants ───────────────────────────
@@ -323,6 +413,50 @@ mod tests {
 
     fn now() -> DateTime<Utc> {
         Utc::now()
+    }
+
+    // ── AlertChannel back-compat (additive enum must not break old rows) ──
+
+    #[test]
+    fn legacy_alert_channels_still_deserialize() {
+        let slack: AlertChannel =
+            serde_json::from_str(r#"{"type":"slack","webhook_url":"https://hooks.slack.com/x"}"#)
+                .unwrap();
+        assert!(matches!(slack, AlertChannel::Slack { .. }));
+
+        let webhook: AlertChannel = serde_json::from_str(
+            r#"{"type":"webhook","url":"https://x.test","headers":{"Authorization":"Bearer t"}}"#,
+        )
+        .unwrap();
+        assert!(matches!(webhook, AlertChannel::Webhook { .. }));
+
+        let pd: AlertChannel =
+            serde_json::from_str(r#"{"type":"pagerduty","routing_key":"abc"}"#).unwrap();
+        assert!(matches!(pd, AlertChannel::PagerDuty { .. }));
+
+        let email: AlertChannel =
+            serde_json::from_str(r#"{"type":"email","to":["a@b.test"]}"#).unwrap();
+        assert!(matches!(email, AlertChannel::Email { .. }));
+    }
+
+    #[test]
+    fn connection_alert_channels_roundtrip_and_expose_integration_id() {
+        let id = Uuid::new_v4();
+        let json = format!(
+            r##"{{"type":"slack_connection","integration_id":"{id}","channel_id":"C1","channel_name":"#alerts"}}"##
+        );
+        let ch: AlertChannel = serde_json::from_str(&json).unwrap();
+        assert_eq!(ch.integration_id(), Some(id));
+        assert!(matches!(ch, AlertChannel::SlackConnection { .. }));
+
+        // round-trips back to the tagged form
+        assert_eq!(serde_json::to_value(&ch).unwrap()["type"], "slack_connection");
+
+        for kind in ["discord_connection", "pagerduty_connection", "webhook_connection"] {
+            let j = format!(r#"{{"type":"{kind}","integration_id":"{id}"}}"#);
+            let c: AlertChannel = serde_json::from_str(&j).unwrap();
+            assert_eq!(c.integration_id(), Some(id));
+        }
     }
 
     // ── CreateTenant ──
