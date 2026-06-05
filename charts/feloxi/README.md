@@ -15,6 +15,7 @@ helm install feloxi oci://ghcr.io/thesaadmirza/charts/feloxi \
   --namespace feloxi \
   --create-namespace \
   --set auth.jwtSecret="<min-32-char-secret>" \
+  --set auth.encryptionKey="$(openssl rand -base64 32)" \
   --set postgresql.auth.password="<pgpassword>" \
   --set clickhouse.auth.password="<chpassword>"
 ```
@@ -33,6 +34,7 @@ git clone https://github.com/thesaadmirza/feloxi
 helm install feloxi ./feloxi/charts/feloxi \
   --namespace feloxi --create-namespace \
   --set auth.jwtSecret="thisisasecretthatisatleast32chars" \
+  --set auth.encryptionKey="$(openssl rand -base64 32)" \
   --set postgresql.auth.password="pgpass" \
   --set clickhouse.auth.password="chpass"
 ```
@@ -44,6 +46,7 @@ helm install feloxi ./feloxi/charts/feloxi \
 | Parameter | Description |
 |-----------|-------------|
 | `auth.jwtSecret` | JWT signing key — minimum 32 characters. Use `existingSecret` instead for production. |
+| `auth.encryptionKey` | Base64-encoded 32-byte key for secrets at rest (`openssl rand -base64 32`). Required unless `existingSecret` is set. Losing it makes stored integration tokens and the SMTP password unrecoverable. |
 | `postgresql.auth.password` | PostgreSQL password (when `postgresql.enabled=true` and no `existingSecret`). |
 | `clickhouse.auth.password` | ClickHouse password (when `clickhouse.enabled=true` and no `existingSecret`). |
 
@@ -54,6 +57,7 @@ Create a Secret containing all credentials:
 ```bash
 kubectl create secret generic feloxi-creds -n feloxi \
   --from-literal=jwt-secret="<min-32-char-secret>" \
+  --from-literal=encryption-key="$(openssl rand -base64 32)" \
   --from-literal=postgres-user=feloxi \
   --from-literal=postgres-password="<pgpassword>" \
   --from-literal=postgres-db=feloxi \
@@ -104,6 +108,21 @@ helm install feloxi ./charts/feloxi \
   --set "ingress.annotations.alb\.ingress\.kubernetes\.io/target-type=ip" \
   ...
 ```
+
+### Enabling Slack OAuth (optional)
+
+By default Slack alerts use a pasted webhook URL, which needs no chart config. To enable the "Connect Slack" flow instead, register your own Slack app and pass its credentials:
+
+```bash
+helm upgrade feloxi ./charts/feloxi \
+  --set api.appBaseUrl="https://feloxi.example.com" \
+  --set integrations.slack.clientId="<your-slack-client-id>" \
+  --set integrations.slack.clientSecret="<your-slack-client-secret>"
+```
+
+- `api.appBaseUrl` must be the public URL users hit. The redirect URL to register in the Slack app is `${api.appBaseUrl}/api/v1/integrations/slack/callback`.
+- `integrations.slack.clientSecret` goes into the generated Secret. With `auth.existingSecret`, add it there under the `slack-client-secret` key instead.
+- The required bot scopes and the full walkthrough are in [docs/integrations.md](../../docs/integrations.md).
 
 ### External databases (bring your own)
 
@@ -174,8 +193,12 @@ api:
 | `image.web.repository` | `ghcr.io/thesaadmirza/feloxi/web` | Web image |
 | `image.web.tag` | `""` (Chart.appVersion) | Web image tag |
 | `auth.jwtSecret` | `""` | JWT signing key (min 32 chars) |
+| `auth.encryptionKey` | `""` | Base64 32-byte key for secrets at rest (`openssl rand -base64 32`) |
 | `auth.existingSecret` | `""` | Use existing K8s Secret for all credentials |
-| `api.replicaCount` | `1` | API replica count |
+| `api.replicaCount` | `1` | API replica count (must be 1 — singleton alert loop) |
+| `api.appBaseUrl` | `""` | Public URL, used for OAuth redirect URLs |
+| `integrations.slack.clientId` | `""` | Slack app client ID (enables "Connect Slack") |
+| `integrations.slack.clientSecret` | `""` | Slack app client secret (stored in the Secret) |
 | `api.env.allowSignup` | `"false"` | Allow new user registration |
 | `api.env.disableSwagger` | `"true"` | Disable Swagger UI |
 | `api.env.corsOrigin` | `""` | CORS origin (auto-derived from ingress.host) |

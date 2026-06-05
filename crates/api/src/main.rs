@@ -5,15 +5,15 @@ use tokio::sync::broadcast;
 use tracing_subscriber::{fmt, EnvFilter};
 use uuid::Uuid;
 
+mod alert_dispatch;
 mod app;
 mod broker_conn;
+mod oauth;
 mod openapi;
 mod routes;
 mod smtp;
 mod state;
 mod ws;
-
-use smtp::tenant_smtp_config;
 
 use state::{AppConfig, AppState, HealthCache, TenantEvent};
 
@@ -35,6 +35,7 @@ async fn main() -> Result<()> {
 
     // Load configuration
     let config = AppConfig::from_env()?;
+    let encryptor = Arc::new(state::load_encryptor()?);
 
     let pg = db::postgres::create_pg_pool(&config.database_url).await?;
     db::postgres::run_migrations(&pg)
@@ -66,6 +67,14 @@ async fn main() -> Result<()> {
     // Build app state
     let broker_manager = Arc::new(broker_conn::manager::BrokerConnectionManager::new());
 
+    // One shared HTTP client (internally Arc'd): reused for OAuth token
+    // exchange, the Slack channel listing, integration tests, and the alert
+    // delivery loop so the connection pool and TLS sessions are shared.
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .expect("Failed to build HTTP client");
+
     let state = AppState {
         pg,
         ch,
@@ -75,6 +84,8 @@ async fn main() -> Result<()> {
         config: Arc::new(config.clone()),
         jwt_keys: Arc::new(auth::jwt::JwtKeys::new(config.jwt_secret.as_bytes())),
         health_cache: Arc::new(HealthCache::new(std::time::Duration::from_secs(5))),
+        encryptor,
+        http,
     };
 
     // Auto-start active broker connections
@@ -103,14 +114,10 @@ fn spawn_background_tasks(state: AppState) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
         let mut throttle = alerting::throttle::AlertThrottle::new();
-        let http_client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
-            .build()
-            .expect("Failed to build HTTP client");
 
         loop {
             interval.tick().await;
-            if let Err(e) = run_alert_evaluation(&s, &mut throttle, &http_client).await {
+            if let Err(e) = run_alert_evaluation(&s, &mut throttle).await {
                 tracing::warn!(error = %e, "Alert evaluation cycle failed");
             }
         }
@@ -295,11 +302,10 @@ async fn drain_retry_queue<T: RetryRow>(state: &AppState) {
 async fn run_alert_evaluation(
     state: &AppState,
     throttle: &mut alerting::throttle::AlertThrottle,
-    http_client: &reqwest::Client,
 ) -> Result<(), String> {
     use alerting::{
         engine::{determine_severity, evaluate_condition, generate_summary, FiredAlert},
-        rules::{AlertChannel, ResolvedAlertRule},
+        rules::ResolvedAlertRule,
     };
     use db::postgres::models::ChannelDeliveryStatus;
 
@@ -321,6 +327,11 @@ async fn run_alert_evaluation(
 
         // Build evaluation context from ClickHouse metrics
         let ctx = build_evaluation_context(state, tid).await;
+
+        // Load this tenant's integrations once (secrets decrypted lazily, only
+        // when a referencing channel actually fires).
+        let integrations =
+            db::postgres::integrations::map_integrations(&state.pg, tid).await.unwrap_or_default();
 
         for db_rule in &db_rules {
             // condition and channels are already concrete types (via sqlx::types::Json<T>)
@@ -375,43 +386,22 @@ async fn run_alert_evaluation(
                 "Alert fired: {summary}"
             );
 
-            // Send to all channels and collect delivery results
+            // Send to all channels and collect delivery results, keyed per
+            // delivery (type:integration_id) so same-kind integrations don't
+            // overwrite each other.
             let mut delivery_log = std::collections::HashMap::new();
             for channel in channels {
-                let result = match channel {
-                    AlertChannel::Slack { webhook_url } => {
-                        alerting::channels::slack::send_slack_alert(
-                            http_client,
-                            webhook_url,
-                            &alert,
-                        )
-                        .await
-                    }
-                    AlertChannel::Webhook { url, headers } => {
-                        alerting::channels::webhook::send_webhook_alert(
-                            http_client,
-                            url,
-                            headers,
-                            &alert,
-                        )
-                        .await
-                    }
-                    AlertChannel::PagerDuty { routing_key } => {
-                        alerting::channels::pagerduty::send_pagerduty_alert(
-                            http_client,
-                            routing_key,
-                            &alert,
-                        )
-                        .await
-                    }
-                    AlertChannel::Email { to } => {
-                        let smtp_cfg = tenant_smtp_config(tenant);
-                        alerting::channels::email::send_email_alert(to, &alert, &smtp_cfg).await
-                    }
-                };
-
+                let result = alert_dispatch::deliver_channel(
+                    state,
+                    &state.http,
+                    tenant,
+                    &integrations,
+                    channel,
+                    &alert,
+                )
+                .await;
                 delivery_log.insert(
-                    result.channel_type.clone(),
+                    result.delivery_key(),
                     ChannelDeliveryStatus { success: result.success, error: result.error },
                 );
             }

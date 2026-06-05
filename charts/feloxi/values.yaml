@@ -35,19 +35,44 @@ imagePullSecrets: []
 auth:
   # -- JWT signing secret. Required (min 32 chars) when existingSecret is not set.
   jwtSecret: ""
+  # -- Secrets-at-rest key (base64-encoded 32 bytes; `openssl rand -base64 32`).
+  #    Required when existingSecret is not set. Encrypts integration tokens and
+  #    the SMTP password. WARNING: losing it makes stored secrets unrecoverable.
+  encryptionKey: ""
   # -- Name of an existing Secret that contains the JWT secret (and optionally
   #    postgres/clickhouse credentials). When set, no Secret is generated.
   existingSecret: ""
   secretKeys:
     # -- Key in the secret containing the JWT secret
     jwtSecretKey: jwt-secret
+    # -- Key in the secret containing the encryption key
+    encryptionKeyKey: encryption-key
+    # -- Key in the secret containing the Slack OAuth client secret
+    slackClientSecretKey: slack-client-secret
+
+# -- OAuth "Connect" integrations (optional). Set the client ID/secret of a
+# Slack app you register to enable the in-app "Connect Slack" flow. Leave empty
+# and webhook paste stays the only Slack option. The redirect URL to register is
+# `${appBaseUrl}/api/v1/integrations/slack/callback`. See docs/integrations.md.
+integrations:
+  slack:
+    # -- Slack app client ID. The "Connect Slack" button appears only when set.
+    clientId: ""
+    # -- Slack app client secret. Stored in the generated Secret, or supply it
+    #    via auth.existingSecret under the `slack-client-secret` key.
+    clientSecret: ""
 
 # ---------------------------------------------------------------------------
 # Rust API backend
 # ---------------------------------------------------------------------------
 api:
-  # -- Number of API replicas
+  # -- Number of API replicas. Must be 1: the alert-evaluation loop is a
+  #    singleton (no leader election yet) and >1 double-fires alerts.
   replicaCount: 1
+  # -- Public URL where users reach Feloxi (e.g. https://feloxi.example.com).
+  #    Used to build OAuth redirect URLs. Falls back to the first CORS origin
+  #    when empty; set it explicitly when behind a domain or reverse proxy.
+  appBaseUrl: ""
   resources:
     requests:
       cpu: 500m

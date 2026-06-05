@@ -6,6 +6,7 @@ use tokio::sync::{broadcast, RwLock};
 use uuid::Uuid;
 
 use auth::jwt::JwtKeys;
+use common::crypto::Encryptor;
 
 use crate::broker_conn::manager::BrokerConnectionManager;
 
@@ -44,6 +45,11 @@ pub struct AppState {
     pub config: Arc<AppConfig>,
     pub jwt_keys: Arc<JwtKeys>,
     pub health_cache: Arc<HealthCache>,
+    /// Encrypts/decrypts secrets at rest (integration tokens, SMTP password).
+    pub encryptor: Arc<Encryptor>,
+    /// Shared outbound HTTP client (connection pool reused across OAuth,
+    /// integration tests, and the alert-delivery hot path).
+    pub http: reqwest::Client,
 }
 
 /// A tenant-scoped event for broadcasting.
@@ -107,12 +113,60 @@ pub struct AppConfig {
     pub cors_origin: String,
     pub allow_signup: bool,
     /// Public base URL of the web app (e.g. "https://feloxi.staging.fleetit.com").
-    /// Used to build invite links. Falls back to the first CORS origin if unset.
+    /// Used to build invite links and OAuth redirect URLs. Falls back to the
+    /// first CORS origin if unset.
     pub app_base_url: String,
     /// System-level SMTP config for auth emails (magic link, invites). Separate
     /// from per-tenant SMTP which is used for alerts. `None` if `SMTP_HOST` is
     /// unset — in that case magic-link requests return 503.
     pub system_smtp: Option<alerting::channels::email::SmtpConfig>,
+    /// OAuth client credentials for connect/SSO flows. Each provider is `None`
+    /// when its `*_CLIENT_ID`/`*_CLIENT_SECRET` env vars are unset, in which
+    /// case the corresponding "Connect"/SSO buttons are hidden (the
+    /// webhook-paste path remains the default).
+    pub oauth: OAuthConfig,
+    /// Base URL for the Slack API + OAuth (default `https://slack.com`).
+    /// Overridable via `SLACK_API_BASE_URL` for self-hosted proxies or tests.
+    pub slack_api_base: String,
+}
+
+/// OAuth client credentials, one per provider.
+#[derive(Clone, Default)]
+pub struct OAuthConfig {
+    pub slack: Option<OAuthClient>,
+    pub discord: Option<OAuthClient>,
+    pub google: Option<OAuthClient>,
+}
+
+#[derive(Clone)]
+pub struct OAuthClient {
+    pub client_id: String,
+    pub client_secret: String,
+}
+
+impl std::fmt::Debug for OAuthClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Redact the secret; the client_id is not sensitive.
+        f.debug_struct("OAuthClient").field("client_id", &self.client_id).finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for OAuthConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OAuthConfig")
+            .field("slack", &self.slack.is_some())
+            .field("discord", &self.discord.is_some())
+            .field("google", &self.google.is_some())
+            .finish()
+    }
+}
+
+/// Load an OAuth client from `{PREFIX}_CLIENT_ID` / `{PREFIX}_CLIENT_SECRET`.
+/// Returns `None` unless both are set and non-empty.
+fn load_oauth_client(prefix: &str) -> Option<OAuthClient> {
+    let id = std::env::var(format!("{prefix}_CLIENT_ID")).ok().filter(|s| !s.is_empty())?;
+    let secret = std::env::var(format!("{prefix}_CLIENT_SECRET")).ok().filter(|s| !s.is_empty())?;
+    Some(OAuthClient { client_id: id, client_secret: secret })
 }
 
 impl AppConfig {
@@ -146,8 +200,33 @@ impl AppConfig {
                     .unwrap_or_else(|| "http://localhost:3000".into())
             }),
             system_smtp: load_system_smtp(),
+            oauth: OAuthConfig {
+                slack: load_oauth_client("SLACK"),
+                discord: load_oauth_client("DISCORD"),
+                google: load_oauth_client("GOOGLE"),
+            },
+            slack_api_base: std::env::var("SLACK_API_BASE_URL")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "https://slack.com".into())
+                .trim_end_matches('/')
+                .to_string(),
         })
     }
+}
+
+/// Load the secrets-at-rest encryptor from `ENCRYPTION_KEY` (base64, 32 bytes).
+///
+/// Required — like `JWT_SECRET` — because losing or omitting it makes stored
+/// integration tokens and the SMTP password unusable. Generate one with
+/// `openssl rand -base64 32`.
+pub fn load_encryptor() -> anyhow::Result<Encryptor> {
+    let key = std::env::var("ENCRYPTION_KEY").map_err(|_| {
+        anyhow::anyhow!(
+            "ENCRYPTION_KEY must be set (base64-encoded 32 bytes; `openssl rand -base64 32`)"
+        )
+    })?;
+    Encryptor::from_base64(&key).map_err(|e| anyhow::anyhow!("invalid ENCRYPTION_KEY: {e}"))
 }
 
 fn load_system_smtp() -> Option<alerting::channels::email::SmtpConfig> {

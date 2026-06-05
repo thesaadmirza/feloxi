@@ -1,3 +1,6 @@
+{{- if gt (int .Values.api.replicaCount) 1 }}
+{{- fail "api.replicaCount must be 1: the alert-evaluation loop is a singleton (no leader election yet); running >1 replica double-fires alerts." }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -8,6 +11,11 @@ metadata:
     app.kubernetes.io/component: api
 spec:
   replicas: {{ .Values.api.replicaCount }}
+  # Recreate (not RollingUpdate): the API runs a singleton alert-eval loop with
+  # an in-process throttle; overlapping pods during a rollout would double-fire
+  # alerts. Until the eval loop is leader-elected, keep one active pod.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "feloxi.selectorLabels" . | nindent 6 }}
@@ -74,6 +82,13 @@ spec:
                 secretKeyRef:
                   name: {{ include "feloxi.secretName" . }}
                   key: {{ .Values.auth.secretKeys.jwtSecretKey }}
+
+            # Secrets-at-rest encryption key
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "feloxi.secretName" . }}
+                  key: {{ .Values.auth.secretKeys.encryptionKeyKey }}
 
             # PostgreSQL
             {{- if .Values.postgresql.enabled }}
@@ -158,6 +173,22 @@ spec:
             {{- if $corsOrigin }}
             - name: CORS_ORIGIN
               value: {{ $corsOrigin | quote }}
+            {{- end }}
+
+            # OAuth integrations (optional). The redirect URL to register is
+            # ${APP_BASE_URL}/api/v1/integrations/slack/callback.
+            {{- if .Values.api.appBaseUrl }}
+            - name: APP_BASE_URL
+              value: {{ .Values.api.appBaseUrl | quote }}
+            {{- end }}
+            {{- if .Values.integrations.slack.clientId }}
+            - name: SLACK_CLIENT_ID
+              value: {{ .Values.integrations.slack.clientId | quote }}
+            - name: SLACK_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "feloxi.secretName" . }}
+                  key: {{ .Values.auth.secretKeys.slackClientSecretKey }}
             {{- end }}
 
             # Performance tuning

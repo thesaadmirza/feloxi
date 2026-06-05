@@ -416,6 +416,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_integrations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["oauth_providers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete_integration"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/{id}/slack/channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /integrations/{id}/slack/channels — authenticated; live name search over
+         *     a server-cached channel list (so workspaces with thousands of channels don't
+         *     ship the whole list to the client). Slack has no channel-search API, so the
+         *     full list is enumerated once and cached in Redis (5-min TTL); `?q=` filters
+         *     it server-side and returns at most `limit` matches.
+         */
+        get: operations["slack_channels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/{id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["test_integration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/metrics/failure-groups": {
         parameters: {
             query?: never;
@@ -988,7 +1075,14 @@ export interface components {
             password: string;
             token: string;
         };
-        /** @description Alert notification channel configuration. */
+        /**
+         * @description Alert notification channel configuration.
+         *
+         *     The `*_connection` variants reference a reusable, encrypted `integrations`
+         *     row instead of embedding a plaintext secret. The legacy inline variants
+         *     (`slack`/`webhook`/`pagerduty`) are retained so existing rules keep working
+         *     untouched — this enum is internally tagged, so old rows deserialize as-is.
+         */
         AlertChannel: {
             /** @enum {string} */
             type: "slack";
@@ -1008,6 +1102,28 @@ export interface components {
             routing_key: string;
             /** @enum {string} */
             type: "pagerduty";
+        } | {
+            channel_id: string;
+            channel_name: string;
+            /** Format: uuid */
+            integration_id: string;
+            /** @enum {string} */
+            type: "slack_connection";
+        } | {
+            /** Format: uuid */
+            integration_id: string;
+            /** @enum {string} */
+            type: "discord_connection";
+        } | {
+            /** Format: uuid */
+            integration_id: string;
+            /** @enum {string} */
+            type: "pagerduty_connection";
+        } | {
+            /** Format: uuid */
+            integration_id: string;
+            /** @enum {string} */
+            type: "webhook_connection";
         };
         AlertCondition: {
             task_name?: string;
@@ -1353,6 +1469,25 @@ export interface components {
             status: string;
             version: string;
         };
+        /**
+         * @description API-facing integration shape — deliberately has no secret field so the
+         *     ciphertext can never leak into responses or the generated OpenAPI schema.
+         */
+        IntegrationView: {
+            config: unknown;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            kind: string;
+            name: string;
+            status: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        IntegrationsResponse: {
+            data: components["schemas"]["IntegrationView"][];
+        };
         InviteMemberRequest: {
             email: string;
             role: string;
@@ -1415,6 +1550,24 @@ export interface components {
         NotificationSettings: {
             smtp?: components["schemas"]["SmtpSettings"];
             webhook_defaults?: components["schemas"]["WebhookDefaults"];
+        };
+        /**
+         * @description Which OAuth "Connect" providers are configured on this instance (i.e. the
+         *     operator set the client id/secret). The frontend hides buttons for the
+         *     unconfigured ones; webhook-paste remains available regardless.
+         *
+         *     Also returns the exact OAuth **redirect URLs** this server uses (derived from
+         *     `APP_BASE_URL`). Self-hosters must register these byte-for-byte in their
+         *     provider app (e.g. Slack → OAuth & Permissions → Redirect URLs), so the UI
+         *     shows them. They're returned even when creds aren't set yet, so operators can
+         *     register the URL before pasting their client id/secret.
+         */
+        OAuthProvidersResponse: {
+            discord: boolean;
+            google: boolean;
+            slack: boolean;
+            /** @description The redirect URL to register in the Slack app for this deployment. */
+            slack_redirect_url: string;
         };
         /** @description Returned when the user's email is in multiple orgs and no slug was provided. */
         OrgPickerResponse: {
@@ -1606,6 +1759,17 @@ export interface components {
              */
             magic_link_enabled: boolean;
             needs_setup: boolean;
+        };
+        SlackChannel: {
+            id: string;
+            name: string;
+        };
+        SlackChannelsResponse: {
+            data: components["schemas"]["SlackChannel"][];
+            /** @description Total channels matching the query (before the `limit` slice). */
+            total: number;
+            /** @description True if more matches exist than were returned — narrow the search. */
+            truncated: boolean;
         };
         SmtpSettings: {
             from_address?: string;
@@ -1848,6 +2012,14 @@ export interface components {
             error?: string | null;
             success: boolean;
         };
+        TestIntegrationRequest: {
+            /** @description Slack only: the channel to post the test message to. */
+            channel_id?: string | null;
+        };
+        TestIntegrationResponse: {
+            error?: string | null;
+            success: boolean;
+        };
         TestNotificationRequest: {
             channel: string;
             to?: string | null;
@@ -1972,7 +2144,6 @@ export interface components {
         WorkerListParams: {
             /** Format: int64 */
             limit?: number | null;
-            status?: string | null;
         };
         /** @description Worker list with online set, ClickHouse events, and Redis states. */
         WorkerListResponse: {
@@ -2792,6 +2963,124 @@ export interface operations {
             };
         };
     };
+    list_integrations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationsResponse"];
+                };
+            };
+        };
+    };
+    oauth_providers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthProvidersResponse"];
+                };
+            };
+        };
+    };
+    delete_integration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Integration ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    slack_channels: {
+        parameters: {
+            query?: {
+                /** @description Case-insensitive name filter */
+                q?: string;
+                /** @description Max results (default 50, max 100) */
+                limit?: number;
+                /** @description Bypass cache and re-enumerate */
+                refresh?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description Slack integration ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackChannelsResponse"];
+                };
+            };
+        };
+    };
+    test_integration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Integration ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestIntegrationRequest"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestIntegrationResponse"];
+                };
+            };
+        };
+    };
     failure_groups: {
         parameters: {
             query?: {
@@ -3581,7 +3870,6 @@ export interface operations {
     list_workers: {
         parameters: {
             query?: {
-                status?: string | null;
                 limit?: number | null;
             };
             header?: never;

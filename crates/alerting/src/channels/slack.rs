@@ -9,12 +9,39 @@ pub async fn send_slack_alert(
     webhook_url: &str,
     alert: &FiredAlert,
 ) -> SendResult {
-    let color = match alert.severity.as_str() {
+    let payload = json!({
+        "attachments": [{
+            "color": severity_color(alert),
+            "blocks": build_blocks(alert)
+        }]
+    });
+
+    match client.post(webhook_url).json(&payload).send().await {
+        Ok(resp) if resp.status().is_success() => SendResult::ok("slack"),
+        Ok(resp) => SendResult::err("slack", format!("HTTP {}", resp.status())),
+        // The incoming-webhook URL is a secret — strip it from the error.
+        Err(e) => SendResult::err("slack", e.without_url()),
+    }
+}
+
+/// Slack attachment color for an alert's severity.
+pub(crate) fn severity_color(alert: &FiredAlert) -> &'static str {
+    match alert.severity.as_str() {
         "critical" => "#FF0000",
         "warning" => "#FFA500",
         _ => "#36A64F",
-    };
+    }
+}
 
+/// Plain-text fallback (notification/accessibility text) for an alert.
+pub(crate) fn fallback_text(alert: &FiredAlert) -> String {
+    format!("[{}] {}: {}", alert.severity.to_uppercase(), alert.rule_name, alert.summary)
+}
+
+/// Build the Block Kit blocks for an alert. Shared between the incoming-webhook
+/// sender and the bot-token (`chat.postMessage`) sender. Capped at 50 blocks
+/// (Slack's per-message limit).
+pub(crate) fn build_blocks(alert: &FiredAlert) -> Vec<Value> {
     let emoji = match alert.severity.as_str() {
         "critical" => ":rotating_light:",
         "warning" => ":warning:",
@@ -74,18 +101,9 @@ pub async fn send_slack_alert(
         "elements": context_elements
     }));
 
-    let payload = json!({
-        "attachments": [{
-            "color": color,
-            "blocks": blocks
-        }]
-    });
-
-    match client.post(webhook_url).json(&payload).send().await {
-        Ok(resp) if resp.status().is_success() => SendResult::ok("slack"),
-        Ok(resp) => SendResult::err("slack", format!("HTTP {}", resp.status())),
-        Err(e) => SendResult::err("slack", e),
-    }
+    // Slack rejects messages with more than 50 blocks.
+    blocks.truncate(50);
+    blocks
 }
 
 fn format_detail_fields(details: &Value) -> Vec<Value> {
@@ -96,7 +114,7 @@ fn format_detail_fields(details: &Value) -> Vec<Value> {
 
     obj.iter()
         .map(|(key, value)| {
-            let label = snake_to_title(key);
+            let label = super::snake_to_title(key);
             let display = format_value(key, value);
             json!({
                 "type": "mrkdwn",
@@ -104,19 +122,6 @@ fn format_detail_fields(details: &Value) -> Vec<Value> {
             })
         })
         .collect()
-}
-
-fn snake_to_title(s: &str) -> String {
-    s.split('_')
-        .map(|w| {
-            let mut c = w.chars();
-            match c.next() {
-                None => String::new(),
-                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 fn format_value(key: &str, value: &Value) -> String {

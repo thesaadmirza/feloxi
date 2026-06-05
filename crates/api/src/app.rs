@@ -15,6 +15,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(routes::health::router())
         .merge(routes::auth::router())
         .merge(routes::setup::router())
+        .merge(routes::oauth_slack::public_router())
         .merge(routes::system::public_router());
 
     // Protected routes (JWT auth required)
@@ -24,6 +25,8 @@ pub fn create_router(state: AppState) -> Router {
         .merge(routes::brokers::router())
         .merge(routes::beat::router())
         .merge(routes::alerts::router())
+        .merge(routes::integrations::router())
+        .merge(routes::oauth_slack::protected_router())
         .merge(routes::metrics::router())
         .merge(routes::api_keys::router())
         .merge(routes::tenants::router())

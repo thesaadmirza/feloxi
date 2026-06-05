@@ -14,5 +14,11 @@ axum = { workspace = true }
 sqlx = { workspace = true }
 jsonwebtoken = { workspace = true }
 
+# Secrets at rest + OAuth state signing
+aes-gcm = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
+
 [lints]
 workspace = true

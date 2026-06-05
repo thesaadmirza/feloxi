@@ -1,3 +1,4 @@
+pub mod crypto;
 pub mod errors;
 pub mod events;
 pub mod pagination;
