@@ -903,6 +903,146 @@
         }
       }
     },
+    "/api/v1/integrations": {
+      "get": {
+        "tags": [
+          "integrations"
+        ],
+        "operationId": "list_integrations",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/providers": {
+      "get": {
+        "tags": [
+          "integrations"
+        ],
+        "operationId": "oauth_providers",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthProvidersResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/{id}": {
+      "delete": {
+        "tags": [
+          "integrations"
+        ],
+        "operationId": "delete_integration",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Integration ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/{id}/slack/channels": {
+      "get": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "GET /integrations/{id}/slack/channels — authenticated; paginated channel list.",
+        "operationId": "slack_channels",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Slack integration ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackChannelsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/{id}/test": {
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "operationId": "test_integration",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Integration ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestIntegrationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestIntegrationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/metrics/failure-groups": {
       "get": {
         "tags": [
@@ -2185,17 +2325,6 @@
         "operationId": "list_workers",
         "parameters": [
           {
-            "name": "status",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          },
-          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -2503,9 +2632,97 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "description": "Slack via a connected bot-token integration; posts to a chosen channel.",
+            "required": [
+              "integration_id",
+              "channel_id",
+              "channel_name",
+              "type"
+            ],
+            "properties": {
+              "channel_id": {
+                "type": "string"
+              },
+              "channel_name": {
+                "type": "string"
+              },
+              "integration_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "slack_connection"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Discord via a connected incoming-webhook integration.",
+            "required": [
+              "integration_id",
+              "type"
+            ],
+            "properties": {
+              "integration_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "discord_connection"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "PagerDuty via a connected (encrypted routing-key) integration.",
+            "required": [
+              "integration_id",
+              "type"
+            ],
+            "properties": {
+              "integration_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "pagerduty_connection"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Generic webhook via a connected (encrypted) integration.",
+            "required": [
+              "integration_id",
+              "type"
+            ],
+            "properties": {
+              "integration_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "webhook_connection"
+                ]
+              }
+            }
           }
         ],
-        "description": "Alert notification channel configuration."
+        "description": "Alert notification channel configuration.\n\nThe `*_connection` variants reference a reusable, encrypted `integrations`\nrow instead of embedding a plaintext secret. The legacy inline variants\n(`slack`/`webhook`/`pagerduty`) are retained so existing rules keep working\nuntouched — this enum is internally tagged, so old rows deserialize as-is."
       },
       "AlertCondition": {
         "oneOf": [
@@ -3686,6 +3903,57 @@
           }
         }
       },
+      "IntegrationView": {
+        "type": "object",
+        "description": "API-facing integration shape — deliberately has no secret field so the\nciphertext can never leak into responses or the generated OpenAPI schema.",
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "status",
+          "config",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "config": {},
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "IntegrationsResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IntegrationView"
+            }
+          }
+        }
+      },
       "InviteMemberRequest": {
         "type": "object",
         "required": [
@@ -3862,6 +4130,26 @@
           },
           "webhook_defaults": {
             "$ref": "#/components/schemas/WebhookDefaults"
+          }
+        }
+      },
+      "OAuthProvidersResponse": {
+        "type": "object",
+        "description": "Which OAuth \"Connect\" providers are configured on this instance (i.e. the\noperator set the client id/secret). The frontend hides buttons for the\nunconfigured ones; webhook-paste remains available regardless.",
+        "required": [
+          "slack",
+          "discord",
+          "google"
+        ],
+        "properties": {
+          "discord": {
+            "type": "boolean"
+          },
+          "google": {
+            "type": "boolean"
+          },
+          "slack": {
+            "type": "boolean"
           }
         }
       },
@@ -4450,6 +4738,35 @@
           },
           "needs_setup": {
             "type": "boolean"
+          }
+        }
+      },
+      "SlackChannel": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "SlackChannelsResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SlackChannel"
+            }
           }
         }
       },
@@ -5215,6 +5532,35 @@
           }
         }
       },
+      "TestIntegrationRequest": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Slack only: the channel to post the test message to."
+          }
+        }
+      },
+      "TestIntegrationResponse": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "TestNotificationRequest": {
         "type": "object",
         "required": [
@@ -5615,12 +5961,6 @@
             ],
             "format": "int64",
             "minimum": 0
-          },
-          "status": {
-            "type": [
-              "string",
-              "null"
-            ]
           }
         }
       },
@@ -5847,6 +6187,10 @@
     {
       "name": "alerts",
       "description": "Alert rules and history"
+    },
+    {
+      "name": "integrations",
+      "description": "Connected notification integrations"
     },
     {
       "name": "metrics",

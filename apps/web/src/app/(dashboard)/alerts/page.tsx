@@ -18,6 +18,8 @@ import {
   ChevronDown,
   ChevronRight,
   Send,
+  Check,
+  RefreshCw,
 } from "lucide-react";
 import { $api, fetchClient, unwrap } from "@/lib/api";
 import { timeAgo } from "@/lib/utils";
@@ -54,7 +56,14 @@ const CONDITION_TYPES: { value: ConditionType; label: string; description: strin
   { value: "error_rate_spike", label: "Error Rate Spike", description: "Alert when the error rate spikes relative to the recent baseline" },
 ];
 
-const CHANNEL_TYPES = ["slack", "email", "webhook", "pagerduty"] as const;
+const CHANNEL_TYPES = ["slack_connection", "slack", "email", "webhook", "pagerduty"] as const;
+const CHANNEL_LABELS: Record<(typeof CHANNEL_TYPES)[number], string> = {
+  slack_connection: "Slack (connected)",
+  slack: "Slack (webhook)",
+  email: "Email",
+  webhook: "Webhook",
+  pagerduty: "PagerDuty",
+};
 const inputClass = "w-full bg-secondary border border-border text-foreground text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring";
 const labelClass = "block text-sm font-medium text-muted-foreground mb-1";
 
@@ -72,7 +81,16 @@ function SeverityBadge({ severity }: { severity: string }) {
 }
 
 function ChannelChip({ type }: { type: string }) {
-  const icons: Record<string, string> = { slack: "S", email: "@", webhook: "W", pagerduty: "PD" };
+  const icons: Record<string, string> = {
+    slack: "S",
+    slack_connection: "S",
+    discord_connection: "D",
+    email: "@",
+    webhook: "W",
+    webhook_connection: "W",
+    pagerduty: "PD",
+    pagerduty_connection: "PD",
+  };
   return (
     <span className="inline-flex items-center px-2 py-0.5 rounded bg-secondary text-xs font-mono text-muted-foreground">
       {icons[type] ?? type}
@@ -111,12 +129,21 @@ function conditionSummary(rule: AlertRule): string {
 }
 
 type ChannelForm = {
-  type: (typeof CHANNEL_TYPES)[number];
+  // Widened to string so rules created via API with not-yet-UI-editable
+  // variants (discord/pagerduty/webhook _connection) still round-trip.
+  type: string;
   [key: string]: unknown;
 };
 
 function normalizeChannel(ch: ChannelForm): AlertChannel {
   switch (ch.type) {
+    case "slack_connection":
+      return {
+        type: "slack_connection",
+        integration_id: (ch.integration_id as string) ?? "",
+        channel_id: (ch.channel_id as string) ?? "",
+        channel_name: (ch.channel_name as string) ?? "",
+      } as AlertChannel;
     case "slack":
       return { type: "slack", webhook_url: (ch.webhook_url as string) ?? "" } as AlertChannel;
     case "email": {
@@ -134,6 +161,35 @@ function normalizeChannel(ch: ChannelForm): AlertChannel {
       } as AlertChannel;
     case "pagerduty":
       return { type: "pagerduty", routing_key: (ch.routing_key as string) ?? "" } as AlertChannel;
+    default:
+      // Unknown/not-yet-UI-editable variants (e.g. discord_connection): pass
+      // through verbatim so editing an existing rule doesn't drop them.
+      return ch as unknown as AlertChannel;
+  }
+}
+
+/// Returns a human error if a channel form is incomplete, else null.
+function channelError(ch: ChannelForm): string | null {
+  switch (ch.type) {
+    case "slack_connection":
+      if (!ch.integration_id) return "Select a Slack workspace";
+      if (!ch.channel_id) return "Select a Slack channel";
+      return null;
+    case "slack":
+      return ch.webhook_url ? null : "Enter a Slack webhook URL";
+    case "email": {
+      const raw = ch.to;
+      const list = Array.isArray(raw)
+        ? raw
+        : ((raw as string) ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+      return list.length > 0 ? null : "Enter at least one recipient";
+    }
+    case "webhook":
+      return ch.url ? null : "Enter a webhook URL";
+    case "pagerduty":
+      return ch.routing_key ? null : "Enter a PagerDuty routing key";
+    default:
+      return null;
   }
 }
 
@@ -377,6 +433,257 @@ function ConditionFields({
   }
 }
 
+function SlackConnectionEditor({
+  channel,
+  index,
+  onChange,
+}: {
+  channel: ChannelForm;
+  index: number;
+  onChange: (index: number, key: string, value: unknown) => void;
+}) {
+  const selectClass =
+    "w-full bg-secondary border border-border text-foreground text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring";
+  const { data: integrationsData } = $api.useQuery("get", "/api/v1/integrations");
+  const slackIntegrations = (integrationsData?.data ?? []).filter(
+    (i) => i.kind === "slack" && i.status === "active"
+  );
+  const integrationId = (channel.integration_id as string) ?? "";
+  const channelId = (channel.channel_id as string) ?? "";
+  const channelName = (channel.channel_name as string) ?? "";
+
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  async function sendTest() {
+    if (!integrationId || !channelId) return;
+    setTesting(true);
+    setTestResult(null);
+    const { data, error } = await fetchClient.POST("/api/v1/integrations/{id}/test", {
+      params: { path: { id: integrationId } },
+      body: { channel_id: channelId } as never,
+    });
+    setTesting(false);
+    if (error) {
+      setTestResult({ ok: false, msg: "Test failed — rate-limited or no permission." });
+    } else if (data?.success) {
+      setTestResult({ ok: true, msg: `Test sent to #${channelName}` });
+    } else {
+      setTestResult({ ok: false, msg: data?.error ?? "Test failed" });
+    }
+  }
+
+  const {
+    data: channelsData,
+    isLoading: channelsLoading,
+    isError: channelsError,
+    isFetching: channelsFetching,
+    refetch: refetchChannels,
+  } = $api.useQuery(
+    "get",
+    "/api/v1/integrations/{id}/slack/channels",
+    { params: { path: { id: integrationId } } },
+    { enabled: !!integrationId }
+  );
+  const allChannels = channelsData?.data ?? [];
+
+  if (slackIntegrations.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No Slack workspace connected. Connect one in{" "}
+        <a href="/settings/notifications" className="text-primary underline">
+          Settings &rarr; Notifications
+        </a>
+        .
+      </p>
+    );
+  }
+
+  // Rule references a workspace that's gone/inactive: warn instead of silently
+  // resetting the binding.
+  const staleIntegration = !!integrationId && !slackIntegrations.some((i) => i.id === integrationId);
+
+  return (
+    <div className="space-y-2">
+      <select
+        aria-label="Slack workspace"
+        value={staleIntegration ? "" : integrationId}
+        onChange={(e) => {
+          onChange(index, "integration_id", e.target.value);
+          onChange(index, "channel_id", "");
+          onChange(index, "channel_name", "");
+        }}
+        className={selectClass}
+      >
+        <option value="">Select a workspace&hellip;</option>
+        {slackIntegrations.map((i) => (
+          <option key={i.id} value={i.id}>
+            {i.name}
+          </option>
+        ))}
+      </select>
+      {staleIntegration && (
+        <p className="text-xs text-[#eab308]">
+          The previously selected Slack workspace is no longer available — pick another.
+        </p>
+      )}
+      {integrationId && !staleIntegration && (
+        <ChannelCombobox
+          channels={allChannels}
+          loading={channelsLoading}
+          fetching={channelsFetching}
+          error={channelsError}
+          selectedId={channelId}
+          selectedName={channelName}
+          onSelect={(id, name) => {
+            onChange(index, "channel_id", id);
+            onChange(index, "channel_name", name);
+            setTestResult(null);
+          }}
+          onRefresh={() => refetchChannels()}
+        />
+      )}
+      {integrationId && !staleIntegration && channelId && (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={sendTest}
+            disabled={testing}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition disabled:opacity-60"
+          >
+            {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+            Send test
+          </button>
+          {testResult && (
+            <span className={`text-xs ${testResult.ok ? "text-[#22c55e]" : "text-destructive"}`}>
+              {testResult.msg}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/// Searchable channel picker. A native <select> is unusable for workspaces with
+/// hundreds of channels, so this is a type-to-filter combobox that caps the
+/// rendered rows and surfaces the private-channel caveat.
+function ChannelCombobox({
+  channels,
+  loading,
+  fetching,
+  error,
+  selectedId,
+  selectedName,
+  onSelect,
+  onRefresh,
+}: {
+  channels: { id: string; name: string }[];
+  loading: boolean;
+  fetching: boolean;
+  error: boolean;
+  selectedId: string;
+  selectedName: string;
+  onSelect: (id: string, name: string) => void;
+  onRefresh: () => void;
+}) {
+  const [filter, setFilter] = useState("");
+  const [open, setOpen] = useState(false);
+  const fieldClass =
+    "w-full bg-secondary border border-border text-foreground text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring";
+
+  if (loading) {
+    return <p className="text-sm text-muted-foreground">Loading channels…</p>;
+  }
+  if (error) {
+    return (
+      <p className="text-xs text-destructive">
+        Couldn&apos;t load channels — the Slack connection may need reconnecting.
+      </p>
+    );
+  }
+
+  const q = filter.trim().toLowerCase();
+  const matches = q ? channels.filter((c) => c.name.toLowerCase().includes(q)) : channels;
+  const shown = matches.slice(0, 50);
+
+  return (
+    <div className="space-y-1.5">
+      <input
+        type="text"
+        value={filter}
+        onChange={(e) => {
+          setFilter(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        placeholder={
+          selectedId ? `#${selectedName} — type to change…` : "Search channels…"
+        }
+        className={fieldClass}
+        aria-label="Slack channel"
+      />
+
+      {open && (
+        <div className="max-h-56 overflow-auto rounded-lg border border-border bg-secondary">
+          {shown.length === 0 ? (
+            <p className="px-3 py-2 text-sm text-muted-foreground">
+              No channels match &ldquo;{filter}&rdquo;.
+            </p>
+          ) : (
+            shown.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => {
+                  onSelect(c.id, c.name);
+                  setFilter("");
+                  setOpen(false);
+                }}
+                className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-accent transition ${
+                  c.id === selectedId ? "text-primary" : "text-foreground"
+                }`}
+              >
+                <span className="truncate">#{c.name}</span>
+                {c.id === selectedId && <Check className="h-4 w-4 shrink-0" />}
+              </button>
+            ))
+          )}
+          {matches.length > shown.length && (
+            <p className="px-3 py-1.5 text-xs text-muted-foreground border-t border-border">
+              Showing {shown.length} of {matches.length} — keep typing to narrow.
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span>
+          {selectedId ? (
+            <>
+              Selected: <span className="text-foreground">#{selectedName}</span>
+            </>
+          ) : (
+            `${channels.length} channels`
+          )}
+        </span>
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={fetching}
+          className="inline-flex items-center gap-1 hover:text-foreground transition disabled:opacity-50"
+        >
+          <RefreshCw className={`h-3 w-3 ${fetching ? "animate-spin" : ""}`} /> Refresh
+        </button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Don&apos;t see a private channel? Invite the Feloxi bot to it in Slack
+        (<code>/invite @Feloxi</code>), then Refresh.
+      </p>
+    </div>
+  );
+}
+
 function ChannelEditor({
   channel, index, onChange, onRemove,
 }: {
@@ -391,13 +698,16 @@ function ChannelEditor({
       <div className="flex items-center justify-between">
         <select value={channel.type} onChange={(e) => onChange(index, "type", e.target.value)}
           className="bg-secondary border border-border text-foreground text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring">
-          {CHANNEL_TYPES.map((t) => (<option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>))}
+          {CHANNEL_TYPES.map((t) => (<option key={t} value={t}>{CHANNEL_LABELS[t]}</option>))}
         </select>
         <button type="button" onClick={() => onRemove(index)}
           className="p-1.5 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition">
           <Trash2 className="h-4 w-4" />
         </button>
       </div>
+      {channel.type === "slack_connection" && (
+        <SlackConnectionEditor channel={channel} index={index} onChange={onChange} />
+      )}
       {channel.type === "slack" && (
         <div className="flex items-center gap-2">
           <label className="text-sm text-muted-foreground w-24 shrink-0">Webhook URL</label>
@@ -499,7 +809,7 @@ function AlertRuleModal({
   }
 
   function addChannel() {
-    setChannels((prev) => [...prev, { type: "slack" }]);
+    setChannels((prev) => [...prev, { type: "slack_connection" }]);
   }
 
   function updateChannel(index: number, key: string, value: unknown) {
@@ -533,7 +843,16 @@ function AlertRuleModal({
         </div>
 
         <form
-          onSubmit={(e) => { e.preventDefault(); setSubmitError(null); mutation.mutate(); }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            setSubmitError(null);
+            const bad = channels.map(channelError).find(Boolean);
+            if (bad) {
+              setSubmitError(bad);
+              return;
+            }
+            mutation.mutate();
+          }}
           className="p-6 space-y-6"
         >
           {submitError && (
