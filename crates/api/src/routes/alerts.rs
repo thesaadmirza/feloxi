@@ -32,6 +32,34 @@ pub struct UpdateAlertRuleRequest {
     pub is_enabled: bool,
 }
 
+/// Reject channels that reference an integration the caller's tenant does not
+/// own. The eval loop already resolves channels only against the tenant's own
+/// integrations (so a foreign ID is a silent no-op, not a leak), but validating
+/// at write time turns that into a clear error and stops a rule from pointing at
+/// an integration that does not exist.
+async fn validate_channel_integrations(
+    state: &AppState,
+    tenant_id: Uuid,
+    channels: &[AlertChannel],
+) -> Result<(), AppError> {
+    let referenced: Vec<Uuid> = channels.iter().filter_map(|c| c.integration_id()).collect();
+    if referenced.is_empty() {
+        return Ok(());
+    }
+    let owned: std::collections::HashSet<Uuid> =
+        db::postgres::integrations::list_integrations(&state.pg, tenant_id)
+            .await?
+            .into_iter()
+            .map(|i| i.id)
+            .collect();
+    if let Some(missing) = referenced.iter().find(|id| !owned.contains(id)) {
+        return Err(AppError::BadRequest(format!(
+            "channel references unknown integration: {missing}"
+        )));
+    }
+    Ok(())
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/alerts/rules",
@@ -60,6 +88,7 @@ pub async fn create_rule(
     Json(req): Json<CreateAlertRuleRequest>,
 ) -> Result<Json<db::postgres::models::AlertRule>, AppError> {
     auth::rbac::check_permission(&user, "alerts_write")?;
+    validate_channel_integrations(&state, user.tenant_id, &req.channels).await?;
 
     let rule = db::postgres::alert_rules::create_alert_rule(
         &state.pg,
@@ -113,6 +142,7 @@ pub async fn update_rule(
     Json(req): Json<UpdateAlertRuleRequest>,
 ) -> Result<Json<db::postgres::models::AlertRule>, AppError> {
     auth::rbac::check_permission(&user, "alerts_write")?;
+    validate_channel_integrations(&state, user.tenant_id, &req.channels).await?;
 
     let rule = db::postgres::alert_rules::update_alert_rule(
         &state.pg,
