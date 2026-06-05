@@ -67,6 +67,14 @@ async fn main() -> Result<()> {
     // Build app state
     let broker_manager = Arc::new(broker_conn::manager::BrokerConnectionManager::new());
 
+    // One shared HTTP client (internally Arc'd): reused for OAuth token
+    // exchange, the Slack channel listing, integration tests, and the alert
+    // delivery loop so the connection pool and TLS sessions are shared.
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .expect("Failed to build HTTP client");
+
     let state = AppState {
         pg,
         ch,
@@ -77,6 +85,7 @@ async fn main() -> Result<()> {
         jwt_keys: Arc::new(auth::jwt::JwtKeys::new(config.jwt_secret.as_bytes())),
         health_cache: Arc::new(HealthCache::new(std::time::Duration::from_secs(5))),
         encryptor,
+        http,
     };
 
     // Auto-start active broker connections
@@ -105,14 +114,10 @@ fn spawn_background_tasks(state: AppState) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
         let mut throttle = alerting::throttle::AlertThrottle::new();
-        let http_client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
-            .build()
-            .expect("Failed to build HTTP client");
 
         loop {
             interval.tick().await;
-            if let Err(e) = run_alert_evaluation(&s, &mut throttle, &http_client).await {
+            if let Err(e) = run_alert_evaluation(&s, &mut throttle).await {
                 tracing::warn!(error = %e, "Alert evaluation cycle failed");
             }
         }
@@ -297,7 +302,6 @@ async fn drain_retry_queue<T: RetryRow>(state: &AppState) {
 async fn run_alert_evaluation(
     state: &AppState,
     throttle: &mut alerting::throttle::AlertThrottle,
-    http_client: &reqwest::Client,
 ) -> Result<(), String> {
     use alerting::{
         engine::{determine_severity, evaluate_condition, generate_summary, FiredAlert},
@@ -389,7 +393,7 @@ async fn run_alert_evaluation(
             for channel in channels {
                 let result = alert_dispatch::deliver_channel(
                     state,
-                    http_client,
+                    &state.http,
                     tenant,
                     &integrations,
                     channel,

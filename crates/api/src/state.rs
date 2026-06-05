@@ -47,6 +47,9 @@ pub struct AppState {
     pub health_cache: Arc<HealthCache>,
     /// Encrypts/decrypts secrets at rest (integration tokens, SMTP password).
     pub encryptor: Arc<Encryptor>,
+    /// Shared outbound HTTP client (connection pool reused across OAuth,
+    /// integration tests, and the alert-delivery hot path).
+    pub http: reqwest::Client,
 }
 
 /// A tenant-scoped event for broadcasting.
