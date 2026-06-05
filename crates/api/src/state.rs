@@ -113,7 +113,8 @@ pub struct AppConfig {
     pub cors_origin: String,
     pub allow_signup: bool,
     /// Public base URL of the web app (e.g. "https://feloxi.staging.fleetit.com").
-    /// Used to build invite links. Falls back to the first CORS origin if unset.
+    /// Used to build invite links and OAuth redirect URLs. Falls back to the
+    /// first CORS origin if unset.
     pub app_base_url: String,
     /// System-level SMTP config for auth emails (magic link, invites). Separate
     /// from per-tenant SMTP which is used for alerts. `None` if `SMTP_HOST` is

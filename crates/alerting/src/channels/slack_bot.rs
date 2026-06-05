@@ -31,7 +31,7 @@ pub async fn send_slack_bot_alert(
     let url = format!("{}/api/chat.postMessage", api_base.trim_end_matches('/'));
     let resp = match client.post(&url).bearer_auth(bot_token).json(&payload).send().await {
         Ok(r) => r,
-        Err(e) => return SendResult::err("slack", e),
+        Err(e) => return SendResult::err("slack", e.without_url()),
     };
 
     let status = resp.status().as_u16();
