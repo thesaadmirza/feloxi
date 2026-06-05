@@ -75,7 +75,9 @@ pub fn verify_state(
 }
 
 fn is_secure(state: &AppState) -> bool {
-    state.config.cors_origin.contains("https://")
+    // The OAuth state cookie is set/read on the app origin (the callback runs on
+    // app_base_url), so derive Secure from that, not the CORS allowlist.
+    state.config.app_base_url.starts_with("https://")
 }
 
 /// `Set-Cookie` value that stores the state nonce (single-use, 10-min TTL).
