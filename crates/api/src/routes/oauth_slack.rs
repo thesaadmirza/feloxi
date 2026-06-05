@@ -64,7 +64,11 @@ pub async fn slack_connect(
     let (state_str, nonce) =
         oauth::build_state(&state.encryptor, SLACK_DOMAIN, user.tenant_id, None);
     // Record the nonce so the callback can enforce single-use (anti-replay).
-    let _ = db::redis::cache::store_oauth_nonce(&state.redis, &nonce, 600).await;
+    // Best-effort: if Redis is down the callback falls back to the HMAC+cookie
+    // check, so a store failure shouldn't block connecting.
+    if let Err(e) = db::redis::cache::store_oauth_nonce(&state.redis, &nonce, 600).await {
+        tracing::warn!(error = %e, "failed to store OAuth nonce (Redis unavailable)");
+    }
     let redirect = oauth::redirect_uri(&state, CALLBACK_PATH);
 
     let url = reqwest::Url::parse_with_params(
@@ -134,21 +138,24 @@ async fn slack_callback_inner(
         .ok_or("invalid or expired state")?;
 
     // Enforce single-use server-side: a replayed (state, cookie) pair fails here
-    // even within the signature TTL.
-    if !db::redis::cache::consume_oauth_nonce(&state.redis, &verified.nonce).await.unwrap_or(false)
-    {
-        return Err("state already used or expired".into());
+    // even within the signature TTL. If Redis is unreachable, fall open rather
+    // than hard-fail the flow — CSRF is still covered by the HMAC-signed state +
+    // cookie nonce, and the Slack authorization `code` is itself single-use
+    // (a replayed callback re-exchanges the same code → Slack returns
+    // invalid_code), so replay is bounded even without the Redis check.
+    match db::redis::cache::consume_oauth_nonce(&state.redis, &verified.nonce).await {
+        Ok(true) => {}
+        Ok(false) => return Err("state already used or expired".into()),
+        Err(e) => {
+            tracing::warn!(error = %e, "OAuth nonce check skipped (Redis unavailable)");
+        }
     }
 
     let client = state.config.oauth.slack.as_ref().ok_or("Slack OAuth not configured")?;
     let redirect = oauth::redirect_uri(state, CALLBACK_PATH);
 
-    let http = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let resp = match http
+    let resp = match state
+        .http
         .post(access_url(state))
         .basic_auth(&client.client_id, Some(&client.client_secret))
         .form(&[("code", code), ("redirect_uri", redirect.as_str())])
@@ -201,10 +208,13 @@ async fn slack_callback_inner(
     .await
     .map_err(|e| format!("failed to save integration: {e}"))?;
 
+    // Reconnect may grant access to different channels — drop any stale cache.
+    let _ = db::redis::cache::clear_slack_channels(&state.redis, integration.id).await;
+
     Ok(integration.id)
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
 pub struct SlackChannel {
     pub id: String,
     pub name: String,
@@ -213,20 +223,48 @@ pub struct SlackChannel {
 #[derive(Serialize, ToSchema)]
 pub struct SlackChannelsResponse {
     pub data: Vec<SlackChannel>,
+    /// Total channels matching the query (before the `limit` slice).
+    pub total: usize,
+    /// True if more matches exist than were returned — narrow the search.
+    pub truncated: bool,
 }
 
-/// GET /integrations/{id}/slack/channels — authenticated; paginated channel list.
+#[derive(Deserialize)]
+pub struct ChannelsQuery {
+    /// Case-insensitive name filter. Empty returns the first page.
+    #[serde(default)]
+    pub q: Option<String>,
+    /// Max results to return (default 50, capped at 100).
+    #[serde(default)]
+    pub limit: Option<usize>,
+    /// Bypass the server cache and re-enumerate from Slack (e.g. after inviting
+    /// the bot to a private channel).
+    #[serde(default)]
+    pub refresh: Option<bool>,
+}
+
+/// GET /integrations/{id}/slack/channels — authenticated; live name search over
+/// a server-cached channel list (so workspaces with thousands of channels don't
+/// ship the whole list to the client). Slack has no channel-search API, so the
+/// full list is enumerated once and cached in Redis (5-min TTL); `?q=` filters
+/// it server-side and returns at most `limit` matches.
 #[utoipa::path(
     get,
     path = "/api/v1/integrations/{id}/slack/channels",
     tag = "integrations",
-    params(("id" = Uuid, Path, description = "Slack integration ID")),
+    params(
+        ("id" = Uuid, Path, description = "Slack integration ID"),
+        ("q" = Option<String>, Query, description = "Case-insensitive name filter"),
+        ("limit" = Option<usize>, Query, description = "Max results (default 50, max 100)"),
+        ("refresh" = Option<bool>, Query, description = "Bypass cache and re-enumerate")
+    ),
     responses((status = 200, description = "Success", body = SlackChannelsResponse))
 )]
 pub async fn slack_channels(
     State(state): State<AppState>,
     Extension(user): Extension<CurrentUser>,
     Path(id): Path<Uuid>,
+    Query(params): Query<ChannelsQuery>,
 ) -> Result<Json<SlackChannelsResponse>, AppError> {
     auth::rbac::check_permission(&user, "settings_read")?;
     let integration = db::postgres::integrations::get_integration(&state.pg, user.tenant_id, id)
@@ -244,16 +282,66 @@ pub async fn slack_channels(
         .decrypt_str(blob)
         .map_err(|_| AppError::Internal("failed to decrypt Slack token".into()))?;
 
-    let http = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| AppError::Internal(e.to_string()))?;
+    // Pull the full list from cache, or enumerate from Slack and cache it.
+    let cache_key = db::redis::cache::slack_channels_key(id);
+    let mut all: Vec<SlackChannel> = if params.refresh.unwrap_or(false) {
+        Vec::new()
+    } else {
+        db::redis::cache::get_json(&state.redis, &cache_key)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    };
+    if all.is_empty() {
+        all = fetch_all_slack_channels(&state, &token).await?;
+        let _ = db::redis::cache::set_json(
+            &state.redis,
+            &cache_key,
+            &all,
+            std::time::Duration::from_secs(300),
+        )
+        .await;
+    }
 
+    // Filter + slice server-side; the client only ever sees a small page.
+    let q = params.q.unwrap_or_default();
+    let limit = params.limit.unwrap_or(50).clamp(1, 100);
+    let (data, total, truncated) = filter_channels(all, &q, limit);
+    Ok(Json(SlackChannelsResponse { data, total, truncated }))
+}
+
+/// Case-insensitive name filter + sort + truncate. Returns `(page, total,
+/// truncated)` where `total` is the full match count before the `limit` slice.
+fn filter_channels(
+    all: Vec<SlackChannel>,
+    q: &str,
+    limit: usize,
+) -> (Vec<SlackChannel>, usize, bool) {
+    let needle = q.trim().to_lowercase();
+    let mut matches: Vec<SlackChannel> = if needle.is_empty() {
+        all
+    } else {
+        all.into_iter().filter(|c| c.name.to_lowercase().contains(&needle)).collect()
+    };
+    // Case-insensitive sort so e.g. "Zebra" doesn't jump above "alerts".
+    matches.sort_by_key(|c| c.name.to_lowercase());
+    let total = matches.len();
+    let truncated = total > limit;
+    matches.truncate(limit);
+    (matches, total, truncated)
+}
+
+/// Enumerate every channel the bot can see (public + member private), paginated.
+async fn fetch_all_slack_channels(
+    state: &AppState,
+    token: &str,
+) -> Result<Vec<SlackChannel>, AppError> {
     let mut channels = Vec::new();
     let mut cursor = String::new();
     // Cap pages to bound very large (Enterprise Grid) workspaces.
     for _ in 0..50 {
-        let mut req = http.get(conversations_url(&state)).bearer_auth(&token).query(&[
+        let mut req = state.http.get(conversations_url(state)).bearer_auth(token).query(&[
             ("types", "public_channel,private_channel"),
             ("exclude_archived", "true"),
             ("limit", "200"),
@@ -293,9 +381,7 @@ pub async fn slack_channels(
             break;
         }
     }
-
-    channels.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(Json(SlackChannelsResponse { data: channels }))
+    Ok(channels)
 }
 
 /// Render a tiny HTML page that posts the result to the opener and closes.
@@ -354,7 +440,53 @@ pub fn public_router() -> Router<AppState> {
 
 #[cfg(test)]
 mod tests {
-    use super::escape_for_script;
+    use super::{escape_for_script, filter_channels, SlackChannel};
+
+    fn chans(names: &[&str]) -> Vec<SlackChannel> {
+        names.iter().map(|n| SlackChannel { id: format!("C-{n}"), name: n.to_string() }).collect()
+    }
+
+    #[test]
+    fn filter_channels_searches_sorts_and_truncates() {
+        let all = chans(&["zebra", "alerts", "alpha", "team-alerts", "ops"]);
+
+        // Empty query → all, sorted, no truncation when under limit.
+        let (page, total, truncated) = filter_channels(all.clone(), "", 50);
+        assert_eq!(total, 5);
+        assert!(!truncated);
+        assert_eq!(
+            page.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            ["alerts", "alpha", "ops", "team-alerts", "zebra"]
+        );
+
+        // Case-insensitive substring match.
+        let (page, total, _) = filter_channels(all.clone(), "ALERT", 50);
+        assert_eq!(total, 2);
+        assert_eq!(
+            page.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            ["alerts", "team-alerts"]
+        );
+
+        // Truncation: total reflects pre-slice count, page is capped.
+        let (page, total, truncated) = filter_channels(all, "", 2);
+        assert_eq!(total, 5);
+        assert!(truncated);
+        assert_eq!(page.len(), 2);
+        assert_eq!(page[0].name, "alerts");
+
+        // No match.
+        let (page, total, truncated) = filter_channels(chans(&["a", "b"]), "zzz", 50);
+        assert!(page.is_empty());
+        assert_eq!(total, 0);
+        assert!(!truncated);
+
+        // Case-insensitive sort: "Zebra" should not jump above "alerts".
+        let (page, _, _) = filter_channels(chans(&["Zebra", "alerts", "Ops"]), "", 50);
+        assert_eq!(
+            page.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            ["alerts", "Ops", "Zebra"]
+        );
+    }
 
     #[test]
     fn escape_neutralizes_script_breakout() {

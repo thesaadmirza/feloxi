@@ -471,7 +471,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** GET /integrations/{id}/slack/channels — authenticated; paginated channel list. */
+        /**
+         * GET /integrations/{id}/slack/channels — authenticated; live name search over
+         *     a server-cached channel list (so workspaces with thousands of channels don't
+         *     ship the whole list to the client). Slack has no channel-search API, so the
+         *     full list is enumerated once and cached in Redis (5-min TTL); `?q=` filters
+         *     it server-side and returns at most `limit` matches.
+         */
         get: operations["slack_channels"];
         put?: never;
         post?: never;
@@ -1549,11 +1555,19 @@ export interface components {
          * @description Which OAuth "Connect" providers are configured on this instance (i.e. the
          *     operator set the client id/secret). The frontend hides buttons for the
          *     unconfigured ones; webhook-paste remains available regardless.
+         *
+         *     Also returns the exact OAuth **redirect URLs** this server uses (derived from
+         *     `APP_BASE_URL`). Self-hosters must register these byte-for-byte in their
+         *     provider app (e.g. Slack → OAuth & Permissions → Redirect URLs), so the UI
+         *     shows them. They're returned even when creds aren't set yet, so operators can
+         *     register the URL before pasting their client id/secret.
          */
         OAuthProvidersResponse: {
             discord: boolean;
             google: boolean;
             slack: boolean;
+            /** @description The redirect URL to register in the Slack app for this deployment. */
+            slack_redirect_url: string;
         };
         /** @description Returned when the user's email is in multiple orgs and no slug was provided. */
         OrgPickerResponse: {
@@ -1752,6 +1766,10 @@ export interface components {
         };
         SlackChannelsResponse: {
             data: components["schemas"]["SlackChannel"][];
+            /** @description Total channels matching the query (before the `limit` slice). */
+            total: number;
+            /** @description True if more matches exist than were returned — narrow the search. */
+            truncated: boolean;
         };
         SmtpSettings: {
             from_address?: string;
@@ -3008,7 +3026,14 @@ export interface operations {
     };
     slack_channels: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Case-insensitive name filter */
+                q?: string;
+                /** @description Max results (default 50, max 100) */
+                limit?: number;
+                /** @description Bypass cache and re-enumerate */
+                refresh?: boolean;
+            };
             header?: never;
             path: {
                 /** @description Slack integration ID */

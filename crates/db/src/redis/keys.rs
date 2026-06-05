@@ -93,6 +93,16 @@ pub fn retry_queue(kind: &str) -> String {
     format!("fp:retry:{kind}")
 }
 
+/// Single-use OAuth state nonce (anti-replay).
+pub fn oauth_nonce(nonce: &str) -> String {
+    format!("fp:oauth:nonce:{nonce}")
+}
+
+/// Cached Slack channel list for an integration.
+pub fn slack_channels(integration_id: Uuid) -> String {
+    format!("fp:slack:channels:{integration_id}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,6 +138,8 @@ mod tests {
             (session("sid"), "fp:session:sid".into()),
             (refresh_token(t, "hash"), format!("fp:refresh:{t}:hash")),
             (pipeline_counter("events_received"), "fp:pipeline:events_received".into()),
+            (oauth_nonce("n1"), "fp:oauth:nonce:n1".into()),
+            (slack_channels(r), format!("fp:slack:channels:{r}")),
         ];
         for (actual, expected) in &cases {
             assert!(actual.starts_with("fp:"), "missing prefix: {actual}");

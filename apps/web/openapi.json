@@ -973,7 +973,7 @@
         "tags": [
           "integrations"
         ],
-        "summary": "GET /integrations/{id}/slack/channels — authenticated; paginated channel list.",
+        "summary": "GET /integrations/{id}/slack/channels — authenticated; live name search over\na server-cached channel list (so workspaces with thousands of channels don't\nship the whole list to the client). Slack has no channel-search API, so the\nfull list is enumerated once and cached in Redis (5-min TTL); `?q=` filters\nit server-side and returns at most `limit` matches.",
         "operationId": "slack_channels",
         "parameters": [
           {
@@ -984,6 +984,34 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Case-insensitive name filter",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Max results (default 50, max 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "refresh",
+            "in": "query",
+            "description": "Bypass cache and re-enumerate",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -4135,11 +4163,12 @@
       },
       "OAuthProvidersResponse": {
         "type": "object",
-        "description": "Which OAuth \"Connect\" providers are configured on this instance (i.e. the\noperator set the client id/secret). The frontend hides buttons for the\nunconfigured ones; webhook-paste remains available regardless.",
+        "description": "Which OAuth \"Connect\" providers are configured on this instance (i.e. the\noperator set the client id/secret). The frontend hides buttons for the\nunconfigured ones; webhook-paste remains available regardless.\n\nAlso returns the exact OAuth **redirect URLs** this server uses (derived from\n`APP_BASE_URL`). Self-hosters must register these byte-for-byte in their\nprovider app (e.g. Slack → OAuth & Permissions → Redirect URLs), so the UI\nshows them. They're returned even when creds aren't set yet, so operators can\nregister the URL before pasting their client id/secret.",
         "required": [
           "slack",
           "discord",
-          "google"
+          "google",
+          "slack_redirect_url"
         ],
         "properties": {
           "discord": {
@@ -4150,6 +4179,10 @@
           },
           "slack": {
             "type": "boolean"
+          },
+          "slack_redirect_url": {
+            "type": "string",
+            "description": "The redirect URL to register in the Slack app for this deployment."
           }
         }
       },
@@ -4759,7 +4792,9 @@
       "SlackChannelsResponse": {
         "type": "object",
         "required": [
-          "data"
+          "data",
+          "total",
+          "truncated"
         ],
         "properties": {
           "data": {
@@ -4767,6 +4802,15 @@
             "items": {
               "$ref": "#/components/schemas/SlackChannel"
             }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total channels matching the query (before the `limit` slice).",
+            "minimum": 0
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True if more matches exist than were returned — narrow the search."
           }
         }
       },

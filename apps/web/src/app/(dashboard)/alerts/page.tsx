@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
@@ -442,8 +442,6 @@ function SlackConnectionEditor({
   index: number;
   onChange: (index: number, key: string, value: unknown) => void;
 }) {
-  const selectClass =
-    "w-full bg-secondary border border-border text-foreground text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring";
   const { data: integrationsData } = $api.useQuery("get", "/api/v1/integrations");
   const slackIntegrations = (integrationsData?.data ?? []).filter(
     (i) => i.kind === "slack" && i.status === "active"
@@ -473,20 +471,6 @@ function SlackConnectionEditor({
     }
   }
 
-  const {
-    data: channelsData,
-    isLoading: channelsLoading,
-    isError: channelsError,
-    isFetching: channelsFetching,
-    refetch: refetchChannels,
-  } = $api.useQuery(
-    "get",
-    "/api/v1/integrations/{id}/slack/channels",
-    { params: { path: { id: integrationId } } },
-    { enabled: !!integrationId }
-  );
-  const allChannels = channelsData?.data ?? [];
-
   if (slackIntegrations.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -513,7 +497,7 @@ function SlackConnectionEditor({
           onChange(index, "channel_id", "");
           onChange(index, "channel_name", "");
         }}
-        className={selectClass}
+        className={inputClass}
       >
         <option value="">Select a workspace&hellip;</option>
         {slackIntegrations.map((i) => (
@@ -529,10 +513,8 @@ function SlackConnectionEditor({
       )}
       {integrationId && !staleIntegration && (
         <ChannelCombobox
-          channels={allChannels}
-          loading={channelsLoading}
-          fetching={channelsFetching}
-          error={channelsError}
+          key={integrationId}
+          integrationId={integrationId}
           selectedId={channelId}
           selectedName={channelName}
           onSelect={(id, name) => {
@@ -540,7 +522,6 @@ function SlackConnectionEditor({
             onChange(index, "channel_name", name);
             setTestResult(null);
           }}
-          onRefresh={() => refetchChannels()}
         />
       )}
       {integrationId && !staleIntegration && channelId && (
@@ -565,79 +546,91 @@ function SlackConnectionEditor({
   );
 }
 
-/// Searchable channel picker. A native <select> is unusable for workspaces with
-/// hundreds of channels, so this is a type-to-filter combobox that caps the
-/// rendered rows and surfaces the private-channel caveat.
+/// Live, server-side channel search. Slack workspaces can have thousands of
+/// channels, so instead of shipping the whole list to the browser this queries
+/// the API as the user types (debounced); the server filters its cached list
+/// and returns a small page.
 function ChannelCombobox({
-  channels,
-  loading,
-  fetching,
-  error,
+  integrationId,
   selectedId,
   selectedName,
   onSelect,
-  onRefresh,
 }: {
-  channels: { id: string; name: string }[];
-  loading: boolean;
-  fetching: boolean;
-  error: boolean;
+  integrationId: string;
   selectedId: string;
   selectedName: string;
   onSelect: (id: string, name: string) => void;
-  onRefresh: () => void;
 }) {
-  const [filter, setFilter] = useState("");
+  const queryClient = useQueryClient();
+  const [query, setQuery] = useState("");
+  const [debounced, setDebounced] = useState("");
   const [open, setOpen] = useState(false);
-  const fieldClass =
-    "w-full bg-secondary border border-border text-foreground text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring";
+  const [refreshing, setRefreshing] = useState(false);
 
-  if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading channels…</p>;
-  }
-  if (error) {
-    return (
-      <p className="text-xs text-destructive">
-        Couldn&apos;t load channels — the Slack connection may need reconnecting.
-      </p>
-    );
-  }
+  // Debounce keystrokes so we don't hit the API on every character.
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(query.trim()), 250);
+    return () => clearTimeout(t);
+  }, [query]);
 
-  const q = filter.trim().toLowerCase();
-  const matches = q ? channels.filter((c) => c.name.toLowerCase().includes(q)) : channels;
-  const shown = matches.slice(0, 50);
+  const { data, isFetching, isError } = $api.useQuery(
+    "get",
+    "/api/v1/integrations/{id}/slack/channels",
+    { params: { path: { id: integrationId }, query: { q: debounced, limit: 50 } } },
+    { enabled: open, placeholderData: (prev) => prev }
+  );
+  const results = data?.data ?? [];
+  const total = data?.total ?? 0;
+  const truncated = data?.truncated ?? false;
+
+  async function refresh() {
+    setRefreshing(true);
+    // Bust the server-side cache (re-enumerate from Slack), then refetch.
+    await fetchClient.GET("/api/v1/integrations/{id}/slack/channels", {
+      params: { path: { id: integrationId }, query: { refresh: true, limit: 1 } },
+    });
+    await queryClient.invalidateQueries({
+      queryKey: ["get", "/api/v1/integrations/{id}/slack/channels"],
+    });
+    setRefreshing(false);
+  }
 
   return (
     <div className="space-y-1.5">
       <input
         type="text"
-        value={filter}
+        value={query}
         onChange={(e) => {
-          setFilter(e.target.value);
+          setQuery(e.target.value);
           setOpen(true);
         }}
         onFocus={() => setOpen(true)}
-        placeholder={
-          selectedId ? `#${selectedName} — type to change…` : "Search channels…"
-        }
-        className={fieldClass}
+        placeholder={selectedId ? `#${selectedName} — type to change…` : "Search channels…"}
+        className={inputClass}
         aria-label="Slack channel"
       />
 
       {open && (
         <div className="max-h-56 overflow-auto rounded-lg border border-border bg-secondary">
-          {shown.length === 0 ? (
+          {isError ? (
+            <p className="px-3 py-2 text-sm text-destructive">
+              Couldn&apos;t load channels — the connection may need reconnecting.
+            </p>
+          ) : isFetching && results.length === 0 ? (
+            <p className="px-3 py-2 text-sm text-muted-foreground">Searching…</p>
+          ) : results.length === 0 ? (
             <p className="px-3 py-2 text-sm text-muted-foreground">
-              No channels match &ldquo;{filter}&rdquo;.
+              {debounced ? `No channels match “${debounced}”.` : "No channels found."}
             </p>
           ) : (
-            shown.map((c) => (
+            results.map((c) => (
               <button
                 key={c.id}
                 type="button"
                 onClick={() => {
                   onSelect(c.id, c.name);
-                  setFilter("");
+                  setQuery("");
+                  setDebounced("");
                   setOpen(false);
                 }}
                 className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-accent transition ${
@@ -649,9 +642,9 @@ function ChannelCombobox({
               </button>
             ))
           )}
-          {matches.length > shown.length && (
+          {truncated && (
             <p className="px-3 py-1.5 text-xs text-muted-foreground border-t border-border">
-              Showing {shown.length} of {matches.length} — keep typing to narrow.
+              Showing {results.length} of {total} — keep typing to narrow.
             </p>
           )}
         </div>
@@ -664,16 +657,17 @@ function ChannelCombobox({
               Selected: <span className="text-foreground">#{selectedName}</span>
             </>
           ) : (
-            `${channels.length} channels`
+            "Type to search channels"
           )}
         </span>
         <button
           type="button"
-          onClick={onRefresh}
-          disabled={fetching}
+          onClick={refresh}
+          disabled={refreshing}
           className="inline-flex items-center gap-1 hover:text-foreground transition disabled:opacity-50"
         >
-          <RefreshCw className={`h-3 w-3 ${fetching ? "animate-spin" : ""}`} /> Refresh
+          <RefreshCw className={`h-3 w-3 ${refreshing || isFetching ? "animate-spin" : ""}`} />{" "}
+          Refresh
         </button>
       </div>
       <p className="text-xs text-muted-foreground">

@@ -143,4 +143,6 @@ pub(crate) async fn mark_integration_revoked(state: &AppState, tenant_id: Uuid, 
     {
         tracing::warn!(error = %e, integration_id = %id, "failed to mark integration revoked");
     }
+    // A revoked token can't list channels — drop the stale cache.
+    let _ = db::redis::cache::clear_slack_channels(&state.redis, id).await;
 }

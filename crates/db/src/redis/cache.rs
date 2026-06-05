@@ -351,7 +351,7 @@ pub async fn set_alert_cooldown(
 // ─────────────────────────── OAuth state nonces ───────────────────────────
 
 fn oauth_nonce_key(nonce: &str) -> String {
-    format!("fp:oauth:nonce:{nonce}")
+    keys::oauth_nonce(nonce)
 }
 
 /// Record an OAuth state nonce so it can be enforced single-use on callback.
@@ -368,4 +368,18 @@ pub async fn consume_oauth_nonce(pool: &Pool, nonce: &str) -> Result<bool, Error
     let key = oauth_nonce_key(nonce);
     let deleted: i64 = pool.del(&key).await?;
     Ok(deleted == 1)
+}
+
+// ─────────────────────── Slack channel list cache ───────────────────────
+
+/// Redis key for an integration's cached Slack channel list.
+pub fn slack_channels_key(integration_id: Uuid) -> String {
+    keys::slack_channels(integration_id)
+}
+
+/// Drop a cached channel list (call on integration delete/revoke so a stale
+/// list isn't served after the connection changes).
+pub async fn clear_slack_channels(pool: &Pool, integration_id: Uuid) -> Result<(), Error> {
+    let _: i64 = pool.del(&slack_channels_key(integration_id)).await?;
+    Ok(())
 }
