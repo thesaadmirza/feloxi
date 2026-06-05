@@ -175,6 +175,22 @@ spec:
               value: {{ $corsOrigin | quote }}
             {{- end }}
 
+            # OAuth integrations (optional). The redirect URL to register is
+            # ${APP_BASE_URL}/api/v1/integrations/slack/callback.
+            {{- if .Values.api.appBaseUrl }}
+            - name: APP_BASE_URL
+              value: {{ .Values.api.appBaseUrl | quote }}
+            {{- end }}
+            {{- if .Values.integrations.slack.clientId }}
+            - name: SLACK_CLIENT_ID
+              value: {{ .Values.integrations.slack.clientId | quote }}
+            - name: SLACK_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "feloxi.secretName" . }}
+                  key: {{ .Values.auth.secretKeys.slackClientSecretKey }}
+            {{- end }}
+
             # Performance tuning
             - name: FP_PUBSUB_CHANNEL_CAPACITY
               value: {{ .Values.api.tuning.pubsubChannelCapacity | quote }}
