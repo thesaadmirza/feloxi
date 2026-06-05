@@ -10,7 +10,9 @@ All Feloxi configuration is done through environment variables. Copy `.env.examp
 | `CLICKHOUSE_URL` | Yes      | `http://localhost:8123`       | ClickHouse HTTP endpoint                                                                                                              |
 | `REDIS_URL`      | Yes      | `redis://localhost:6379`      | Redis connection string                                                                                                               |
 | `JWT_SECRET`     | Yes      | —                             | Secret key for signing JWT tokens. Use at least 32 random characters in production                                                    |
+| `ENCRYPTION_KEY` | Yes      | —                             | Base64-encoded 32-byte key that encrypts integration tokens and the SMTP password at rest. Generate with `openssl rand -base64 32`. The API refuses to start without it. Losing it makes stored secrets unrecoverable — back it up alongside `JWT_SECRET`. |
 | `CORS_ORIGIN`    | No       | `http://localhost:3000`       | Comma-separated list of allowed origins                                                                                               |
+| `APP_BASE_URL`   | No       | first `CORS_ORIGIN`, else `http://localhost:3000` | Public URL where people reach Feloxi. Used to build OAuth redirect URLs (e.g. the Slack callback). Set this when running behind a domain or reverse proxy.            |
 | `PORT`           | No       | `8080`                        | Port the API server listens on                                                                                                        |
 | `RUST_LOG`       | No       | `api=info,tower_http=info` | Log level filter ([tracing filter syntax](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html)) |
 | `ALLOW_SIGNUP`   | No       | `false`                       | Allow public registration. When `false`, only the setup wizard (first user) and admin invites work                                    |
@@ -27,6 +29,18 @@ All Feloxi configuration is done through environment variables. Copy `.env.examp
 
 > **Note:** The frontend uses Next.js rewrites to proxy `/api/*` and `/ws/*` requests to the backend. `API_URL` is a server-side env var read at runtime — it is **not** baked into the client JS bundle. This means pre-built Docker images work in any environment without rebuilding.
 
+## OAuth integrations (optional)
+
+These enable the "Connect Slack" flow, where a user signs in once and picks a channel instead of pasting a webhook URL. Leave them unset and Feloxi falls back to webhook paste, which needs no setup. See [integrations.md](integrations.md) for the full walkthrough.
+
+| Variable              | Required | Default             | Description                                                                                       |
+| --------------------- | -------- | ------------------- | ------------------------------------------------------------------------------------------------- |
+| `SLACK_CLIENT_ID`     | No       | —                   | Client ID of the Slack app you register. The "Connect Slack" button appears only when this is set |
+| `SLACK_CLIENT_SECRET` | No       | —                   | Client secret of that Slack app. Store it as a secret, never in the repo                           |
+| `SLACK_API_BASE_URL`  | No       | `https://slack.com` | Override the Slack API base — for an egress proxy or a mock Slack in tests. Leave unset normally   |
+
+The redirect URL to register in your Slack app is `${APP_BASE_URL}/api/v1/integrations/slack/callback`. Feloxi also shows it in **Settings → Notifications** once you sign in.
+
 ## Example `.env`
 
 ```bash
@@ -39,6 +53,7 @@ DATABASE_URL=postgres://fp:feloxi@localhost:5432/feloxi
 CLICKHOUSE_URL=http://localhost:8123
 REDIS_URL=redis://localhost:6379
 JWT_SECRET=change-this-to-a-secure-secret-in-production
+ENCRYPTION_KEY=  # required — run: openssl rand -base64 32
 CORS_ORIGIN=http://localhost:3000,http://127.0.0.1:3000
 RUST_LOG=api=info,tower_http=info
 ALLOW_SIGNUP=false

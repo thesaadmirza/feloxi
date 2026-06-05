@@ -15,6 +15,7 @@ helm install feloxi oci://ghcr.io/thesaadmirza/charts/feloxi \
   --namespace feloxi \
   --create-namespace \
   --set auth.jwtSecret="<min-32-char-secret>" \
+  --set auth.encryptionKey="$(openssl rand -base64 32)" \
   --set postgresql.auth.password="<pgpassword>" \
   --set clickhouse.auth.password="<chpassword>"
 ```
@@ -33,6 +34,7 @@ git clone https://github.com/thesaadmirza/feloxi
 helm install feloxi ./feloxi/charts/feloxi \
   --namespace feloxi --create-namespace \
   --set auth.jwtSecret="thisisasecretthatisatleast32chars" \
+  --set auth.encryptionKey="$(openssl rand -base64 32)" \
   --set postgresql.auth.password="pgpass" \
   --set clickhouse.auth.password="chpass"
 ```
@@ -44,6 +46,7 @@ helm install feloxi ./feloxi/charts/feloxi \
 | Parameter | Description |
 |-----------|-------------|
 | `auth.jwtSecret` | JWT signing key — minimum 32 characters. Use `existingSecret` instead for production. |
+| `auth.encryptionKey` | Base64-encoded 32-byte key for secrets at rest (`openssl rand -base64 32`). Required unless `existingSecret` is set. Losing it makes stored integration tokens and the SMTP password unrecoverable. |
 | `postgresql.auth.password` | PostgreSQL password (when `postgresql.enabled=true` and no `existingSecret`). |
 | `clickhouse.auth.password` | ClickHouse password (when `clickhouse.enabled=true` and no `existingSecret`). |
 
@@ -54,6 +57,7 @@ Create a Secret containing all credentials:
 ```bash
 kubectl create secret generic feloxi-creds -n feloxi \
   --from-literal=jwt-secret="<min-32-char-secret>" \
+  --from-literal=encryption-key="$(openssl rand -base64 32)" \
   --from-literal=postgres-user=feloxi \
   --from-literal=postgres-password="<pgpassword>" \
   --from-literal=postgres-db=feloxi \

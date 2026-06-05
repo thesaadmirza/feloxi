@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Connect Slack via OAuth: sign in once and pick a channel from a searchable list instead of pasting a webhook URL. Opt-in — set `SLACK_CLIENT_ID`/`SLACK_CLIENT_SECRET` to enable it; webhook paste stays the default. See [docs/integrations.md](docs/integrations.md).
+- Reusable integrations stored separately from alert rules, with secrets encrypted at rest (AES-256-GCM).
+- Settings → Notifications shows the exact OAuth redirect URL to register, derived from `APP_BASE_URL`.
+
+### Changed
+
+- **Breaking (operators):** `ENCRYPTION_KEY` is now required. It encrypts integration tokens and the SMTP password at rest. Generate one with `openssl rand -base64 32`; the API will not start without it. Existing deployments must set it before upgrading.
+- The API deployment uses the `Recreate` strategy and rejects `replicaCount > 1`, because the alert-evaluation loop is a singleton until leader election lands.
+
 ## [1.0.0] — 2026-03-04
 
 ### Added

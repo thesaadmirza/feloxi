@@ -17,6 +17,14 @@ cp .env.example .env
 docker compose up -d
 ```
 
+`.env.example` ships with a throwaway `ENCRYPTION_KEY` so the demo boots. For anything beyond a local trial, generate your own and put it in `.env` before first run — it encrypts integration tokens and the SMTP password at rest, and losing it means re-entering those secrets:
+
+```bash
+openssl rand -base64 32
+```
+
+To send alerts to Slack with the "Connect" flow instead of a pasted webhook, see [integrations.md](integrations.md).
+
 This starts 6 services:
 
 | Service             | Image                                | Port | Purpose                      |

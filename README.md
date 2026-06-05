@@ -65,7 +65,7 @@ The Beat Scheduler page shows every periodic task registered with Celery Beat â€
 
 ### Alert on what matters
 
-Ten alert condition types: failure rate, slow tasks, worker offline, queue depth, throughput anomaly, latency anomaly, error rate spike, beat missed, no events, task failed. Route to Slack, email, webhook, or PagerDuty. Cooldown periods prevent alert storms. Delivery logs show which channels actually received each firing.
+Ten alert condition types: failure rate, slow tasks, worker offline, queue depth, throughput anomaly, latency anomaly, error rate spike, beat missed, no events, task failed. Route to Slack, email, webhook, or PagerDuty. For Slack you can connect once with OAuth and pick a channel from a list, or paste a webhook URL if you'd rather not register an app (see [docs/integrations.md](docs/integrations.md)). Cooldown periods prevent alert storms. Delivery logs show which channels actually received each firing.
 
 <p align="center">
   <img src=".github/screenshots/alerts.png" width="900" alt="Alert rules list showing Worker Down, Slow Task, and High Failure Rate rules with active status, conditions, and last-fired timestamps" />
@@ -202,6 +202,7 @@ All configuration is via environment variables. See [docs/configuration.md](docs
 | `CLICKHOUSE_URL` | `http://localhost:8123`  | ClickHouse HTTP endpoint                          |
 | `REDIS_URL`      | `redis://localhost:6379` | Redis connection string                           |
 | `JWT_SECRET`     | -                        | Secret key for JWT signing (change in production) |
+| `ENCRYPTION_KEY` | -                        | Base64 32-byte key for secrets at rest (`openssl rand -base64 32`) |
 | `CORS_ORIGIN`    | `http://localhost:3000`  | Comma-separated allowed origins                   |
 | `PORT`           | `8080`                   | API server port                                   |
 | `ALLOW_SIGNUP`   | `false`                  | Allow public registration after initial setup     |
@@ -216,6 +217,7 @@ Install on any Kubernetes cluster (EKS, GKE, AKS, bare-metal) in a single comman
 helm install feloxi oci://ghcr.io/thesaadmirza/charts/feloxi \
   --namespace feloxi --create-namespace \
   --set auth.jwtSecret="<min-32-char-secret>" \
+  --set auth.encryptionKey="$(openssl rand -base64 32)" \
   --set postgresql.auth.password="<pgpassword>" \
   --set clickhouse.auth.password="<chpassword>"
 ```
