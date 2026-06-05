@@ -347,3 +347,25 @@ pub async fn set_alert_cooldown(
         .await?;
     Ok(())
 }
+
+// ─────────────────────────── OAuth state nonces ───────────────────────────
+
+fn oauth_nonce_key(nonce: &str) -> String {
+    format!("fp:oauth:nonce:{nonce}")
+}
+
+/// Record an OAuth state nonce so it can be enforced single-use on callback.
+pub async fn store_oauth_nonce(pool: &Pool, nonce: &str, ttl_secs: u64) -> Result<(), Error> {
+    let key = oauth_nonce_key(nonce);
+    pool.set::<(), _, _>(&key, "1", Some(Expiration::EX(ttl_secs as i64)), None, false).await?;
+    Ok(())
+}
+
+/// Atomically consume an OAuth state nonce. Returns true if it existed (and was
+/// deleted), false if it was missing/already used — `DEL` is atomic, so a
+/// replayed callback within the TTL fails.
+pub async fn consume_oauth_nonce(pool: &Pool, nonce: &str) -> Result<bool, Error> {
+    let key = oauth_nonce_key(nonce);
+    let deleted: i64 = pool.del(&key).await?;
+    Ok(deleted == 1)
+}
