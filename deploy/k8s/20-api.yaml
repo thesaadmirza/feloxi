@@ -5,6 +5,10 @@ metadata:
   namespace: core
 spec:
   replicas: 1
+  # Recreate so a rollout never runs two alert-eval loops at once (the throttle
+  # is in-process; overlap would double-fire alerts). Keep replicas at 1.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: feloxi-api

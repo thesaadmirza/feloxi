@@ -1,3 +1,6 @@
+{{- if gt (int .Values.api.replicaCount) 1 }}
+{{- fail "api.replicaCount must be 1: the alert-evaluation loop is a singleton (no leader election yet); running >1 replica double-fires alerts." }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -8,6 +11,11 @@ metadata:
     app.kubernetes.io/component: api
 spec:
   replicas: {{ .Values.api.replicaCount }}
+  # Recreate (not RollingUpdate): the API runs a singleton alert-eval loop with
+  # an in-process throttle; overlapping pods during a rollout would double-fire
+  # alerts. Until the eval loop is leader-elected, keep one active pod.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "feloxi.selectorLabels" . | nindent 6 }}
