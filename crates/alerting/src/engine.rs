@@ -18,7 +18,23 @@ pub struct FiredAlert {
     pub fired_at: f64,
 }
 
+/// The task-name pattern a condition is scoped to, if any. Returned for the
+/// conditions whose metrics (failure count/rate, p95 runtime) are task-specific,
+/// so the eval loop can narrow the context to matching tasks before evaluating.
+pub fn task_pattern(condition: &AlertCondition) -> Option<&str> {
+    match condition {
+        AlertCondition::TaskFailed { task_name }
+        | AlertCondition::TaskFailureRate { task_name, .. }
+        | AlertCondition::TaskDuration { task_name, .. } => Some(task_name.as_str()),
+        _ => None,
+    }
+}
+
 /// Evaluate an alert condition (returns true if the condition is met).
+///
+/// Task-scoped conditions read count/rate/duration metrics from `context`; the
+/// caller scopes those metrics to the rule's `task_name` (see [`task_pattern`])
+/// before calling, which is why `task_name` is not re-examined here.
 pub fn evaluate_condition(condition: &AlertCondition, context: &EvaluationContext) -> bool {
     match condition {
         AlertCondition::TaskFailureRate { threshold, window_minutes: _, task_name: _ } => {
@@ -575,5 +591,35 @@ mod tests {
         assert_eq!(details["failure_rate"], 0.25);
         assert_eq!(details["recent_failures"], 4);
         assert_eq!(details["window_minutes"], 5);
+    }
+
+    #[test]
+    fn task_pattern_only_for_task_scoped_conditions() {
+        assert_eq!(
+            task_pattern(&AlertCondition::TaskFailed { task_name: "a.b.*".into() }),
+            Some("a.b.*")
+        );
+        assert_eq!(
+            task_pattern(&AlertCondition::TaskFailureRate {
+                threshold: 0.1,
+                window_minutes: 5,
+                task_name: "x".into(),
+            }),
+            Some("x")
+        );
+        assert_eq!(
+            task_pattern(&AlertCondition::TaskDuration {
+                threshold_seconds: 1.0,
+                percentile: 95.0,
+                task_name: "y".into(),
+            }),
+            Some("y")
+        );
+        // Not task-scoped → None.
+        assert_eq!(task_pattern(&AlertCondition::WorkerOffline { grace_period_seconds: 60 }), None);
+        assert_eq!(
+            task_pattern(&AlertCondition::QueueDepth { threshold: 1, queue: "q".into() }),
+            None
+        );
     }
 }
