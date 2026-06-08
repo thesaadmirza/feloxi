@@ -573,12 +573,14 @@ function ChannelCombobox({
     return () => clearTimeout(t);
   }, [query]);
 
-  const { data, isFetching, isError } = $api.useQuery(
+  const { data, isFetching, isError, error } = $api.useQuery(
     "get",
     "/api/v1/integrations/{id}/slack/channels",
     { params: { path: { id: integrationId }, query: { q: debounced, limit: 50 } } },
     { enabled: open, placeholderData: (prev) => prev }
   );
+  const rateLimited =
+    (error as { error?: { code?: string } } | null)?.error?.code === "RATE_LIMITED";
   const results = data?.data ?? [];
   const total = data?.total ?? 0;
   const truncated = data?.truncated ?? false;
@@ -614,7 +616,9 @@ function ChannelCombobox({
         <div className="max-h-56 overflow-auto rounded-lg border border-border bg-secondary">
           {isError ? (
             <p className="px-3 py-2 text-sm text-destructive">
-              Couldn&apos;t load channels — the connection may need reconnecting.
+              {rateLimited
+                ? "Slack is busy listing channels — wait a few seconds and try again."
+                : "Couldn't load channels — the connection may need reconnecting."}
             </p>
           ) : isFetching && results.length === 0 ? (
             <p className="px-3 py-2 text-sm text-muted-foreground">Searching…</p>
