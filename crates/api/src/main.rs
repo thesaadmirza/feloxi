@@ -325,8 +325,10 @@ async fn run_alert_evaluation(
             continue;
         }
 
-        // Build evaluation context from ClickHouse metrics
-        let ctx = build_evaluation_context(state, tid).await;
+        // Tenant-wide evaluation context (worker-offline, queue depth, etc.).
+        // Task-scoped conditions narrow the count/rate/duration metrics per-rule
+        // below, so a rule for one task doesn't fire on another's failures.
+        let base_ctx = build_evaluation_context(state, tid).await;
 
         // Load this tenant's integrations once (secrets decrypted lazily, only
         // when a referencing channel actually fires).
@@ -345,6 +347,15 @@ async fn run_alert_evaluation(
             ) {
                 continue;
             }
+
+            // Narrow the task metrics to this rule's task pattern (a glob where
+            // only `*` is special). `*`/empty stays tenant-wide.
+            let ctx = match alerting::engine::task_pattern(condition) {
+                Some(pat) if pat != "*" && !pat.is_empty() => {
+                    task_scoped_context(state, tid, &base_ctx, pat).await
+                }
+                _ => base_ctx.clone(),
+            };
 
             let resolved = ResolvedAlertRule {
                 id: db_rule.id,
@@ -462,6 +473,43 @@ async fn build_evaluation_context(
             if has_active_broker {
                 ctx.workers_went_offline = 1;
             }
+        }
+    }
+
+    ctx
+}
+
+/// Clone the tenant context but replace the count/rate/duration metrics with
+/// values scoped to `task_pattern`, so a task-scoped rule fires only on its own
+/// task. On query error the scoped metrics stay zero (no spurious fire).
+async fn task_scoped_context(
+    state: &AppState,
+    tenant_id: Uuid,
+    base: &alerting::engine::EvaluationContext,
+    task_pattern: &str,
+) -> alerting::engine::EvaluationContext {
+    let mut ctx = base.clone();
+    ctx.failure_rate = 0.0;
+    ctx.recent_failures = 0;
+    ctx.p95_runtime = 0.0;
+
+    match db::clickhouse::aggregations::get_task_overview_stats(
+        &state.ch,
+        tenant_id,
+        5,
+        task_pattern,
+    )
+    .await
+    {
+        Ok(stats) => {
+            if stats.total_tasks > 0 {
+                ctx.failure_rate = stats.failure_count as f64 / stats.total_tasks as f64;
+            }
+            ctx.recent_failures = stats.failure_count;
+            ctx.p95_runtime = stats.p95_runtime;
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, task = task_pattern, "task-scoped alert stats query failed");
         }
     }
 

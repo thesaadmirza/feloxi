@@ -196,6 +196,76 @@ pub async fn get_overview_stats(
     Ok(rows)
 }
 
+/// Convert a task-name glob (only `*` is special) into an anchored RE2 pattern
+/// for ClickHouse `match()`. Every other character is matched literally.
+fn glob_to_regex(glob: &str) -> String {
+    let mut re = String::with_capacity(glob.len() + 4);
+    re.push('^');
+    for ch in glob.chars() {
+        match ch {
+            '*' => re.push_str(".*"),
+            '.' | '+' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '$' | '|' | '\\' => {
+                re.push('\\');
+                re.push(ch);
+            }
+            other => re.push(other),
+        }
+    }
+    re.push('$');
+    re
+}
+
+/// Overview stats scoped to tasks whose name matches `task_pattern` (a glob where
+/// only `*` is a wildcard). Used by task-scoped alert conditions so a rule for
+/// `s3handler.tasks.process_drivo_*` sees only that task's events, not the whole
+/// tenant's. Callers treat `*`/empty as match-all and use [`get_overview_stats`].
+pub async fn get_task_overview_stats(
+    client: &Client,
+    tenant_id: Uuid,
+    from_minutes: u64,
+    task_pattern: &str,
+) -> Result<OverviewStats, AppError> {
+    let is_glob = task_pattern.contains('*');
+    // Glob → anchored RE2 match; otherwise an exact, case-sensitive name match.
+    let predicate = if is_glob {
+        "match(CAST(task_name AS String), ?)"
+    } else {
+        "CAST(task_name AS String) = ?"
+    };
+    let bind_value = if is_glob { glob_to_regex(task_pattern) } else { task_pattern.to_string() };
+
+    let sql = format!(
+        r#"
+        SELECT
+            count() AS total_tasks,
+            countIf(state = 'SUCCESS') AS success_count,
+            countIf(state = 'FAILURE') AS failure_count,
+            avgIf(runtime, runtime > 0) AS avg_runtime,
+            quantileIf(0.95)(runtime, runtime > 0) AS p95_runtime,
+            avgIf(
+                dateDiff('millisecond', queued_at, started_at) / 1000.0,
+                queued_at IS NOT NULL AND started_at IS NOT NULL
+            ) AS avg_wait_time
+        FROM task_events
+        WHERE tenant_id = ?
+          AND timestamp >= now() - toIntervalMinute(?)
+          AND state IN ('SUCCESS', 'FAILURE', 'RETRY', 'REVOKED')
+          AND {predicate}
+        "#
+    );
+
+    let row = client
+        .query(&sql)
+        .bind(tenant_id)
+        .bind(from_minutes)
+        .bind(bind_value)
+        .fetch_one::<OverviewStats>()
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    Ok(row)
+}
+
 /// Get distinct task names for a tenant (for filters).
 pub async fn get_task_names(client: &Client, tenant_id: Uuid) -> Result<Vec<String>, AppError> {
     #[derive(clickhouse::Row, Deserialize)]
@@ -684,6 +754,21 @@ mod tests {
             row.success_count + row.failure_count + row.retry_count + row.revoked_count,
             row.total_count
         );
+    }
+
+    #[test]
+    fn glob_to_regex_anchors_and_escapes() {
+        // Prefix glob: dots are literal, `*` becomes `.*`, anchored.
+        assert_eq!(
+            glob_to_regex("s3handler.tasks.process_drivo_*"),
+            r"^s3handler\.tasks\.process_drivo_.*$"
+        );
+        // No wildcard → fully literal, anchored (exact match).
+        assert_eq!(glob_to_regex("tasks.add"), r"^tasks\.add$");
+        // Bare star matches anything.
+        assert_eq!(glob_to_regex("*"), "^.*$");
+        // Regex metacharacters in the name are escaped, not interpreted.
+        assert_eq!(glob_to_regex("a+b(c)"), r"^a\+b\(c\)$");
     }
 
     #[test]
