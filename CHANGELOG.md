@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] — 2026-06-09
+
+### Fixed
+
+- Task-scoped alert rules (`task_failed`, `task_failure_rate`, `task_duration`) now honor their `task_name` pattern instead of firing on any task failure tenant-wide. Patterns are globs where only `*` is a wildcard (e.g. `s3handler.drivo.*`); `*` or empty stays tenant-wide.
+- The Slack channel picker no longer fails with `conversations.list ratelimited` on large workspaces. Enumeration honors Slack's `Retry-After` with bounded backoff, collapses concurrent searches behind a single-flight lock, and returns a retryable 429 instead of a 500.
+
 ## [1.3.0] — 2026-06-05
 
 ### Added
