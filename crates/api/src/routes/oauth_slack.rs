@@ -294,14 +294,7 @@ pub async fn slack_channels(
             .unwrap_or_default()
     };
     if all.is_empty() {
-        all = fetch_all_slack_channels(&state, &token).await?;
-        let _ = db::redis::cache::set_json(
-            &state.redis,
-            &cache_key,
-            &all,
-            std::time::Duration::from_secs(300),
-        )
-        .await;
+        all = load_channels_single_flight(&state, id, &cache_key, &token).await?;
     }
 
     // Filter + slice server-side; the client only ever sees a small page.
@@ -332,35 +325,102 @@ fn filter_channels(
     (matches, total, truncated)
 }
 
+/// Populate the channel list under a single-flight lock so a burst of searches
+/// (fast keystrokes, multiple editors) doesn't each enumerate Slack and trip the
+/// Tier-2 `conversations.list` rate limit. The lock holder enumerates and caches;
+/// everyone else waits briefly for the cache to appear, then gives up with 429.
+async fn load_channels_single_flight(
+    state: &AppState,
+    id: Uuid,
+    cache_key: &str,
+    token: &str,
+) -> Result<Vec<SlackChannel>, AppError> {
+    use db::redis::cache;
+    // If Redis is unavailable, default to enumerating ourselves (don't deadlock).
+    let acquired = cache::try_lock_slack_channels(&state.redis, id, 30).await.unwrap_or(true);
+    if !acquired {
+        // Another request is enumerating — wait briefly for it to fill the cache.
+        for _ in 0..6 {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            if let Ok(Some(list)) =
+                cache::get_json::<Vec<SlackChannel>>(&state.redis, cache_key).await
+            {
+                if !list.is_empty() {
+                    return Ok(list);
+                }
+            }
+        }
+        return Err(AppError::RateLimited);
+    }
+
+    let result = fetch_all_slack_channels(state, token).await;
+    if let Ok(ref list) = result {
+        let _ = cache::set_json(&state.redis, cache_key, list, std::time::Duration::from_secs(300))
+            .await;
+    }
+    let _ = cache::unlock_slack_channels(&state.redis, id).await;
+    result
+}
+
 /// Enumerate every channel the bot can see (public + member private), paginated.
+/// `conversations.list` is Tier 2 (~20 req/min); on a 429 we honor `Retry-After`
+/// and retry the same page within a bounded budget, returning `RateLimited` (429,
+/// retryable) rather than a 500 if the budget is exhausted.
 async fn fetch_all_slack_channels(
     state: &AppState,
     token: &str,
 ) -> Result<Vec<SlackChannel>, AppError> {
     let mut channels = Vec::new();
     let mut cursor = String::new();
+    // Total time we're willing to spend backing off; bounded so the request
+    // can't hang. If exhausted we surface 429 and the client retries later.
+    let mut backoff_budget = std::time::Duration::from_secs(15);
     // Cap pages to bound very large (Enterprise Grid) workspaces.
     for _ in 0..50 {
-        let mut req = state.http.get(conversations_url(state)).bearer_auth(token).query(&[
-            ("types", "public_channel,private_channel"),
-            ("exclude_archived", "true"),
-            ("limit", "200"),
-        ]);
-        if !cursor.is_empty() {
-            req = req.query(&[("cursor", cursor.as_str())]);
-        }
-        let body: serde_json::Value = req
-            .send()
-            .await
-            .map_err(|e| AppError::Internal(format!("Slack API error: {}", e.without_url())))?
-            .json()
-            .await
-            .map_err(|e| AppError::Internal(e.to_string()))?;
+        let body: serde_json::Value = loop {
+            let mut req = state.http.get(conversations_url(state)).bearer_auth(token).query(&[
+                ("types", "public_channel,private_channel"),
+                ("exclude_archived", "true"),
+                ("limit", "200"),
+            ]);
+            if !cursor.is_empty() {
+                req = req.query(&[("cursor", cursor.as_str())]);
+            }
+            let resp = req
+                .send()
+                .await
+                .map_err(|e| AppError::Internal(format!("Slack API error: {}", e.without_url())))?;
 
-        if !body.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-            let code = body.get("error").and_then(|v| v.as_str()).unwrap_or("unknown_error");
-            return Err(AppError::Internal(format!("Slack conversations.list failed: {code}")));
-        }
+            // HTTP 429: back off for Retry-After (capped) and retry this page.
+            if resp.status().as_u16() == 429 {
+                let wait = retry_after(&resp).min(std::time::Duration::from_secs(5));
+                if wait > backoff_budget {
+                    return Err(AppError::RateLimited);
+                }
+                backoff_budget -= wait;
+                tokio::time::sleep(wait).await;
+                continue;
+            }
+
+            let body: serde_json::Value =
+                resp.json().await.map_err(|e| AppError::Internal(e.to_string()))?;
+
+            if !body.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                let code = body.get("error").and_then(|v| v.as_str()).unwrap_or("unknown_error");
+                // Slack sometimes returns HTTP 200 with `ok:false, error:ratelimited`.
+                if code == "ratelimited" {
+                    let wait = std::time::Duration::from_secs(1);
+                    if wait > backoff_budget {
+                        return Err(AppError::RateLimited);
+                    }
+                    backoff_budget -= wait;
+                    tokio::time::sleep(wait).await;
+                    continue;
+                }
+                return Err(AppError::Internal(format!("Slack conversations.list failed: {code}")));
+            }
+            break body;
+        };
 
         if let Some(arr) = body.get("channels").and_then(|v| v.as_array()) {
             for ch in arr {
@@ -382,6 +442,17 @@ async fn fetch_all_slack_channels(
         }
     }
     Ok(channels)
+}
+
+/// Parse the `Retry-After` header (whole seconds) from a 429, defaulting to 1s.
+fn retry_after(resp: &reqwest::Response) -> std::time::Duration {
+    let secs = resp
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(1);
+    std::time::Duration::from_secs(secs)
 }
 
 /// Render a tiny HTML page that posts the result to the opener and closes.

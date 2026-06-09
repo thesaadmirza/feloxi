@@ -383,3 +383,32 @@ pub async fn clear_slack_channels(pool: &Pool, integration_id: Uuid) -> Result<(
     let _: i64 = pool.del(&slack_channels_key(integration_id)).await?;
     Ok(())
 }
+
+/// Redis key for the single-flight lock guarding channel enumeration.
+fn slack_channels_lock_key(integration_id: Uuid) -> String {
+    format!("{}:lock", slack_channels_key(integration_id))
+}
+
+/// Try to become the sole enumerator of an integration's channel list. Returns
+/// true if the lock was acquired (this caller should enumerate and populate the
+/// cache), false if another request already holds it. `conversations.list` is a
+/// Tier-2 Slack endpoint (~20 req/min), so collapsing concurrent enumerations
+/// keeps a burst of searches from tripping the rate limit. The lock auto-expires
+/// so a crashed holder can't wedge the picker.
+pub async fn try_lock_slack_channels(
+    pool: &Pool,
+    integration_id: Uuid,
+    ttl_secs: u64,
+) -> Result<bool, Error> {
+    let key = slack_channels_lock_key(integration_id);
+    let result: Option<String> = pool
+        .set(&key, "1", Some(Expiration::EX(ttl_secs as i64)), Some(SetOptions::NX), false)
+        .await?;
+    Ok(result.is_some())
+}
+
+/// Release the channel-enumeration lock (best-effort; it also auto-expires).
+pub async fn unlock_slack_channels(pool: &Pool, integration_id: Uuid) -> Result<(), Error> {
+    let _: i64 = pool.del(&slack_channels_lock_key(integration_id)).await?;
+    Ok(())
+}
