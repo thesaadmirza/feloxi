@@ -62,6 +62,29 @@ integrations:
     #    via auth.existingSecret under the `slack-client-secret` key.
     clientSecret: ""
 
+# -- SMTP for email alerts. When enabled, the API reads SMTP_* from the Secret
+# (auth.existingSecret or the chart-generated one) using the keys below.
+smtp:
+  # -- Enable email alerts
+  enabled: false
+  # -- SMTP host. Stored in the generated Secret when existingSecret is not used.
+  host: ""
+  # -- SMTP port
+  port: "587"
+  # -- SMTP username
+  username: ""
+  # -- From address
+  from: ""
+  # -- SMTP password. Goes into the generated Secret; with auth.existingSecret,
+  #    supply it there under passwordKey instead.
+  password: ""
+  secretKeys:
+    hostKey: smtp-host
+    portKey: smtp-port
+    usernameKey: smtp-username
+    passwordKey: smtp-password
+    fromKey: smtp-from
+
 # ---------------------------------------------------------------------------
 # Rust API backend
 # ---------------------------------------------------------------------------
@@ -102,6 +125,8 @@ api:
     taskBatchSize: "200"
     # -- Worker event batch size
     workerBatchSize: "50"
+    # -- Stats aggregation interval in seconds
+    statsIntervalSecs: "10"
 
 # ---------------------------------------------------------------------------
 # Next.js web frontend
