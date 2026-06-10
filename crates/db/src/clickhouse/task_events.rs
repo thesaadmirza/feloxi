@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use clickhouse::Client;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -400,15 +402,27 @@ pub async fn get_retry_chain(
     };
     let task_name = current.task_name.clone();
 
-    // Walk UP via parent_id to find the chain root
+    // Track every task_id already in the chain. A Celery `task.retry()` can reuse
+    // the same task_id with `parent_id == task_id` (self-referential), and a
+    // malformed chain could otherwise cycle; without this guard both walks spin
+    // on the same row up to MAX_DEPTH and fabricate ~2*MAX_DEPTH+1 fake attempts.
+    let mut visited: HashSet<String> = HashSet::new();
+    visited.insert(current.task_id.clone());
+
+    // Walk UP via parent_id to find the chain root.
     let mut ancestors: Vec<TaskEventRow> = Vec::new();
     for _ in 0..MAX_DEPTH {
         let pid = match &current.parent_id {
             Some(pid) if !pid.is_empty() => pid.clone(),
             _ => break,
         };
+        // Stop on a self-loop or any task_id already in the chain.
+        if visited.contains(&pid) {
+            break;
+        }
         match get_task_latest(client, tenant_id, &pid).await? {
             Some(p) if p.task_name == task_name => {
+                visited.insert(p.task_id.clone());
                 ancestors.push(current);
                 current = p;
             }
@@ -422,18 +436,102 @@ pub async fn get_retry_chain(
     let mut chain = vec![current];
     chain.append(&mut ancestors);
 
-    // Walk DOWN level-by-level from the leaf
+    // Walk DOWN level-by-level from the leaf, keeping only task_ids not already
+    // in the chain so a self-referential parent_id can't re-yield its own row.
     let mut level_parents = vec![leaf_id];
 
     for _ in 0..MAX_DEPTH {
         let children =
             get_children_by_parent_ids(client, tenant_id, &level_parents, &task_name).await?;
-        if children.is_empty() {
+        let fresh: Vec<TaskEventRow> =
+            children.into_iter().filter(|c| visited.insert(c.task_id.clone())).collect();
+        if fresh.is_empty() {
             break;
         }
-        level_parents = children.iter().map(|c| c.task_id.clone()).collect();
-        chain.extend(children);
+        level_parents = fresh.iter().map(|c| c.task_id.clone()).collect();
+        chain.extend(fresh);
     }
 
     Ok(chain)
+}
+
+#[cfg(test)]
+mod retry_chain_tests {
+    use super::*;
+
+    fn row(tenant: Uuid, task_id: &str, parent: Option<&str>, root: Option<&str>) -> TaskEventRow {
+        TaskEventRow {
+            tenant_id: tenant,
+            event_id: Uuid::new_v4(),
+            task_id: task_id.to_string(),
+            task_name: "s3handler.drivo.process".into(),
+            queue: "default".into(),
+            worker_id: "w1".into(),
+            state: "RETRY".into(),
+            event_type: "task-retried".into(),
+            timestamp: OffsetDateTime::now_utc(),
+            args: String::new(),
+            kwargs: String::new(),
+            result: String::new(),
+            exception: String::new(),
+            traceback: String::new(),
+            runtime: 0.0,
+            retries: 1,
+            root_id: root.map(str::to_string),
+            parent_id: parent.map(str::to_string),
+            group_id: None,
+            chord_id: None,
+            agent_id: Uuid::new_v4(),
+            broker_type: "redis".into(),
+        }
+    }
+
+    /// Local-only: needs ClickHouse at 127.0.0.1:18123 (docker compose up -d clickhouse).
+    /// Run: cargo test -p db retry_chain -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore]
+    async fn self_referential_parent_does_not_inflate_chain() {
+        let url = "http://127.0.0.1:18123";
+        let (user, pass) = (Some("default"), Some("feloxi"));
+        crate::clickhouse::schema::run_schema_init(url, user, pass).await.expect("schema init");
+        let client = crate::clickhouse::create_ch_client_with_auth(url, user, pass);
+
+        // Fresh tenant isolates this run from any existing data.
+        let tenant = Uuid::new_v4();
+        let id = "repro-self-ref";
+        // One self-referential row: task_id == parent_id == root_id.
+        insert_task_events(&client, &[row(tenant, id, Some(id), Some(id))]).await.expect("insert");
+
+        let chain = get_retry_chain(&client, tenant, id).await.expect("retry chain");
+        eprintln!("[repro] self-referential chain length = {}", chain.len());
+        // A once-retried task reusing one task_id is a single attempt. The missing
+        // cycle guard inflates it to ~2*MAX_DEPTH+1 = 101.
+        assert_eq!(chain.len(), 1, "self-referential parent inflated the chain");
+    }
+
+    /// Local-only: a genuine retry chain of DISTINCT task_ids (same task_name)
+    /// linked by parent_id still returns every attempt, in order.
+    #[tokio::test]
+    #[ignore]
+    async fn distinct_chain_returns_all_attempts_in_order() {
+        let url = "http://127.0.0.1:18123";
+        let (user, pass) = (Some("default"), Some("feloxi"));
+        crate::clickhouse::schema::run_schema_init(url, user, pass).await.expect("schema init");
+        let client = crate::clickhouse::create_ch_client_with_auth(url, user, pass);
+
+        let tenant = Uuid::new_v4();
+        // A <- B <- C (root A, all same task_name).
+        let rows = [
+            row(tenant, "chain-A", None, Some("chain-A")),
+            row(tenant, "chain-B", Some("chain-A"), Some("chain-A")),
+            row(tenant, "chain-C", Some("chain-B"), Some("chain-A")),
+        ];
+        insert_task_events(&client, &rows).await.expect("insert");
+
+        // Query the middle node to exercise both the up-walk and the down-walk.
+        let chain = get_retry_chain(&client, tenant, "chain-B").await.expect("retry chain");
+        let ids: Vec<&str> = chain.iter().map(|r| r.task_id.as_str()).collect();
+        eprintln!("[repro] distinct chain ids = {ids:?}");
+        assert_eq!(ids, vec!["chain-A", "chain-B", "chain-C"]);
+    }
 }
