@@ -191,6 +191,35 @@ spec:
                   key: {{ .Values.auth.secretKeys.slackClientSecretKey }}
             {{- end }}
 
+            # SMTP (email alerts). All values read from the Secret.
+            {{- if .Values.smtp.enabled }}
+            - name: SMTP_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "feloxi.secretName" . }}
+                  key: {{ .Values.smtp.secretKeys.hostKey }}
+            - name: SMTP_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "feloxi.secretName" . }}
+                  key: {{ .Values.smtp.secretKeys.portKey }}
+            - name: SMTP_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "feloxi.secretName" . }}
+                  key: {{ .Values.smtp.secretKeys.usernameKey }}
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "feloxi.secretName" . }}
+                  key: {{ .Values.smtp.secretKeys.passwordKey }}
+            - name: SMTP_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "feloxi.secretName" . }}
+                  key: {{ .Values.smtp.secretKeys.fromKey }}
+            {{- end }}
+
             # Performance tuning
             - name: FP_PUBSUB_CHANNEL_CAPACITY
               value: {{ .Values.api.tuning.pubsubChannelCapacity | quote }}
@@ -204,6 +233,8 @@ spec:
               value: {{ .Values.api.tuning.taskBatchSize | quote }}
             - name: FP_WORKER_BATCH_SIZE
               value: {{ .Values.api.tuning.workerBatchSize | quote }}
+            - name: FP_STATS_INTERVAL_SECS
+              value: {{ .Values.api.tuning.statsIntervalSecs | quote }}
 
           livenessProbe:
             httpGet:
