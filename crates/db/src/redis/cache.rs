@@ -307,6 +307,42 @@ pub async fn cache_task_names(
 pub const MAX_RETRY_QUEUE_LEN: i64 = 2_000;
 
 /// Serialize a batch and enqueue it for later replay in one round-trip.
+/// Cap on queued alert delivery retries; beyond this, new failures are dropped
+/// (the delivery log already records the failure).
+const MAX_DELIVERY_RETRY_LEN: u64 = 10_000;
+
+/// Queue an alert delivery retry to run at `at_unix` (unix seconds).
+pub async fn schedule_delivery_retry(
+    pool: &Pool,
+    job_json: &str,
+    at_unix: f64,
+) -> Result<(), Error> {
+    let key = keys::alert_delivery_retry();
+    let count: u64 = pool.zcard(&key).await?;
+    if count >= MAX_DELIVERY_RETRY_LEN {
+        return Err(Error::new(ErrorKind::Unknown, "delivery retry queue full"));
+    }
+    pool.zadd::<(), _, _>(&key, None, None, false, false, (at_unix, job_json)).await?;
+    Ok(())
+}
+
+/// Pop delivery retries whose scheduled time has passed. Single consumer, so
+/// the range-then-remove pair doesn't need to be atomic.
+pub async fn pop_due_delivery_retries(
+    pool: &Pool,
+    now_unix: f64,
+    limit: u64,
+) -> Result<Vec<String>, Error> {
+    let key = keys::alert_delivery_retry();
+    let due: Vec<String> = pool
+        .zrangebyscore(&key, f64::NEG_INFINITY, now_unix, false, Some((0, limit as i64)))
+        .await?;
+    if !due.is_empty() {
+        pool.zrem::<(), _, _>(&key, due.clone()).await?;
+    }
+    Ok(due)
+}
+
 pub async fn push_retry_batch<T: Serialize + ?Sized>(
     pool: &Pool,
     kind: &str,

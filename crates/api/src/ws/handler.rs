@@ -194,6 +194,7 @@ fn matches_any_subscription(
             ) => worker_id == wid,
             (EventPayload::BeatUpdate { .. }, SubscriptionTopic::Beat) => true,
             (EventPayload::AlertFired { .. }, SubscriptionTopic::Alerts) => true,
+            (EventPayload::AlertResolved { .. }, SubscriptionTopic::Alerts) => true,
             (EventPayload::MetricsSummary { .. }, SubscriptionTopic::MetricsSummary) => true,
             _ => false,
         };
