@@ -27,15 +27,15 @@ const SLACK_DOMAIN: &str = "feloxi-oauth-slack-v1";
 const SLACK_SCOPES: &str = "chat:write,chat:write.public,channels:read,groups:read";
 const CALLBACK_PATH: &str = "/integrations/slack/callback";
 
-/// Flatten an error's full `source` chain into one string for logging.
-fn err_chain(e: &dyn std::error::Error) -> String {
-    let mut parts = vec![e.to_string()];
-    let mut src = e.source();
-    while let Some(s) = src {
-        parts.push(s.to_string());
-        src = s.source();
-    }
-    parts.join(" -> ")
+use crate::oauth::err_chain;
+
+fn popup_page(
+    state: &AppState,
+    ok: bool,
+    integration_id: Option<Uuid>,
+    error: Option<&str>,
+) -> String {
+    oauth::popup_page(state, "Slack", "slack-oauth", ok, integration_id, error)
 }
 
 fn authorize_url(state: &AppState) -> String {
@@ -455,50 +455,6 @@ fn retry_after(resp: &reqwest::Response) -> std::time::Duration {
     std::time::Duration::from_secs(secs)
 }
 
-/// Render a tiny HTML page that posts the result to the opener and closes.
-fn popup_page(
-    state: &AppState,
-    ok: bool,
-    integration_id: Option<Uuid>,
-    error: Option<&str>,
-) -> String {
-    let origin = state.config.app_base_url.trim_end_matches('/');
-    // The `error` string can contain attacker-controlled content (the public
-    // callback reflects Slack's `?error=` param). Serialize to JSON, then escape
-    // the sequences that could break out of the inline <script> / HTML context.
-    let payload = escape_for_script(
-        &serde_json::json!({
-            "type": "slack-oauth",
-            "ok": ok,
-            "integrationId": integration_id,
-            "error": error,
-        })
-        .to_string(),
-    );
-    format!(
-        r#"<!doctype html><html><head><meta charset="utf-8"><title>Slack</title>
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"></head>
-<body style="font-family:system-ui;padding:2rem">
-<p>{msg}. You can close this window.</p>
-<script>
-  try {{ if (window.opener) window.opener.postMessage({payload}, {origin:?}); }} catch (e) {{}}
-  window.close();
-</script>
-</body></html>"#,
-        msg = if ok { "Slack connected" } else { "Slack connection failed" },
-    )
-}
-
-/// Escape a JSON string for safe embedding inside an inline `<script>`: neutralize
-/// `<`, `>`, `&` (HTML/`</script>` breakout) and the JS line separators U+2028/U+2029.
-fn escape_for_script(json: &str) -> String {
-    json.replace('<', "\\u003c")
-        .replace('>', "\\u003e")
-        .replace('&', "\\u0026")
-        .replace('\u{2028}', "\\u2028")
-        .replace('\u{2029}', "\\u2029")
-}
-
 pub fn protected_router() -> Router<AppState> {
     Router::new()
         .route("/integrations/slack/connect", get(slack_connect))
@@ -511,7 +467,8 @@ pub fn public_router() -> Router<AppState> {
 
 #[cfg(test)]
 mod tests {
-    use super::{escape_for_script, filter_channels, SlackChannel};
+    use super::{filter_channels, SlackChannel};
+    use crate::oauth::escape_for_script;
 
     fn chans(names: &[&str]) -> Vec<SlackChannel> {
         names.iter().map(|n| SlackChannel { id: format!("C-{n}"), name: n.to_string() }).collect()

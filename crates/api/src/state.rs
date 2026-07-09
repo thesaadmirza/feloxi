@@ -133,6 +133,9 @@ pub struct AppConfig {
     /// Base URL for the Slack API + OAuth (default `https://slack.com`).
     /// Overridable via `SLACK_API_BASE_URL` for self-hosted proxies or tests.
     pub slack_api_base: String,
+    /// Base URL for Discord OAuth (default `https://discord.com`).
+    /// Overridable via `DISCORD_API_BASE_URL` for proxies or tests.
+    pub discord_api_base: String,
 }
 
 /// OAuth client credentials, one per provider.
@@ -214,6 +217,12 @@ impl AppConfig {
                 .ok()
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "https://slack.com".into())
+                .trim_end_matches('/')
+                .to_string(),
+            discord_api_base: std::env::var("DISCORD_API_BASE_URL")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "https://discord.com".into())
                 .trim_end_matches('/')
                 .to_string(),
         })

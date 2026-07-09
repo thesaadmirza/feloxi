@@ -7,6 +7,7 @@ pub mod dashboards;
 pub mod health;
 pub mod integrations;
 pub mod metrics;
+pub mod oauth_discord;
 pub mod oauth_slack;
 pub mod prometheus;
 pub mod responses;
