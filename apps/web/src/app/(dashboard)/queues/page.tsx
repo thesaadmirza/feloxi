@@ -162,19 +162,59 @@ export default function QueuesPage() {
         </div>
       )}
 
-      {!activeBroker && !isLoading && (
+      {!activeBroker && !isLoading && brokers.length === 0 && (
         <EmptyState
           icon={<Layers className="w-8 h-8" />}
-          title="No broker connected"
-          description="Connect a Redis or RabbitMQ broker to see live queue depths."
+          title="No broker configured"
+          description="Add a Redis or RabbitMQ broker in Settings to see live queue depths."
         />
+      )}
+
+      {!activeBroker && !isLoading && brokers.length > 0 && (
+        <div className="space-y-3">
+          <EmptyState
+            icon={<AlertTriangle className="w-8 h-8" />}
+            title="Broker not connected"
+            description="Queue depths come from a live broker connection. Your broker exists but isn't connected right now:"
+          />
+          <div className="max-w-xl mx-auto space-y-2">
+            {brokers.map((b) => (
+              <div
+                key={b.id}
+                className="rounded-lg border border-border bg-card px-4 py-3 text-sm flex items-center justify-between gap-3"
+              >
+                <div className="min-w-0">
+                  <span className="font-medium text-foreground">{b.name || b.broker_type}</span>
+                  <span className="ml-2 text-xs text-muted-foreground uppercase">{b.broker_type}</span>
+                  {b.last_error && (
+                    <p className="text-xs text-red-400 mt-1 truncate" title={b.last_error}>
+                      {b.last_error}
+                    </p>
+                  )}
+                </div>
+                <span
+                  className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${
+                    b.status === "error"
+                      ? "text-red-400 bg-red-400/10 border-red-400/20"
+                      : "text-yellow-400 bg-yellow-400/10 border-yellow-400/20"
+                  }`}
+                >
+                  {b.status}
+                </span>
+              </div>
+            ))}
+            <p className="text-xs text-muted-foreground text-center">
+              Check the broker&apos;s status on the Brokers page — reconnecting it restores this view.
+            </p>
+          </div>
+        </div>
       )}
 
       {activeBroker && !isLoading && queues.length === 0 && (
         <EmptyState
           icon={<Layers className="w-8 h-8" />}
           title="No queues found"
-          description="Queues will appear once tasks are published to the broker."
+          description="Queues appear once workers bind them or tasks are published. On RabbitMQ, queue names are discovered from task events — enabling task_send_sent_event in your Celery app helps."
         />
       )}
 
