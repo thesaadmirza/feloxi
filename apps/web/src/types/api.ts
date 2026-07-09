@@ -39,6 +39,8 @@ export type AlertHistory = Schemas["AlertHistoryRow"] & {
   rule_name?: string;
 };
 
+export type AlertSilence = Schemas["AlertSilence"];
+
 export type OverviewMetrics = Schemas["OverviewResponse"];
 export type TaskMetricsRow = Schemas["TaskMetricsRow"];
 

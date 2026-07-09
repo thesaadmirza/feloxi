@@ -203,6 +203,84 @@
         }
       }
     },
+    "/api/v1/alerts/silences": {
+      "get": {
+        "tags": [
+          "alerts"
+        ],
+        "operationId": "list_silences",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SilencesResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "alerts"
+        ],
+        "operationId": "create_silence",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSilenceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertSilence"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alerts/silences/{silence_id}": {
+      "delete": {
+        "tags": [
+          "alerts"
+        ],
+        "operationId": "expire_silence",
+        "parameters": [
+          {
+            "name": "silence_id",
+            "in": "path",
+            "description": "Silence ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/api-keys": {
       "get": {
         "tags": [
@@ -2581,6 +2659,12 @@
               "type"
             ],
             "properties": {
+              "min_severity": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "type": {
                 "type": "string",
                 "enum": [
@@ -2599,6 +2683,12 @@
               "type"
             ],
             "properties": {
+              "min_severity": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "to": {
                 "type": "array",
                 "items": {
@@ -2632,6 +2722,12 @@
                   "type": "string"
                 }
               },
+              "min_severity": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "type": {
                 "type": "string",
                 "enum": [
@@ -2650,6 +2746,12 @@
               "type"
             ],
             "properties": {
+              "min_severity": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "routing_key": {
                 "type": "string"
               },
@@ -2681,6 +2783,12 @@
                 "type": "string",
                 "format": "uuid"
               },
+              "min_severity": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "type": {
                 "type": "string",
                 "enum": [
@@ -2700,6 +2808,12 @@
               "integration_id": {
                 "type": "string",
                 "format": "uuid"
+              },
+              "min_severity": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "type": {
                 "type": "string",
@@ -2721,6 +2835,12 @@
                 "type": "string",
                 "format": "uuid"
               },
+              "min_severity": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "type": {
                 "type": "string",
                 "enum": [
@@ -2740,6 +2860,12 @@
               "integration_id": {
                 "type": "string",
                 "format": "uuid"
+              },
+              "min_severity": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "type": {
                 "type": "string",
@@ -3163,6 +3289,13 @@
           "name": {
             "type": "string"
           },
+          "severity_override": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Overrides the severity derived from the condition type when set\n(`info` | `warning` | `critical`)."
+          },
           "tenant_id": {
             "type": "string",
             "format": "uuid"
@@ -3185,6 +3318,59 @@
             "items": {
               "$ref": "#/components/schemas/AlertRule"
             }
+          }
+        }
+      },
+      "AlertSilence": {
+        "type": "object",
+        "description": "A maintenance window: notifications are suppressed while a matching\nsilence is active. Incidents still open and resolve so history stays\ntruthful. `rule_id` NULL silences every rule in the tenant.",
+        "required": [
+          "id",
+          "tenant_id",
+          "starts_at",
+          "ends_at",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "ends_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rule_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "starts_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -3498,6 +3684,13 @@
           },
           "name": {
             "type": "string"
+          },
+          "severity_override": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Overrides the severity derived from the condition (`info` | `warning`\n| `critical`). Null keeps auto."
           }
         }
       },
@@ -3571,6 +3764,33 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "CreateSilenceRequest": {
+        "type": "object",
+        "required": [
+          "duration_minutes"
+        ],
+        "properties": {
+          "duration_minutes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How long the silence lasts from now."
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rule_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Rule to silence; null silences every rule in the tenant."
           }
         }
       },
@@ -4774,6 +4994,21 @@
           }
         }
       },
+      "SilencesResponse": {
+        "type": "object",
+        "description": "Active and recently expired alert silences.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlertSilence"
+            }
+          }
+        }
+      },
       "SlackChannel": {
         "type": "object",
         "required": [
@@ -5688,6 +5923,12 @@
           },
           "name": {
             "type": "string"
+          },
+          "severity_override": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
