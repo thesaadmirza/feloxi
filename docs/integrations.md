@@ -107,6 +107,24 @@ Discord connects through an incoming webhook: the consent screen asks you to pic
 
 Removing the webhook in Discord (Server Settings → Integrations) makes the next send fail; Feloxi then marks the connection revoked — reconnect to fix it. Reconnecting the same channel updates the existing connection rather than creating a duplicate.
 
-## Google sign-in
+## Enable Google sign-in
 
-"Sign in with Google" is planned but not part of this release. The environment plumbing reads `GOOGLE_*`, but the flow isn't wired end to end yet.
+"Sign in with Google" signs in existing users by their verified Google email. It does not create accounts — invite people first, then they can use SSO.
+
+1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials), create an **OAuth client ID** (type: Web application).
+2. Add the redirect URI (must match exactly):
+
+   ```
+   https://<your-feloxi-host>/api/v1/auth/google/callback
+   ```
+
+3. Set the credentials on the API server and restart:
+
+   ```bash
+   GOOGLE_CLIENT_ID=...
+   GOOGLE_CLIENT_SECRET=...
+   ```
+
+4. A **Continue with Google** button appears on the login page. Users whose Feloxi email matches their verified Google email sign straight in; membership in multiple organizations goes through the same org picker as magic-link sign-in.
+
+Unverified Google emails are rejected, and an email with no Feloxi account gets a "ask an admin to invite you" message instead of a new account.
