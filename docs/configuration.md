@@ -29,17 +29,28 @@ All Feloxi configuration is done through environment variables. Copy `.env.examp
 
 > **Note:** The frontend uses Next.js rewrites to proxy `/api/*` and `/ws/*` requests to the backend. `API_URL` is a server-side env var read at runtime — it is **not** baked into the client JS bundle. This means pre-built Docker images work in any environment without rebuilding.
 
-## OAuth integrations (optional)
+## OAuth integrations and SSO (optional)
 
-These enable the "Connect Slack" flow, where a user signs in once and picks a channel instead of pasting a webhook URL. Leave them unset and Feloxi falls back to webhook paste, which needs no setup. See [integrations.md](integrations.md) for the full walkthrough.
+These enable one-click connect flows (Slack, Discord) and "Sign in with Google". Each provider is independent: leave its variables unset and the corresponding button never appears. Notification channels always fall back to webhook paste, which needs no setup. See [integrations.md](integrations.md) for the full walkthroughs.
 
-| Variable              | Required | Default             | Description                                                                                       |
-| --------------------- | -------- | ------------------- | ------------------------------------------------------------------------------------------------- |
-| `SLACK_CLIENT_ID`     | No       | —                   | Client ID of the Slack app you register. The "Connect Slack" button appears only when this is set |
-| `SLACK_CLIENT_SECRET` | No       | —                   | Client secret of that Slack app. Store it as a secret, never in the repo                           |
-| `SLACK_API_BASE_URL`  | No       | `https://slack.com` | Override the Slack API base — for an egress proxy or a mock Slack in tests. Leave unset normally   |
+| Variable               | Required | Default               | Description                                                                                        |
+| ---------------------- | -------- | --------------------- | -------------------------------------------------------------------------------------------------- |
+| `SLACK_CLIENT_ID`      | No       | —                     | Client ID of the Slack app you register. The "Connect Slack" button appears only when this is set  |
+| `SLACK_CLIENT_SECRET`  | No       | —                     | Client secret of that Slack app. Store it as a secret, never in the repo                            |
+| `SLACK_API_BASE_URL`   | No       | `https://slack.com`   | Override the Slack API base — for an egress proxy or a mock Slack in tests. Leave unset normally    |
+| `DISCORD_CLIENT_ID`    | No       | —                     | Client ID of the Discord application. Enables "Connect Discord" (incoming-webhook consent flow)     |
+| `DISCORD_CLIENT_SECRET`| No       | —                     | Client secret of that Discord application                                                           |
+| `DISCORD_API_BASE_URL` | No       | `https://discord.com` | Override the Discord base URL — for proxies or tests. Leave unset normally                          |
+| `GOOGLE_CLIENT_ID`     | No       | —                     | OAuth client ID from Google Cloud Console. Enables "Sign in with Google" on the login page          |
+| `GOOGLE_CLIENT_SECRET` | No       | —                     | Client secret of that OAuth client                                                                  |
 
-The redirect URL to register in your Slack app is `${APP_BASE_URL}/api/v1/integrations/slack/callback`. Feloxi also shows it in **Settings → Notifications** once you sign in.
+Redirect URLs to register with each provider (also shown in the app):
+
+- Slack: `${APP_BASE_URL}/api/v1/integrations/slack/callback` (shown in **Settings → Notifications**)
+- Discord: `${APP_BASE_URL}/api/v1/integrations/discord/callback` (shown in **Settings → Notifications**)
+- Google: `${APP_BASE_URL}/api/v1/auth/google/callback`
+
+Google SSO signs in existing users by their verified Google email — it never creates accounts, so `ALLOW_SIGNUP=false` stays enforced.
 
 ## Example `.env`
 

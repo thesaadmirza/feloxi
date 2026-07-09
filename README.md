@@ -65,7 +65,11 @@ The Beat Scheduler page shows every periodic task registered with Celery Beat �
 
 ### Alert on what matters
 
-Ten alert condition types: failure rate, slow tasks, worker offline, queue depth, throughput anomaly, latency anomaly, error rate spike, beat missed, no events, task failed. Route to Slack, email, webhook, or PagerDuty. For Slack you can connect once with OAuth and pick a channel from a list, or paste a webhook URL if you'd rather not register an app (see [docs/integrations.md](docs/integrations.md)). Cooldown periods prevent alert storms. Delivery logs show which channels actually received each firing.
+Ten alert condition types: failure rate, slow tasks, worker offline, queue depth, throughput anomaly, latency anomaly, error rate spike, beat missed, no events, task failed. Each rule honors its own window, percentile, and grace period; anomaly conditions compare against 24-hour baselines with noise floors so a quiet queue doesn't page you over one task.
+
+Alerts are incidents: one notification when a condition starts firing, a green resolved notice (with the firing duration) when it clears, and nothing in between. Transient delivery failures retry with backoff and land in the delivery log either way. Silences mute notifications during maintenance windows while history keeps recording, and per-channel severity floors let one rule send warnings to Slack while only critical pages PagerDuty.
+
+Route to Slack, Discord, email, webhook, or PagerDuty. Slack and Discord connect once with OAuth — pick a channel and done — or paste a webhook URL if you'd rather not register an app (see [docs/integrations.md](docs/integrations.md)).
 
 <p align="center">
   <img src=".github/screenshots/alerts.png" width="900" alt="Alert rules list showing Worker Down, Slow Task, and High Failure Rate rules with active status, conditions, and last-fired timestamps" />
@@ -255,10 +259,10 @@ See [docs/self-hosting.md](docs/self-hosting.md) for the full production guide c
 | -------------- | ----------------------------------------------------------------------- |
 | API Server     | Rust, Axum, Tokio, SQLx, Tower                                          |
 | Event Store    | ClickHouse with SummingMergeTree materialized views                     |
-| Auth           | JWT (HS256) with HttpOnly refresh tokens, Argon2 passwords, RBAC        |
+| Auth           | JWT (HS256) with HttpOnly refresh tokens, Argon2 passwords, RBAC, magic links, Google SSO |
 | Frontend       | Next.js 15, React 19, Tailwind CSS v4, Recharts, Zustand                |
 | Protocol       | WebSocket with JSON messages, auto-reconnect                            |
-| Alerting       | Slack, Email (SMTP via lettre), Webhook, PagerDuty                      |
+| Alerting       | Slack, Discord, Email (SMTP via lettre), Webhook, PagerDuty             |
 | Infrastructure | Docker Compose, Kubernetes (Helm chart), PostgreSQL 17, Redis 7, ClickHouse 24.12 |
 
 ## Documentation
