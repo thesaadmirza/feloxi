@@ -23,12 +23,34 @@ function refreshSession(): Promise<boolean> {
   return inflightRefresh;
 }
 
+// Endpoints where a 401 is a real answer, not an expired access token:
+// refreshing and retrying would either loop (refresh itself) or mask a
+// legitimate rejection (bad login, used-up magic link). Everything else —
+// including /auth/me, which bootstraps the session on page load — must go
+// through refresh, or returning after the 15-minute access TTL kicks a user
+// with a perfectly valid 30-day refresh cookie back to the login page.
+const REFRESH_EXEMPT = [
+  "/auth/refresh",
+  "/auth/login",
+  "/auth/logout",
+  "/auth/register",
+  "/auth/magic-link",
+  "/auth/accept-invite",
+  "/auth/invite/",
+  "/auth/google/",
+];
+
+/// Whether a 401 on this URL should trigger a token refresh + retry.
+export function shouldAttemptRefresh(url: string): boolean {
+  return !REFRESH_EXEMPT.some((p) => url.includes(p));
+}
+
 const authMiddleware: Middleware = {
   async onResponse({ response, request, options }) {
     if (
       response.status === 401 &&
       typeof window !== "undefined" &&
-      !request.url.includes("/auth/")
+      shouldAttemptRefresh(request.url)
     ) {
       const ok = await refreshSession();
       if (ok) {
