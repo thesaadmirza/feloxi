@@ -4984,11 +4984,16 @@
         "required": [
           "needs_setup",
           "allow_signup",
-          "magic_link_enabled"
+          "magic_link_enabled",
+          "google_sso_enabled"
         ],
         "properties": {
           "allow_signup": {
             "type": "boolean"
+          },
+          "google_sso_enabled": {
+            "type": "boolean",
+            "description": "Whether Google SSO credentials are configured; shows the \"Sign in with\nGoogle\" button."
           },
           "magic_link_enabled": {
             "type": "boolean",

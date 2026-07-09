@@ -1841,6 +1841,11 @@ export interface components {
         SetupStatusResponse: {
             allow_signup: boolean;
             /**
+             * @description Whether Google SSO credentials are configured; shows the "Sign in with
+             *     Google" button.
+             */
+            google_sso_enabled: boolean;
+            /**
              * @description Whether system SMTP is configured. When false, the frontend hides the
              *     magic-link sign-in path and falls back to password-only login.
              */

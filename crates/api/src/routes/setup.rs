@@ -12,6 +12,9 @@ pub struct SetupStatusResponse {
     /// Whether system SMTP is configured. When false, the frontend hides the
     /// magic-link sign-in path and falls back to password-only login.
     pub magic_link_enabled: bool,
+    /// Whether Google SSO credentials are configured; shows the "Sign in with
+    /// Google" button.
+    pub google_sso_enabled: bool,
 }
 
 #[utoipa::path(
@@ -26,6 +29,7 @@ pub async fn status(State(state): State<AppState>) -> Result<Json<SetupStatusRes
         needs_setup: !has_tenants,
         allow_signup: state.config.allow_signup,
         magic_link_enabled: state.config.system_smtp.is_some(),
+        google_sso_enabled: state.config.oauth.google.is_some(),
     }))
 }
 
