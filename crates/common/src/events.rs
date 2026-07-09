@@ -155,6 +155,19 @@ pub fn parse_celery_worker_event(
     })
 }
 
+/// One entry of a tenant's Celery Beat schedule, as cached in Redis under the
+/// `beat_schedule` key and rendered on the Beat page. Timestamps are unix
+/// seconds. Consumed by the beat-missed alert condition.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BeatScheduleEntry {
+    pub schedule_name: String,
+    pub task_name: String,
+    #[serde(default)]
+    pub last_run_at: Option<f64>,
+    #[serde(default)]
+    pub next_run_at: Option<f64>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

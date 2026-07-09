@@ -48,7 +48,7 @@ pub struct QueueMetricsRow {
 }
 
 /// Summary stats for the dashboard overview.
-#[derive(Debug, Clone, Serialize, Deserialize, clickhouse::Row, ToSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, clickhouse::Row, ToSchema)]
 pub struct OverviewStats {
     pub total_tasks: u64,
     pub success_count: u64,
@@ -215,24 +215,34 @@ fn glob_to_regex(glob: &str) -> String {
     re
 }
 
-/// Overview stats scoped to tasks whose name matches `task_pattern` (a glob where
-/// only `*` is a wildcard). Used by task-scoped alert conditions so a rule for
-/// `s3handler.tasks.process_drivo_*` sees only that task's events, not the whole
-/// tenant's. Callers treat `*`/empty as match-all and use [`get_overview_stats`].
-pub async fn get_task_overview_stats(
+/// Task-name filter shared by the alert-scoped queries: a glob where only `*`
+/// is special. Returns `None` when the pattern matches everything (`*` or
+/// empty), otherwise the SQL predicate and its bind value.
+fn task_predicate(task_pattern: &str) -> Option<(&'static str, String)> {
+    if task_pattern.is_empty() || task_pattern == "*" {
+        return None;
+    }
+    if task_pattern.contains('*') {
+        Some(("match(CAST(task_name AS String), ?)", glob_to_regex(task_pattern)))
+    } else {
+        Some(("CAST(task_name AS String) = ?", task_pattern.to_string()))
+    }
+}
+
+/// Overview stats for alert evaluation, honoring the rule's window and runtime
+/// percentile (`p95_runtime` then holds that percentile). `task_pattern` of
+/// `*`/empty means tenant-wide. `percentile` is clamped to (0.5, 0.999) here
+/// because a quantile level cannot be a bind parameter.
+pub async fn get_alert_overview_stats(
     client: &Client,
     tenant_id: Uuid,
-    from_minutes: u64,
+    window_minutes: u64,
     task_pattern: &str,
+    percentile: f64,
 ) -> Result<OverviewStats, AppError> {
-    let is_glob = task_pattern.contains('*');
-    // Glob → anchored RE2 match; otherwise an exact, case-sensitive name match.
-    let predicate = if is_glob {
-        "match(CAST(task_name AS String), ?)"
-    } else {
-        "CAST(task_name AS String) = ?"
-    };
-    let bind_value = if is_glob { glob_to_regex(task_pattern) } else { task_pattern.to_string() };
+    let pred = task_predicate(task_pattern);
+    let extra = pred.as_ref().map(|(p, _)| format!("AND {p}")).unwrap_or_default();
+    let level = if percentile.is_finite() { percentile.clamp(0.5, 0.999) } else { 0.95 };
 
     let sql = format!(
         r#"
@@ -241,7 +251,7 @@ pub async fn get_task_overview_stats(
             countIf(state = 'SUCCESS') AS success_count,
             countIf(state = 'FAILURE') AS failure_count,
             avgIf(runtime, runtime > 0) AS avg_runtime,
-            quantileIf(0.95)(runtime, runtime > 0) AS p95_runtime,
+            quantileIf({level:.4})(runtime, runtime > 0) AS p95_runtime,
             avgIf(
                 dateDiff('millisecond', queued_at, started_at) / 1000.0,
                 queued_at IS NOT NULL AND started_at IS NOT NULL
@@ -250,20 +260,220 @@ pub async fn get_task_overview_stats(
         WHERE tenant_id = ?
           AND timestamp >= now() - toIntervalMinute(?)
           AND state IN ('SUCCESS', 'FAILURE', 'RETRY', 'REVOKED')
-          AND {predicate}
+          {extra}
         "#
     );
 
+    let mut q = client.query(&sql).bind(tenant_id).bind(window_minutes);
+    if let Some((_, val)) = pred {
+        q = q.bind(val);
+    }
+    q.fetch_one::<OverviewStats>().await.map_err(|e| AppError::Database(e.to_string()))
+}
+
+#[derive(clickhouse::Row, Deserialize)]
+struct LastEventRow {
+    has_events: u8,
+    age_seconds: f64,
+}
+
+/// Age in seconds of the newest task event within `lookback_minutes`, or
+/// `None` when the tenant has no events in that span. The bounded lookback
+/// keeps the scan cheap for the every-minute alert loop.
+pub async fn get_seconds_since_last_event(
+    client: &Client,
+    tenant_id: Uuid,
+    lookback_minutes: u64,
+) -> Result<Option<f64>, AppError> {
     let row = client
-        .query(&sql)
+        .query(
+            r#"
+            SELECT
+                toUInt8(count() > 0) AS has_events,
+                if(count() > 0, toFloat64(dateDiff('second', max(timestamp), now())), 0.0)
+                    AS age_seconds
+            FROM task_events
+            WHERE tenant_id = ? AND timestamp >= now() - toIntervalMinute(?)
+            "#,
+        )
         .bind(tenant_id)
-        .bind(from_minutes)
-        .bind(bind_value)
-        .fetch_one::<OverviewStats>()
+        .bind(lookback_minutes)
+        .fetch_one::<LastEventRow>()
         .await
         .map_err(|e| AppError::Database(e.to_string()))?;
+    Ok((row.has_events > 0).then_some(row.age_seconds.max(0.0)))
+}
 
-    Ok(row)
+/// Moments of per-bucket completed-task counts over a baseline period, used
+/// for throughput z-scores. Buckets with zero tasks produce no rows, so the
+/// caller must account for absent buckets (expected count vs
+/// `buckets_present`) when deriving mean/stddev.
+#[derive(Debug, Default, clickhouse::Row, Deserialize)]
+pub struct ThroughputMoments {
+    pub bucket_sum: f64,
+    pub bucket_sumsq: f64,
+    pub buckets_present: u64,
+}
+
+/// Baseline throughput moments: completed-task counts per `window_minutes`
+/// bucket over the trailing `baseline_hours`, excluding the current (partial)
+/// bucket. Reads the pre-aggregated per-minute MV, so this stays cheap.
+pub async fn get_throughput_moments(
+    client: &Client,
+    tenant_id: Uuid,
+    window_minutes: u64,
+    baseline_hours: u64,
+    task_pattern: &str,
+) -> Result<ThroughputMoments, AppError> {
+    let pred = task_predicate(task_pattern);
+    let extra = pred.as_ref().map(|(p, _)| format!("AND {p}")).unwrap_or_default();
+
+    let sql = format!(
+        r#"
+        SELECT
+            sum(cnt) AS bucket_sum,
+            sum(cnt * cnt) AS bucket_sumsq,
+            count() AS buckets_present
+        FROM (
+            SELECT toStartOfInterval(minute, toIntervalMinute(?)) AS bucket,
+                   toFloat64(sum(total_count)) AS cnt
+            FROM task_metrics_mv
+            WHERE tenant_id = ?
+              AND minute >= now() - toIntervalHour(?)
+              AND minute < toStartOfInterval(now(), toIntervalMinute(?))
+              {extra}
+            GROUP BY bucket
+        )
+        "#
+    );
+
+    let mut q = client
+        .query(&sql)
+        .bind(window_minutes)
+        .bind(tenant_id)
+        .bind(baseline_hours)
+        .bind(window_minutes);
+    if let Some((_, val)) = pred {
+        q = q.bind(val);
+    }
+    q.fetch_one::<ThroughputMoments>().await.map_err(|e| AppError::Database(e.to_string()))
+}
+
+/// Completed-task count over the trailing `window_minutes` (the "current"
+/// value compared against [`get_throughput_moments`] baselines).
+pub async fn get_recent_completed_count(
+    client: &Client,
+    tenant_id: Uuid,
+    window_minutes: u64,
+    task_pattern: &str,
+) -> Result<u64, AppError> {
+    let pred = task_predicate(task_pattern);
+    let extra = pred.as_ref().map(|(p, _)| format!("AND {p}")).unwrap_or_default();
+
+    let sql = format!(
+        r#"
+        SELECT toUInt64(sum(total_count)) AS cnt
+        FROM task_metrics_mv
+        WHERE tenant_id = ?
+          AND minute >= now() - toIntervalMinute(?)
+          {extra}
+        "#
+    );
+
+    let mut q = client.query(&sql).bind(tenant_id).bind(window_minutes);
+    if let Some((_, val)) = pred {
+        q = q.bind(val);
+    }
+    q.fetch_one::<u64>().await.map_err(|e| AppError::Database(e.to_string()))
+}
+
+/// Runtime moments for latency z-scores: current window vs the rest of the
+/// trailing baseline period, in one scan. Averages are NaN when the matching
+/// sample count is zero — callers must gate on the counts.
+#[derive(Debug, Default, clickhouse::Row, Deserialize)]
+pub struct LatencyMoments {
+    pub current_avg: f64,
+    pub current_samples: u64,
+    pub baseline_avg: f64,
+    pub baseline_std: f64,
+    pub baseline_samples: u64,
+}
+
+pub async fn get_latency_moments(
+    client: &Client,
+    tenant_id: Uuid,
+    window_minutes: u64,
+    baseline_hours: u64,
+    task_pattern: &str,
+) -> Result<LatencyMoments, AppError> {
+    let pred = task_predicate(task_pattern);
+    let extra = pred.as_ref().map(|(p, _)| format!("AND {p}")).unwrap_or_default();
+
+    let sql = format!(
+        r#"
+        WITH now() - toIntervalMinute(?) AS win_start
+        SELECT
+            avgIf(runtime, runtime > 0 AND timestamp >= win_start) AS current_avg,
+            countIf(runtime > 0 AND timestamp >= win_start) AS current_samples,
+            avgIf(runtime, runtime > 0 AND timestamp < win_start) AS baseline_avg,
+            stddevPopIf(runtime, runtime > 0 AND timestamp < win_start) AS baseline_std,
+            countIf(runtime > 0 AND timestamp < win_start) AS baseline_samples
+        FROM task_events
+        WHERE tenant_id = ?
+          AND timestamp >= now() - toIntervalHour(?)
+          AND state IN ('SUCCESS', 'FAILURE', 'RETRY', 'REVOKED')
+          {extra}
+        "#
+    );
+
+    let mut q = client.query(&sql).bind(window_minutes).bind(tenant_id).bind(baseline_hours);
+    if let Some((_, val)) = pred {
+        q = q.bind(val);
+    }
+    q.fetch_one::<LatencyMoments>().await.map_err(|e| AppError::Database(e.to_string()))
+}
+
+/// Failure counts for the error-rate-spike condition: current window vs the
+/// rest of the trailing baseline period, in one scan.
+#[derive(Debug, Default, clickhouse::Row, Deserialize)]
+pub struct ErrorRateStats {
+    pub current_total: u64,
+    pub current_failures: u64,
+    pub baseline_total: u64,
+    pub baseline_failures: u64,
+}
+
+pub async fn get_error_rate_stats(
+    client: &Client,
+    tenant_id: Uuid,
+    window_minutes: u64,
+    baseline_hours: u64,
+    task_pattern: &str,
+) -> Result<ErrorRateStats, AppError> {
+    let pred = task_predicate(task_pattern);
+    let extra = pred.as_ref().map(|(p, _)| format!("AND {p}")).unwrap_or_default();
+
+    let sql = format!(
+        r#"
+        WITH now() - toIntervalMinute(?) AS win_start
+        SELECT
+            countIf(timestamp >= win_start) AS current_total,
+            countIf(state = 'FAILURE' AND timestamp >= win_start) AS current_failures,
+            countIf(timestamp < win_start) AS baseline_total,
+            countIf(state = 'FAILURE' AND timestamp < win_start) AS baseline_failures
+        FROM task_events
+        WHERE tenant_id = ?
+          AND timestamp >= now() - toIntervalHour(?)
+          AND state IN ('SUCCESS', 'FAILURE', 'RETRY', 'REVOKED')
+          {extra}
+        "#
+    );
+
+    let mut q = client.query(&sql).bind(window_minutes).bind(tenant_id).bind(baseline_hours);
+    if let Some((_, val)) = pred {
+        q = q.bind(val);
+    }
+    q.fetch_one::<ErrorRateStats>().await.map_err(|e| AppError::Database(e.to_string()))
 }
 
 /// Get distinct task names for a tenant (for filters).

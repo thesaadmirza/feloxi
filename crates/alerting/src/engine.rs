@@ -25,7 +25,10 @@ pub fn task_pattern(condition: &AlertCondition) -> Option<&str> {
     match condition {
         AlertCondition::TaskFailed { task_name }
         | AlertCondition::TaskFailureRate { task_name, .. }
-        | AlertCondition::TaskDuration { task_name, .. } => Some(task_name.as_str()),
+        | AlertCondition::TaskDuration { task_name, .. }
+        | AlertCondition::ThroughputAnomaly { task_name, .. }
+        | AlertCondition::LatencyAnomaly { task_name, .. }
+        | AlertCondition::ErrorRateSpike { task_name, .. } => Some(task_name.as_str()),
         _ => None,
     }
 }
@@ -144,10 +147,13 @@ pub fn generate_summary(rule: &ResolvedAlertRule, context: &EvaluationContext) -
         AlertCondition::WorkerOffline { .. } => {
             format!("{} worker(s) went offline", context.workers_went_offline)
         }
-        AlertCondition::TaskDuration { threshold_seconds, task_name, .. } => {
+        AlertCondition::TaskDuration { threshold_seconds, percentile, task_name } => {
             format!(
-                "Task '{}' P95 runtime is {:.1}s (threshold: {:.1}s)",
-                task_name, context.p95_runtime, threshold_seconds
+                "Task '{}' P{:.0} runtime is {:.1}s (threshold: {:.1}s)",
+                task_name,
+                crate::stats::normalize_percentile(*percentile) * 100.0,
+                context.p95_runtime,
+                threshold_seconds
             )
         }
         AlertCondition::BeatMissed { schedule_name } => {
@@ -614,6 +620,30 @@ mod tests {
                 task_name: "y".into(),
             }),
             Some("y")
+        );
+        assert_eq!(
+            task_pattern(&AlertCondition::ThroughputAnomaly {
+                zscore_threshold: 3.0,
+                window_minutes: 30,
+                task_name: "t.*".into(),
+            }),
+            Some("t.*")
+        );
+        assert_eq!(
+            task_pattern(&AlertCondition::LatencyAnomaly {
+                zscore_threshold: 3.0,
+                window_minutes: 30,
+                task_name: "l".into(),
+            }),
+            Some("l")
+        );
+        assert_eq!(
+            task_pattern(&AlertCondition::ErrorRateSpike {
+                spike_factor: 2.0,
+                baseline_hours: 24,
+                task_name: "e".into(),
+            }),
+            Some("e")
         );
         // Not task-scoped → None.
         assert_eq!(task_pattern(&AlertCondition::WorkerOffline { grace_period_seconds: 60 }), None);

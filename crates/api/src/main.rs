@@ -5,6 +5,7 @@ use tokio::sync::broadcast;
 use tracing_subscriber::{fmt, EnvFilter};
 use uuid::Uuid;
 
+mod alert_context;
 mod alert_dispatch;
 mod app;
 mod broker_conn;
@@ -325,10 +326,10 @@ async fn run_alert_evaluation(
             continue;
         }
 
-        // Tenant-wide evaluation context (worker-offline, queue depth, etc.).
-        // Task-scoped conditions narrow the count/rate/duration metrics per-rule
-        // below, so a rule for one task doesn't fire on another's failures.
-        let base_ctx = build_evaluation_context(state, tid).await;
+        // Metrics are fetched lazily per rule (each condition reads different
+        // stores, scoped to its own window/pattern/percentile) and memoized
+        // across the tenant's rules for this pass.
+        let mut ctx_builder = alert_context::AlertContextBuilder::new(state, tid);
 
         // Load this tenant's integrations once (secrets decrypted lazily, only
         // when a referencing channel actually fires).
@@ -348,14 +349,7 @@ async fn run_alert_evaluation(
                 continue;
             }
 
-            // Narrow the task metrics to this rule's task pattern (a glob where
-            // only `*` is special). `*`/empty stays tenant-wide.
-            let ctx = match alerting::engine::task_pattern(condition) {
-                Some(pat) if pat != "*" && !pat.is_empty() => {
-                    task_scoped_context(state, tid, &base_ctx, pat).await
-                }
-                _ => base_ctx.clone(),
-            };
+            let ctx = ctx_builder.context_for(condition).await;
 
             let resolved = ResolvedAlertRule {
                 id: db_rule.id,
@@ -438,82 +432,6 @@ async fn run_alert_evaluation(
     throttle.cleanup(std::time::Duration::from_secs(3600));
 
     Ok(())
-}
-
-/// Build an EvaluationContext for a tenant from ClickHouse metrics.
-async fn build_evaluation_context(
-    state: &AppState,
-    tenant_id: Uuid,
-) -> alerting::engine::EvaluationContext {
-    use alerting::engine::EvaluationContext;
-
-    let mut ctx = EvaluationContext::default();
-
-    // Get overview stats (last 5 minutes for real-time alerting)
-    if let Ok(stats) =
-        db::clickhouse::aggregations::get_overview_stats(&state.ch, tenant_id, 5).await
-    {
-        if stats.total_tasks > 0 {
-            ctx.failure_rate = stats.failure_count as f64 / stats.total_tasks as f64;
-        }
-        ctx.p95_runtime = stats.p95_runtime;
-        ctx.recent_failures = stats.failure_count;
-    }
-
-    // Only flag worker-offline if the tenant has active brokers (avoids false positives
-    // for tenants that have never connected any workers)
-    if let Ok(online) = db::redis::cache::get_online_workers(&state.redis, tenant_id).await {
-        if online.is_empty() {
-            let has_active_broker =
-                db::postgres::broker_configs::list_broker_configs(&state.pg, tenant_id)
-                    .await
-                    .map(|configs| configs.iter().any(|c| c.is_active))
-                    .unwrap_or(false);
-
-            if has_active_broker {
-                ctx.workers_went_offline = 1;
-            }
-        }
-    }
-
-    ctx
-}
-
-/// Clone the tenant context but replace the count/rate/duration metrics with
-/// values scoped to `task_pattern`, so a task-scoped rule fires only on its own
-/// task. On query error the scoped metrics stay zero (no spurious fire).
-async fn task_scoped_context(
-    state: &AppState,
-    tenant_id: Uuid,
-    base: &alerting::engine::EvaluationContext,
-    task_pattern: &str,
-) -> alerting::engine::EvaluationContext {
-    let mut ctx = base.clone();
-    ctx.failure_rate = 0.0;
-    ctx.recent_failures = 0;
-    ctx.p95_runtime = 0.0;
-
-    match db::clickhouse::aggregations::get_task_overview_stats(
-        &state.ch,
-        tenant_id,
-        5,
-        task_pattern,
-    )
-    .await
-    {
-        Ok(stats) => {
-            if stats.total_tasks > 0 {
-                ctx.failure_rate = stats.failure_count as f64 / stats.total_tasks as f64;
-            }
-            ctx.recent_failures = stats.failure_count;
-            ctx.p95_runtime = stats.p95_runtime;
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, task = task_pattern, "task-scoped alert stats query failed");
-        }
-    }
-
-    ctx
 }
 
 async fn enforce_retention(state: &AppState) -> Result<(), String> {
