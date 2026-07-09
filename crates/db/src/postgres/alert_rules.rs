@@ -140,6 +140,76 @@ pub async fn record_alert_fired(
     Ok(row)
 }
 
+/// One open (unresolved) incident per rule: the earliest unresolved firing.
+#[derive(Debug, sqlx::FromRow)]
+pub struct OpenAlert {
+    pub rule_id: Uuid,
+    pub first_fired_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Rules with at least one unresolved alert_history row, with the incident
+/// start time (earliest open firing). Drives the resolve half of the alert
+/// state machine.
+pub async fn list_open_alerts(pool: &PgPool, tenant_id: Uuid) -> Result<Vec<OpenAlert>, AppError> {
+    let rows = sqlx::query_as::<_, OpenAlert>(
+        r#"
+        SELECT rule_id, MIN(fired_at) AS first_fired_at
+        FROM alert_history
+        WHERE tenant_id = $1 AND resolved_at IS NULL
+        GROUP BY rule_id
+        "#,
+    )
+    .bind(tenant_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Close every open incident for a rule. Returns how many rows were resolved
+/// (may be more than one: pre-incident-model deployments inserted a row per
+/// cooldown re-fire).
+pub async fn resolve_alerts_for_rule(
+    pool: &PgPool,
+    tenant_id: Uuid,
+    rule_id: Uuid,
+) -> Result<u64, AppError> {
+    let result = sqlx::query(
+        r#"
+        UPDATE alert_history SET resolved_at = NOW()
+        WHERE tenant_id = $1 AND rule_id = $2 AND resolved_at IS NULL
+        "#,
+    )
+    .bind(tenant_id)
+    .bind(rule_id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+/// Overwrite one delivery-log entry on a history row after a retry attempt.
+pub async fn update_delivery_status(
+    pool: &PgPool,
+    tenant_id: Uuid,
+    history_id: Uuid,
+    delivery_key: &str,
+    status: &ChannelDeliveryStatus,
+) -> Result<(), AppError> {
+    sqlx::query(
+        r#"
+        UPDATE alert_history
+        SET channels_sent = jsonb_set(channels_sent, ARRAY[$3], $4::jsonb, true)
+        WHERE tenant_id = $1 AND id = $2
+        "#,
+    )
+    .bind(tenant_id)
+    .bind(history_id)
+    .bind(delivery_key)
+    .bind(Json(status))
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 pub async fn count_alert_history(pool: &PgPool, tenant_id: Uuid) -> Result<i64, AppError> {
     let (count,): (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM alert_history WHERE tenant_id = $1")

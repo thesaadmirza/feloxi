@@ -100,6 +100,12 @@ pub fn retry_queue(kind: &str) -> String {
     format!("fp:retry:{kind}")
 }
 
+/// Global ZSET of pending alert delivery retries, scored by next-attempt time
+/// (unix seconds).
+pub fn alert_delivery_retry() -> String {
+    "fp:alerts:delivery_retry".to_string()
+}
+
 /// Single-use OAuth state nonce (anti-replay).
 pub fn oauth_nonce(nonce: &str) -> String {
     format!("fp:oauth:nonce:{nonce}")
