@@ -1,7 +1,7 @@
 apiVersion: v2
 name: feloxi
-version: 0.1.0
-appVersion: "0.3.1"
+version: 0.2.0
+appVersion: "2.0.0"
 description: >-
   Open-source Celery task queue monitoring platform. Real-time task and worker
   visibility via a Rust API, Next.js dashboard, PostgreSQL, ClickHouse, and Redis.
@@ -30,7 +30,9 @@ annotations:
   artifacthub.io/category: monitoring-logging
   artifacthub.io/license: Apache-2.0
   artifacthub.io/changes: |
-    - kind: fixed
-      description: "Web container respects runtime API_URL env var without a rebuild (#28)"
+    - kind: changed
+      description: "appVersion tracks the app again (2.0.0); default image tags resolve to current images"
+    - kind: added
+      description: "App supports alert silences, severity routing, resolved notifications, Discord OAuth, and Google SSO (configure DISCORD_*/GOOGLE_* via existing secret wiring)"
   artifacthub.io/containsSecurityUpdates: "false"
   artifacthub.io/prerelease: "false"

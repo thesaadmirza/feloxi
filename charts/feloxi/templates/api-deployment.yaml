@@ -190,6 +190,24 @@ spec:
                   name: {{ include "feloxi.secretName" . }}
                   key: {{ .Values.auth.secretKeys.slackClientSecretKey }}
             {{- end }}
+            {{- if .Values.integrations.discord.clientId }}
+            - name: DISCORD_CLIENT_ID
+              value: {{ .Values.integrations.discord.clientId | quote }}
+            - name: DISCORD_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "feloxi.secretName" . }}
+                  key: {{ .Values.auth.secretKeys.discordClientSecretKey }}
+            {{- end }}
+            {{- if .Values.sso.google.clientId }}
+            - name: GOOGLE_CLIENT_ID
+              value: {{ .Values.sso.google.clientId | quote }}
+            - name: GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "feloxi.secretName" . }}
+                  key: {{ .Values.auth.secretKeys.googleClientSecretKey }}
+            {{- end }}
 
             # SMTP (email alerts). All values read from the Secret.
             {{- if .Values.smtp.enabled }}
