@@ -378,6 +378,7 @@ export default function WorkersPage() {
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [sortBy, setSortBy] = useState<"total" | "online" | "name" | "failed">("total");
+  const [statusFilter, setStatusFilter] = useState<"all" | "online" | "offline">("all");
 
   useEffect(() => {
     const id = setTimeout(() => setDebouncedSearch(searchInput), 300);
@@ -560,8 +561,18 @@ export default function WorkersPage() {
   const filteredAndSortedGroups = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase();
     let result = groups;
+    if (statusFilter !== "all") {
+      result = result
+        .map((g) => {
+          const workers = g.workers.filter((w) => w.status === statusFilter);
+          const online = workers.filter((w) => w.status === "online").length;
+          // Recompute the badge counts so the header matches what's shown.
+          return { ...g, workers, online, offline: workers.length - online };
+        })
+        .filter((g) => g.workers.length > 0);
+    }
     if (q) {
-      result = groups
+      result = result
         .map((g) => {
           const groupMatches = g.name.toLowerCase().includes(q);
           const filteredWorkers = groupMatches
@@ -579,7 +590,7 @@ export default function WorkersPage() {
         default: return b.stats.total - a.stats.total || b.online - a.online;
       }
     });
-  }, [groups, debouncedSearch, sortBy]);
+  }, [groups, debouncedSearch, sortBy, statusFilter]);
 
   const allExpanded = groups.length > 0 && groups.every((g) => expandedGroups.has(g.name));
 
@@ -647,6 +658,16 @@ export default function WorkersPage() {
             />
           </div>
           <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+            className="px-3 py-2 bg-secondary border border-border text-foreground text-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+            aria-label="Filter workers by status"
+          >
+            <option value="all">All statuses</option>
+            <option value="online">Online only</option>
+            <option value="offline">Offline only</option>
+          </select>
+          <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
             className="px-3 py-2 bg-secondary border border-border text-foreground text-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
@@ -693,7 +714,19 @@ export default function WorkersPage() {
       {!isLoading && groups.length > 0 && filteredAndSortedGroups.length === 0 && (
         <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
           <Search className="h-8 w-8 opacity-30" />
-          <p className="font-medium">No workers match &ldquo;{debouncedSearch}&rdquo;</p>
+          <p className="font-medium">
+            {debouncedSearch.trim()
+              ? `No workers match "${debouncedSearch}"`
+              : `No ${statusFilter} workers`}
+          </p>
+          {statusFilter !== "all" && (
+            <button
+              onClick={() => setStatusFilter("all")}
+              className="text-sm text-primary hover:underline"
+            >
+              Show all statuses
+            </button>
+          )}
         </div>
       )}
 
