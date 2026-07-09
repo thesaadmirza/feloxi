@@ -136,26 +136,59 @@ mod tests {
 
     #[test]
     fn channel_slack_serde() {
-        let ch = AlertChannel::Slack { webhook_url: "https://hooks.slack.com/services/x".into() };
+        let ch = AlertChannel::Slack {
+            webhook_url: "https://hooks.slack.com/services/x".into(),
+            min_severity: None,
+        };
         let json = serde_json::to_string(&ch).unwrap();
         assert!(json.contains("\"type\":\"slack\""));
+        // No floor set: the field stays out of the JSON entirely.
+        assert!(!json.contains("min_severity"));
         let decoded: AlertChannel = serde_json::from_str(&json).unwrap();
         match decoded {
-            AlertChannel::Slack { webhook_url } => {
+            AlertChannel::Slack { webhook_url, min_severity } => {
                 assert_eq!(webhook_url, "https://hooks.slack.com/services/x");
+                assert!(min_severity.is_none());
             }
             _ => panic!("Wrong variant"),
         }
     }
 
     #[test]
+    fn channel_pre_severity_rows_still_deserialize() {
+        // Rows written before min_severity existed.
+        let json = r#"{"type":"slack","webhook_url":"https://hook"}"#;
+        let decoded: AlertChannel = serde_json::from_str(json).unwrap();
+        assert!(decoded.min_severity().is_none());
+
+        let json = r#"{"type":"slack_connection","integration_id":"00000000-0000-0000-0000-000000000000","channel_id":"C1","channel_name":"general"}"#;
+        let decoded: AlertChannel = serde_json::from_str(json).unwrap();
+        assert!(decoded.min_severity().is_none());
+    }
+
+    #[test]
+    fn channel_min_severity_roundtrip() {
+        let ch = AlertChannel::PagerDuty {
+            routing_key: "abc123".into(),
+            min_severity: Some("critical".into()),
+        };
+        let json = serde_json::to_string(&ch).unwrap();
+        assert!(json.contains("\"min_severity\":\"critical\""));
+        let decoded: AlertChannel = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.min_severity(), Some("critical"));
+    }
+
+    #[test]
     fn channel_email_serde() {
-        let ch = AlertChannel::Email { to: vec!["a@b.com".into(), "c@d.com".into()] };
+        let ch = AlertChannel::Email {
+            to: vec!["a@b.com".into(), "c@d.com".into()],
+            min_severity: None,
+        };
         let json = serde_json::to_string(&ch).unwrap();
         assert!(json.contains("\"type\":\"email\""));
         let decoded: AlertChannel = serde_json::from_str(&json).unwrap();
         match decoded {
-            AlertChannel::Email { to } => {
+            AlertChannel::Email { to, .. } => {
                 assert_eq!(to.len(), 2);
                 assert_eq!(to[0], "a@b.com");
             }
@@ -170,12 +203,13 @@ mod tests {
         let ch = AlertChannel::Webhook {
             url: "https://example.com/hook".into(),
             headers: Some(headers),
+            min_severity: None,
         };
         let json = serde_json::to_string(&ch).unwrap();
         assert!(json.contains("\"type\":\"webhook\""));
         let decoded: AlertChannel = serde_json::from_str(&json).unwrap();
         match decoded {
-            AlertChannel::Webhook { url, headers } => {
+            AlertChannel::Webhook { url, headers, .. } => {
                 assert_eq!(url, "https://example.com/hook");
                 assert_eq!(headers.unwrap().get("Authorization").unwrap(), "Bearer token");
             }
@@ -185,7 +219,11 @@ mod tests {
 
     #[test]
     fn channel_webhook_no_headers() {
-        let ch = AlertChannel::Webhook { url: "https://example.com".into(), headers: None };
+        let ch = AlertChannel::Webhook {
+            url: "https://example.com".into(),
+            headers: None,
+            min_severity: None,
+        };
         let json = serde_json::to_string(&ch).unwrap();
         let decoded: AlertChannel = serde_json::from_str(&json).unwrap();
         match decoded {
@@ -198,12 +236,12 @@ mod tests {
 
     #[test]
     fn channel_pagerduty_serde() {
-        let ch = AlertChannel::PagerDuty { routing_key: "abc123".into() };
+        let ch = AlertChannel::PagerDuty { routing_key: "abc123".into(), min_severity: None };
         let json = serde_json::to_string(&ch).unwrap();
         assert!(json.contains("\"type\":\"pagerduty\""));
         let decoded: AlertChannel = serde_json::from_str(&json).unwrap();
         match decoded {
-            AlertChannel::PagerDuty { routing_key } => {
+            AlertChannel::PagerDuty { routing_key, .. } => {
                 assert_eq!(routing_key, "abc123");
             }
             _ => panic!("Wrong variant"),
@@ -224,8 +262,8 @@ mod tests {
                 task_name: "*".into(),
             },
             channels: vec![
-                AlertChannel::Slack { webhook_url: "https://hook".into() },
-                AlertChannel::Email { to: vec!["admin@co.com".into()] },
+                AlertChannel::Slack { webhook_url: "https://hook".into(), min_severity: None },
+                AlertChannel::Email { to: vec!["admin@co.com".into()], min_severity: None },
             ],
             cooldown_secs: 300,
         };

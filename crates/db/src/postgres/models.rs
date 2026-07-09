@@ -82,25 +82,60 @@ pub enum AlertCondition {
 #[serde(tag = "type")]
 pub enum AlertChannel {
     #[serde(rename = "slack")]
-    Slack { webhook_url: String },
+    Slack {
+        webhook_url: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min_severity: Option<String>,
+    },
     #[serde(rename = "email")]
-    Email { to: Vec<String> },
+    Email {
+        to: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min_severity: Option<String>,
+    },
     #[serde(rename = "webhook")]
-    Webhook { url: String, headers: Option<HashMap<String, String>> },
+    Webhook {
+        url: String,
+        headers: Option<HashMap<String, String>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min_severity: Option<String>,
+    },
     #[serde(rename = "pagerduty")]
-    PagerDuty { routing_key: String },
+    PagerDuty {
+        routing_key: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min_severity: Option<String>,
+    },
     /// Slack via a connected bot-token integration; posts to a chosen channel.
     #[serde(rename = "slack_connection")]
-    SlackConnection { integration_id: Uuid, channel_id: String, channel_name: String },
+    SlackConnection {
+        integration_id: Uuid,
+        channel_id: String,
+        channel_name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min_severity: Option<String>,
+    },
     /// Discord via a connected incoming-webhook integration.
     #[serde(rename = "discord_connection")]
-    DiscordConnection { integration_id: Uuid },
+    DiscordConnection {
+        integration_id: Uuid,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min_severity: Option<String>,
+    },
     /// PagerDuty via a connected (encrypted routing-key) integration.
     #[serde(rename = "pagerduty_connection")]
-    PagerDutyConnection { integration_id: Uuid },
+    PagerDutyConnection {
+        integration_id: Uuid,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min_severity: Option<String>,
+    },
     /// Generic webhook via a connected (encrypted) integration.
     #[serde(rename = "webhook_connection")]
-    WebhookConnection { integration_id: Uuid },
+    WebhookConnection {
+        integration_id: Uuid,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min_severity: Option<String>,
+    },
 }
 
 impl AlertChannel {
@@ -108,10 +143,25 @@ impl AlertChannel {
     pub fn integration_id(&self) -> Option<Uuid> {
         match self {
             AlertChannel::SlackConnection { integration_id, .. }
-            | AlertChannel::DiscordConnection { integration_id }
-            | AlertChannel::PagerDutyConnection { integration_id }
-            | AlertChannel::WebhookConnection { integration_id } => Some(*integration_id),
+            | AlertChannel::DiscordConnection { integration_id, .. }
+            | AlertChannel::PagerDutyConnection { integration_id, .. }
+            | AlertChannel::WebhookConnection { integration_id, .. } => Some(*integration_id),
             _ => None,
+        }
+    }
+
+    /// The channel's severity floor, if configured. Alerts below it skip this
+    /// channel (e.g. `critical` keeps warnings out of PagerDuty).
+    pub fn min_severity(&self) -> Option<&str> {
+        match self {
+            AlertChannel::Slack { min_severity, .. }
+            | AlertChannel::Email { min_severity, .. }
+            | AlertChannel::Webhook { min_severity, .. }
+            | AlertChannel::PagerDuty { min_severity, .. }
+            | AlertChannel::SlackConnection { min_severity, .. }
+            | AlertChannel::DiscordConnection { min_severity, .. }
+            | AlertChannel::PagerDutyConnection { min_severity, .. }
+            | AlertChannel::WebhookConnection { min_severity, .. } => min_severity.as_deref(),
         }
     }
 }
@@ -308,6 +358,9 @@ pub struct AlertRule {
     #[schema(value_type = Vec<AlertChannel>)]
     pub channels: Json<Vec<AlertChannel>>,
     pub cooldown_secs: i32,
+    /// Overrides the severity derived from the condition type when set
+    /// (`info` | `warning` | `critical`).
+    pub severity_override: Option<String>,
     pub last_fired_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -321,6 +374,24 @@ pub struct CreateAlertRule {
     pub condition: AlertCondition,
     pub channels: Vec<AlertChannel>,
     pub cooldown_secs: Option<i32>,
+    pub severity_override: Option<String>,
+}
+
+// ─────────────────────────── Alert Silences ───────────────────────────
+
+/// A maintenance window: notifications are suppressed while a matching
+/// silence is active. Incidents still open and resolve so history stays
+/// truthful. `rule_id` NULL silences every rule in the tenant.
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize, ToSchema)]
+pub struct AlertSilence {
+    pub id: Uuid,
+    pub tenant_id: Uuid,
+    pub rule_id: Option<Uuid>,
+    pub reason: Option<String>,
+    pub starts_at: DateTime<Utc>,
+    pub ends_at: DateTime<Utc>,
+    pub created_by: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
 }
 
 // ─────────────────────────── Alert History ───────────────────────────

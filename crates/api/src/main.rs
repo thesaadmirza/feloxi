@@ -371,6 +371,14 @@ async fn run_alert_evaluation(
         let integrations =
             db::postgres::integrations::map_integrations(&state.pg, tid).await.unwrap_or_default();
 
+        // Active maintenance windows. Silenced rules still open and resolve
+        // incidents (history stays truthful); only notifications are held.
+        let silences =
+            db::postgres::silences::list_active_silences(&state.pg, tid).await.unwrap_or_default();
+        let is_silenced = |rule_id: Uuid| {
+            silences.iter().any(|s| s.rule_id.is_none() || s.rule_id == Some(rule_id))
+        };
+
         for db_rule in &db_rules {
             // condition and channels are already concrete types (via sqlx::types::Json<T>)
             let condition = &db_rule.condition.0;
@@ -379,6 +387,7 @@ async fn run_alert_evaluation(
             let ctx = ctx_builder.context_for(condition).await;
             let fired = evaluate_condition(condition, &ctx);
             let open_since = open_alerts.get(&db_rule.id).copied();
+            let silenced = is_silenced(db_rule.id);
 
             match (fired, open_since) {
                 // Still firing: already notified when the incident opened.
@@ -405,9 +414,15 @@ async fn run_alert_evaluation(
                         cooldown_secs: db_rule.cooldown_secs as u64,
                     };
 
-                    let severity = determine_severity(condition);
+                    let severity = db_rule
+                        .severity_override
+                        .as_deref()
+                        .unwrap_or(determine_severity(condition));
                     let summary = generate_summary(&resolved_rule, &ctx);
-                    let details = alerting::engine::generate_details(condition, &ctx);
+                    let mut details = alerting::engine::generate_details(condition, &ctx);
+                    if silenced {
+                        details["silenced"] = serde_json::Value::Bool(true);
+                    }
                     let condition_type =
                         Some(alerting::engine::condition_type_str(condition).to_string());
 
@@ -426,37 +441,43 @@ async fn run_alert_evaluation(
                     tracing::info!(
                         rule = %db_rule.name,
                         severity,
+                        silenced,
                         tenant_id = %tid,
                         "Alert fired: {summary}"
                     );
 
-                    // Send to all channels and collect delivery results, keyed
-                    // per delivery (type:integration_id) so same-kind
-                    // integrations don't overwrite each other.
+                    // Send to accepting channels (severity floor, not muted by
+                    // a silence) and collect delivery results, keyed per
+                    // delivery (type:integration_id) so same-kind integrations
+                    // don't overwrite each other.
                     let mut delivery_log = std::collections::HashMap::new();
                     let mut failed: Vec<(
                         alerting::rules::AlertChannel,
                         alerting::channels::SendResult,
                     )> = Vec::new();
-                    for channel in channels {
-                        let result = alert_dispatch::deliver_channel(
-                            state,
-                            &state.http,
-                            tenant,
-                            &integrations,
-                            channel,
-                            &alert,
-                        )
-                        .await;
-                        delivery_log.insert(
-                            result.delivery_key(),
-                            ChannelDeliveryStatus {
-                                success: result.success,
-                                error: result.error.clone(),
-                            },
-                        );
-                        if !result.success {
-                            failed.push((channel.clone(), result));
+                    if !silenced {
+                        for channel in channels.iter().filter(|c| {
+                            alerting::recovery::channel_accepts(c.min_severity(), severity)
+                        }) {
+                            let result = alert_dispatch::deliver_channel(
+                                state,
+                                &state.http,
+                                tenant,
+                                &integrations,
+                                channel,
+                                &alert,
+                            )
+                            .await;
+                            delivery_log.insert(
+                                result.delivery_key(),
+                                ChannelDeliveryStatus {
+                                    success: result.success,
+                                    error: result.error.clone(),
+                                },
+                            );
+                            if !result.success {
+                                failed.push((channel.clone(), result));
+                            }
                         }
                     }
 
@@ -535,17 +556,28 @@ async fn run_alert_evaluation(
                         }),
                         fired_at: chrono::Utc::now().timestamp() as f64,
                     };
-                    // Best-effort: resolve notices aren't retried.
-                    for channel in channels {
-                        let _ = alert_dispatch::deliver_channel(
-                            state,
-                            &state.http,
-                            tenant,
-                            &integrations,
-                            channel,
-                            &notice,
-                        )
-                        .await;
+                    // Best-effort: resolve notices aren't retried. They go to
+                    // the channels that would have received the fire (severity
+                    // floor applies to the incident's severity, not
+                    // "resolved") and are held during a silence.
+                    let fire_severity = db_rule
+                        .severity_override
+                        .as_deref()
+                        .unwrap_or(determine_severity(condition));
+                    if !silenced {
+                        for channel in channels.iter().filter(|c| {
+                            alerting::recovery::channel_accepts(c.min_severity(), fire_severity)
+                        }) {
+                            let _ = alert_dispatch::deliver_channel(
+                                state,
+                                &state.http,
+                                tenant,
+                                &integrations,
+                                channel,
+                                &notice,
+                            )
+                            .await;
+                        }
                     }
 
                     let _ = state.event_tx.send(TenantEvent {

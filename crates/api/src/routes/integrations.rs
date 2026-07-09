@@ -149,11 +149,12 @@ pub async fn test_integration(
                 integration_id: id,
                 channel_id,
                 channel_name: String::new(),
+                min_severity: None,
             }
         }
-        "discord" => AlertChannel::DiscordConnection { integration_id: id },
-        "pagerduty" => AlertChannel::PagerDutyConnection { integration_id: id },
-        "webhook" => AlertChannel::WebhookConnection { integration_id: id },
+        "discord" => AlertChannel::DiscordConnection { integration_id: id, min_severity: None },
+        "pagerduty" => AlertChannel::PagerDutyConnection { integration_id: id, min_severity: None },
+        "webhook" => AlertChannel::WebhookConnection { integration_id: id, min_severity: None },
         other => return Err(AppError::BadRequest(format!("unknown integration kind: {other}"))),
     };
 

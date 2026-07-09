@@ -12,7 +12,7 @@ use db::clickhouse::aggregations::{
 };
 use db::clickhouse::task_events::TaskEventRow;
 use db::clickhouse::worker_events::WorkerEventRow;
-use db::postgres::models::{AlertHistoryRow, AlertRule, ApiKey, BrokerConfig, Role};
+use db::postgres::models::{AlertHistoryRow, AlertRule, AlertSilence, ApiKey, BrokerConfig, Role};
 
 use crate::broker_conn::commands::QueueInfo;
 
@@ -197,6 +197,12 @@ pub struct AlertHistoryResponse {
     pub has_more: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total: Option<i64>,
+}
+
+/// Active and recently expired alert silences.
+#[derive(Serialize, ToSchema)]
+pub struct SilencesResponse {
+    pub data: Vec<AlertSilence>,
 }
 
 // ─── API Keys ──────────────────────────────────────────

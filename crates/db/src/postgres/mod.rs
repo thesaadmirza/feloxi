@@ -8,6 +8,7 @@ pub mod pool;
 pub mod rbac;
 pub mod refresh_tokens;
 pub mod retention;
+pub mod silences;
 pub mod tenants;
 pub mod user_invites;
 pub mod users;
