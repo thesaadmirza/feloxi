@@ -215,19 +215,6 @@ fn glob_to_regex(glob: &str) -> String {
     re
 }
 
-/// Overview stats scoped to tasks whose name matches `task_pattern` (a glob where
-/// only `*` is a wildcard). Used by task-scoped alert conditions so a rule for
-/// `s3handler.tasks.process_drivo_*` sees only that task's events, not the whole
-/// tenant's. Callers treat `*`/empty as match-all and use [`get_overview_stats`].
-pub async fn get_task_overview_stats(
-    client: &Client,
-    tenant_id: Uuid,
-    from_minutes: u64,
-    task_pattern: &str,
-) -> Result<OverviewStats, AppError> {
-    get_alert_overview_stats(client, tenant_id, from_minutes, task_pattern, 0.95).await
-}
-
 /// Task-name filter shared by the alert-scoped queries: a glob where only `*`
 /// is special. Returns `None` when the pattern matches everything (`*` or
 /// empty), otherwise the SQL predicate and its bind value.
