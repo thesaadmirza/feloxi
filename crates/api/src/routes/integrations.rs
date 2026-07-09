@@ -34,6 +34,8 @@ pub struct OAuthProvidersResponse {
     pub google: bool,
     /// The redirect URL to register in the Slack app for this deployment.
     pub slack_redirect_url: String,
+    /// The redirect URL to register in the Discord application for this deployment.
+    pub discord_redirect_url: String,
 }
 
 #[utoipa::path(
@@ -52,6 +54,7 @@ pub async fn oauth_providers(
         discord: state.config.oauth.discord.is_some(),
         google: state.config.oauth.google.is_some(),
         slack_redirect_url: crate::oauth::redirect_uri(&state, "/integrations/slack/callback"),
+        discord_redirect_url: crate::oauth::redirect_uri(&state, "/integrations/discord/callback"),
     }))
 }
 
