@@ -84,6 +84,29 @@ Then hit **Refresh** in the channel picker.
 - **Tokens don't expire.** Slack bot tokens are long-lived, so there's no refresh job. If you remove the app from Slack, the next send fails and Feloxi marks the connection as revoked — reconnect to fix it.
 - **Reconnecting** the same workspace updates the existing connection rather than creating a duplicate.
 
-## Discord and Google sign-in
+## Enable Discord OAuth
 
-Discord OAuth and "Sign in with Google" are planned but not part of this release. The environment plumbing reads `DISCORD_*` and `GOOGLE_*`, but the flows aren't wired end to end yet. Until then, use a Discord incoming webhook via the generic webhook channel.
+Discord connects through an incoming webhook: the consent screen asks you to pick a server and channel, and Feloxi stores the resulting webhook URL encrypted. No bot joins your server.
+
+1. Create an application at [discord.com/developers/applications](https://discord.com/developers/applications).
+2. Under **OAuth2 → Redirects**, add your redirect URL (shown in **Settings → Notifications**, must match exactly):
+
+   ```
+   https://<your-feloxi-host>/api/v1/integrations/discord/callback
+   ```
+
+3. Set the credentials on the API server and restart:
+
+   ```bash
+   DISCORD_CLIENT_ID=...
+   DISCORD_CLIENT_SECRET=...
+   ```
+
+4. In **Settings → Notifications**, click **Connect Discord**, pick the server and channel, and authorize. Each connection is bound to one channel — connect again to add more channels.
+5. In an alert rule, add a **Discord (connected)** channel and pick the webhook.
+
+Removing the webhook in Discord (Server Settings → Integrations) makes the next send fail; Feloxi then marks the connection revoked — reconnect to fix it. Reconnecting the same channel updates the existing connection rather than creating a duplicate.
+
+## Google sign-in
+
+"Sign in with Google" is planned but not part of this release. The environment plumbing reads `GOOGLE_*`, but the flow isn't wired end to end yet.

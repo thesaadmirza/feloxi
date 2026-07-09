@@ -4388,11 +4388,16 @@
           "slack",
           "discord",
           "google",
-          "slack_redirect_url"
+          "slack_redirect_url",
+          "discord_redirect_url"
         ],
         "properties": {
           "discord": {
             "type": "boolean"
+          },
+          "discord_redirect_url": {
+            "type": "string",
+            "description": "The redirect URL to register in the Discord application for this deployment."
           },
           "google": {
             "type": "boolean"

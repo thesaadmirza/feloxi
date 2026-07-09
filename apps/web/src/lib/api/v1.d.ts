@@ -1649,6 +1649,8 @@ export interface components {
          */
         OAuthProvidersResponse: {
             discord: boolean;
+            /** @description The redirect URL to register in the Discord application for this deployment. */
+            discord_redirect_url: string;
             google: boolean;
             slack: boolean;
             /** @description The redirect URL to register in the Slack app for this deployment. */

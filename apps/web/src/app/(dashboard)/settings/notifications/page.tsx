@@ -34,7 +34,10 @@ const PROVIDER_META: Record<string, { label: string; badge: string; color: strin
 // OAuth "Connect" providers. Add an entry (and set its *_CLIENT_ID/SECRET on the
 // server) to surface a new Connect button — no other UI changes needed.
 const CONNECT_PROVIDERS: { key: "slack" | "discord" | "google"; label: string; connectUrl: string }[] =
-  [{ key: "slack", label: "Slack", connectUrl: "/api/v1/integrations/slack/connect" }];
+  [
+    { key: "slack", label: "Slack", connectUrl: "/api/v1/integrations/slack/connect" },
+    { key: "discord", label: "Discord", connectUrl: "/api/v1/integrations/discord/connect" },
+  ];
 
 function ProviderBadge({ kind }: { kind: string }) {
   const meta = PROVIDER_META[kind] ?? { badge: kind.slice(0, 2).toUpperCase(), color: "#64748b" };
@@ -67,6 +70,8 @@ function ConnectedIntegrationsCard() {
 
   const slackRedirectUrl = (providers as { slack_redirect_url?: string } | undefined)
     ?.slack_redirect_url;
+  const discordRedirectUrl = (providers as { discord_redirect_url?: string } | undefined)
+    ?.discord_redirect_url;
 
   function copyRedirect() {
     if (!slackRedirectUrl) return;
@@ -283,6 +288,20 @@ function ConnectedIntegrationsCard() {
             Bot token scopes: <span className="font-mono">chat:write, chat:write.public,
             channels:read, groups:read</span>.
           </p>
+        </div>
+      )}
+      {discordRedirectUrl && (
+        <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-1.5">
+          <p className="text-xs font-medium text-foreground">Setting up the Discord app?</p>
+          <p className="text-xs text-muted-foreground">
+            Add this <span className="font-medium">Redirect URL</span> in your Discord application
+            under <span className="font-mono">OAuth2 → Redirects</span> (must match exactly). The
+            connect flow uses the <span className="font-mono">webhook.incoming</span> scope; you
+            pick the server and channel in Discord&apos;s consent screen.
+          </p>
+          <code className="block truncate rounded bg-background px-2 py-1.5 text-xs text-foreground">
+            {discordRedirectUrl}
+          </code>
         </div>
       )}
     </div>

@@ -56,9 +56,17 @@ const CONDITION_TYPES: { value: ConditionType; label: string; description: strin
   { value: "error_rate_spike", label: "Error Rate Spike", description: "Alert when the error rate spikes relative to the recent baseline" },
 ];
 
-const CHANNEL_TYPES = ["slack_connection", "slack", "email", "webhook", "pagerduty"] as const;
+const CHANNEL_TYPES = [
+  "slack_connection",
+  "discord_connection",
+  "slack",
+  "email",
+  "webhook",
+  "pagerduty",
+] as const;
 const CHANNEL_LABELS: Record<(typeof CHANNEL_TYPES)[number], string> = {
   slack_connection: "Slack (connected)",
+  discord_connection: "Discord (connected)",
   slack: "Slack (webhook)",
   email: "Email",
   webhook: "Webhook",
@@ -147,6 +155,12 @@ function normalizeChannel(ch: ChannelForm): AlertChannel {
         channel_name: (ch.channel_name as string) ?? "",
         min_severity: minSeverity,
       } as AlertChannel;
+    case "discord_connection":
+      return {
+        type: "discord_connection",
+        integration_id: (ch.integration_id as string) ?? "",
+        min_severity: minSeverity,
+      } as AlertChannel;
     case "slack":
       return {
         type: "slack",
@@ -187,6 +201,8 @@ function channelError(ch: ChannelForm): string | null {
       if (!ch.integration_id) return "Select a Slack workspace";
       if (!ch.channel_id) return "Select a Slack channel";
       return null;
+    case "discord_connection":
+      return ch.integration_id ? null : "Select a Discord webhook";
     case "slack":
       return ch.webhook_url ? null : "Enter a Slack webhook URL";
     case "email": {
@@ -443,6 +459,59 @@ function ConditionFields({
     default:
       return null;
   }
+}
+
+function DiscordConnectionEditor({
+  channel,
+  index,
+  onChange,
+}: {
+  channel: ChannelForm;
+  index: number;
+  onChange: (index: number, key: string, value: unknown) => void;
+}) {
+  const { data: integrationsData } = $api.useQuery("get", "/api/v1/integrations");
+  const discordIntegrations = (integrationsData?.data ?? []).filter(
+    (i) => i.kind === "discord" && i.status === "active"
+  );
+  const integrationId = (channel.integration_id as string) ?? "";
+
+  if (discordIntegrations.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No Discord channel connected. Connect one in{" "}
+        <a href="/settings/notifications" className="text-primary underline">
+          Settings &rarr; Notifications
+        </a>
+        .
+      </p>
+    );
+  }
+
+  const stale = !!integrationId && !discordIntegrations.some((i) => i.id === integrationId);
+
+  return (
+    <div className="space-y-2">
+      <select
+        aria-label="Discord channel"
+        value={stale ? "" : integrationId}
+        onChange={(e) => onChange(index, "integration_id", e.target.value)}
+        className={inputClass}
+      >
+        <option value="">Select a Discord webhook&hellip;</option>
+        {discordIntegrations.map((i) => (
+          <option key={i.id} value={i.id}>
+            {i.name}
+          </option>
+        ))}
+      </select>
+      {stale && (
+        <p className="text-xs text-[#eab308]">
+          The previously selected Discord webhook is no longer available — pick another.
+        </p>
+      )}
+    </div>
+  );
 }
 
 function SlackConnectionEditor({
@@ -717,6 +786,9 @@ function ChannelEditor({
       </div>
       {channel.type === "slack_connection" && (
         <SlackConnectionEditor channel={channel} index={index} onChange={onChange} />
+      )}
+      {channel.type === "discord_connection" && (
+        <DiscordConnectionEditor channel={channel} index={index} onChange={onChange} />
       )}
       {channel.type === "slack" && (
         <div className="flex items-center gap-2">
