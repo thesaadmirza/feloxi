@@ -15,6 +15,8 @@ import {
   AlertTriangle,
   ChevronDown,
   Bug,
+  Copy,
+  Check,
 } from "lucide-react";
 import { $api, fetchClient, unwrap } from "@/lib/api";
 import { formatDuration, formatDateTimeLocal, truncateId, timeAgo } from "@/lib/utils";
@@ -27,6 +29,35 @@ import { DEFAULT_TIME_RANGE, TIME_RANGE_PRESETS, type TimeRangeId } from "@/lib/
 
 const TASKS_LIMIT = 50;
 const SUGGESTIONS_STALE_MS = 10 * 60 * 1000;
+
+/// Short ID with a click-to-copy for the full value. Rows are clickable, so
+/// the copy button stops propagation.
+function CopyableId({ id, short = 8 }: { id: string; short?: number }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <span className="inline-flex items-center gap-1.5 font-mono" title={id}>
+      <span>{id.length > short ? `${id.slice(0, short)}…` : id}</span>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          navigator.clipboard?.writeText(id).then(
+            () => {
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1200);
+            },
+            () => {}
+          );
+        }}
+        title="Copy full ID"
+        aria-label="Copy full ID"
+        className="p-0.5 rounded text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground hover:bg-secondary transition"
+      >
+        {copied ? <Check className="h-3 w-3 text-[#22c55e]" /> : <Copy className="h-3 w-3" />}
+      </button>
+    </span>
+  );
+}
 
 function exportTasks(tasks: TaskEvent[], format: "csv" | "json") {
   if (tasks.length === 0) return;
@@ -252,7 +283,10 @@ function FailureGroupsView({
                         {group.count.toLocaleString()}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs max-w-[200px] truncate">
+                    <td
+                      className="px-4 py-3 text-muted-foreground text-xs max-w-[200px] truncate"
+                      title={group.task_names.join(", ")}
+                    >
                       {group.task_names.slice(0, 3).join(", ")}
                       {group.task_names.length > 3 && ` +${group.task_names.length - 3} more`}
                     </td>
@@ -966,20 +1000,24 @@ export default function TasksPage() {
                       onClick={() => handleTaskRowClick(task.task_id)}
                       className="border-b border-border hover:bg-secondary/30 cursor-pointer transition-colors group"
                     >
-                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground max-w-[160px]">
-                        <span title={task.task_id} className="truncate block">
-                          {task.task_id}
-                        </span>
+                      <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                        <CopyableId id={task.task_id} />
                       </td>
-                      <td className="px-4 py-3 text-foreground max-w-[220px] truncate">
+                      <td
+                        className="px-4 py-3 text-foreground max-w-[340px] truncate"
+                        title={task.task_name}
+                      >
                         {task.task_name}
                       </td>
                       <td className="px-4 py-3">
                         <StateBadge state={task.state} />
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">{task.queue || "—"}</td>
-                      <td className="px-4 py-3 text-muted-foreground font-mono text-xs truncate max-w-[140px]">
-                        {task.worker_id ? truncateId(task.worker_id, 16) : "—"}
+                      <td
+                        className="px-4 py-3 text-muted-foreground font-mono text-xs truncate max-w-[180px]"
+                        title={task.worker_id ?? undefined}
+                      >
+                        {task.worker_id ? truncateId(task.worker_id, 20) : "—"}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
                         {task.runtime != null && task.runtime > 0 ? formatDuration(task.runtime) : "—"}
