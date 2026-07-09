@@ -172,21 +172,25 @@ async fn poll_queue_depths(state: &AppState) {
         }
     };
     for config in configs {
-        let queues =
-            match broker_conn::commands::queue_stats(&config.broker_type, &config.connection_enc)
-                .await
-            {
-                Ok(q) => q,
-                Err(e) => {
-                    tracing::debug!(
-                        broker_id = %config.id,
-                        tenant_id = %config.tenant_id,
-                        error = %e,
-                        "queue_stats poll failed",
-                    );
-                    continue;
-                }
-            };
+        let candidates = candidate_queue_names(state, config.tenant_id).await;
+        let queues = match broker_conn::commands::queue_stats(
+            &config.broker_type,
+            &config.connection_enc,
+            &candidates,
+        )
+        .await
+        {
+            Ok(q) => q,
+            Err(e) => {
+                tracing::debug!(
+                    broker_id = %config.id,
+                    tenant_id = %config.tenant_id,
+                    error = %e,
+                    "queue_stats poll failed",
+                );
+                continue;
+            }
+        };
         for q in queues {
             if let Err(e) = db::redis::cache::set_queue_depth(
                 &state.redis,
@@ -204,6 +208,22 @@ async fn poll_queue_depths(state: &AppState) {
             }
         }
     }
+}
+
+/// Queue names to probe on brokers that can't enumerate queues (AMQP): names
+/// seen in task events plus names previously observed live. Capped to keep
+/// the per-poll probe count bounded.
+async fn candidate_queue_names(state: &AppState, tenant_id: Uuid) -> Vec<String> {
+    let mut names = db::clickhouse::aggregations::get_queue_names(&state.ch, tenant_id)
+        .await
+        .unwrap_or_default();
+    if let Ok(live) = db::redis::cache::get_queue_depths(&state.redis, tenant_id).await {
+        names.extend(live.into_iter().map(|(name, _)| name));
+    }
+    names.sort();
+    names.dedup();
+    names.truncate(100);
+    names
 }
 
 /// Max batches drained per queue per tick. Bounds the peak row count flattened

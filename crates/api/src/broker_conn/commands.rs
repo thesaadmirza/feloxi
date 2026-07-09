@@ -389,19 +389,55 @@ pub async fn shutdown_worker(
 }
 
 /// Get queue stats from the correct broker.
+///
+/// Redis enumerates queues itself (kombu binding keys). AMQP has no
+/// list-queues operation in the protocol, so `candidate_queues` supplies the
+/// names to probe (event-derived + previously observed); unknown names are
+/// skipped, existing ones report their live depth.
 pub async fn queue_stats(
     broker_type: &str,
     connection_url: &str,
+    candidate_queues: &[String],
 ) -> Result<Vec<QueueInfo>, String> {
     match broker_type {
         "redis" => redis_queue_stats(connection_url).await,
-        "rabbitmq" | "amqp" => {
-            // AMQP queue stats require the management plugin API (port 15672)
-            // which is not always available. Return empty for now.
-            Ok(vec![])
-        }
+        "rabbitmq" | "amqp" => amqp_queue_stats(connection_url, candidate_queues).await,
         other => Err(format!("Unsupported broker type: {other}")),
     }
+}
+
+/// AMQP queue depths via passive declare (works on any RabbitMQ, no
+/// management plugin needed). A failed passive declare closes the channel by
+/// protocol, so each probe uses its own channel on the shared connection.
+async fn amqp_queue_stats(
+    connection_url: &str,
+    candidate_queues: &[String],
+) -> Result<Vec<QueueInfo>, String> {
+    // Always probe Celery's default queue so a fresh install shows something
+    // even before any names have been observed.
+    let mut names: Vec<&str> = candidate_queues.iter().map(String::as_str).collect();
+    if !names.contains(&"celery") {
+        names.push("celery");
+    }
+    names.sort_unstable();
+    names.dedup();
+
+    let conn = connect_amqp(connection_url).await?;
+    let mut stats = Vec::new();
+    for name in names {
+        let Ok(channel) = conn.create_channel().await else { break };
+        let opts = lapin::options::QueueDeclareOptions { passive: true, ..Default::default() };
+        // A failed passive declare means the queue doesn't exist (or no
+        // access): skip it. The failure also closes the channel by protocol,
+        // which is why each probe gets its own.
+        if let Ok(q) = channel.queue_declare(name, opts, lapin::types::FieldTable::default()).await
+        {
+            stats.push(QueueInfo { queue_name: name.to_string(), depth: q.message_count() as u64 });
+            let _ = channel.close(200, "done").await;
+        }
+    }
+    let _ = conn.close(200, "done").await;
+    Ok(stats)
 }
 
 /// Purge all messages from a queue (Redis: DEL, AMQP: queue.purge).

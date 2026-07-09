@@ -227,10 +227,23 @@ pub async fn get_broker_queues(
     let config =
         db::postgres::broker_configs::get_broker_config(&state.pg, id, user.tenant_id).await?;
 
-    let queues =
-        crate::broker_conn::commands::queue_stats(&config.broker_type, &config.connection_enc)
-            .await
-            .map_err(AppError::BadRequest)?;
+    // Candidate names for brokers that can't enumerate queues (AMQP).
+    let mut candidates = db::clickhouse::aggregations::get_queue_names(&state.ch, user.tenant_id)
+        .await
+        .unwrap_or_default();
+    if let Ok(live) = db::redis::cache::get_queue_depths(&state.redis, user.tenant_id).await {
+        candidates.extend(live.into_iter().map(|(name, _)| name));
+    }
+    candidates.sort();
+    candidates.dedup();
+
+    let queues = crate::broker_conn::commands::queue_stats(
+        &config.broker_type,
+        &config.connection_enc,
+        &candidates,
+    )
+    .await
+    .map_err(AppError::BadRequest)?;
 
     Ok(Json(QueueListResponse { data: queues }))
 }

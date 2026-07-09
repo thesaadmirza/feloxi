@@ -136,7 +136,17 @@ pub async fn queue_names(
     Extension(user): Extension<CurrentUser>,
 ) -> Result<Json<StringListResponse>, AppError> {
     auth::rbac::check_permission(&user, "metrics_read")?;
-    let names = db::clickhouse::aggregations::get_queue_names(&state.ch, user.tenant_id).await?;
+    // Event-derived names cover queues only when the client app sets
+    // task_send_sent_event (worker events carry no queue field). Union with
+    // the names the 30s broker poll observed live, so the filter still
+    // populates without that setting.
+    let mut names =
+        db::clickhouse::aggregations::get_queue_names(&state.ch, user.tenant_id).await?;
+    if let Ok(live) = db::redis::cache::get_queue_depths(&state.redis, user.tenant_id).await {
+        names.extend(live.into_iter().map(|(name, _)| name));
+    }
+    names.sort();
+    names.dedup();
     Ok(Json(StringListResponse { data: names }))
 }
 
