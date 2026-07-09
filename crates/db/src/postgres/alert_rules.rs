@@ -16,8 +16,9 @@ pub async fn create_alert_rule(
 ) -> Result<AlertRule, AppError> {
     let rule = sqlx::query_as::<_, AlertRule>(
         r#"
-        INSERT INTO alert_rules (tenant_id, name, description, condition, channels, cooldown_secs)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO alert_rules
+            (tenant_id, name, description, condition, channels, cooldown_secs, severity_override)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING *
         "#,
     )
@@ -27,6 +28,7 @@ pub async fn create_alert_rule(
     .bind(Json(&input.condition))
     .bind(Json(&input.channels))
     .bind(input.cooldown_secs.unwrap_or(300))
+    .bind(&input.severity_override)
     .fetch_one(pool)
     .await?;
     Ok(rule)
@@ -74,12 +76,13 @@ pub async fn update_alert_rule(
     channels: &[AlertChannel],
     cooldown_secs: i32,
     is_enabled: bool,
+    severity_override: Option<&str>,
 ) -> Result<AlertRule, AppError> {
     let rule = sqlx::query_as::<_, AlertRule>(
         r#"
         UPDATE alert_rules
         SET name = $3, description = $4, condition = $5, channels = $6,
-            cooldown_secs = $7, is_enabled = $8, updated_at = NOW()
+            cooldown_secs = $7, is_enabled = $8, severity_override = $9, updated_at = NOW()
         WHERE id = $1 AND tenant_id = $2
         RETURNING *
         "#,
@@ -92,6 +95,7 @@ pub async fn update_alert_rule(
     .bind(Json(channels))
     .bind(cooldown_secs)
     .bind(is_enabled)
+    .bind(severity_override)
     .fetch_one(pool)
     .await?;
     Ok(rule)

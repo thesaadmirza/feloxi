@@ -31,16 +31,16 @@ pub(crate) async fn deliver_channel(
 ) -> SendResult {
     match channel {
         // ── Legacy inline channels (plaintext secrets, kept for back-compat) ──
-        AlertChannel::Slack { webhook_url } => {
+        AlertChannel::Slack { webhook_url, .. } => {
             channels::slack::send_slack_alert(http_client, webhook_url, alert).await
         }
-        AlertChannel::Webhook { url, headers } => {
+        AlertChannel::Webhook { url, headers, .. } => {
             channels::webhook::send_webhook_alert(http_client, url, headers, alert).await
         }
-        AlertChannel::PagerDuty { routing_key } => {
+        AlertChannel::PagerDuty { routing_key, .. } => {
             channels::pagerduty::send_pagerduty_alert(http_client, routing_key, alert).await
         }
-        AlertChannel::Email { to } => {
+        AlertChannel::Email { to, .. } => {
             let smtp_cfg = tenant_smtp_config(tenant);
             channels::email::send_email_alert(to, alert, &smtp_cfg).await
         }
@@ -67,7 +67,7 @@ pub(crate) async fn deliver_channel(
             }
             result.with_integration_id(*integration_id)
         }
-        AlertChannel::DiscordConnection { integration_id } => {
+        AlertChannel::DiscordConnection { integration_id, .. } => {
             let url =
                 match decrypt_integration_secret(state, integrations, *integration_id, "discord") {
                     Ok(u) => u,
@@ -80,7 +80,7 @@ pub(crate) async fn deliver_channel(
             }
             result.with_integration_id(*integration_id)
         }
-        AlertChannel::PagerDutyConnection { integration_id } => {
+        AlertChannel::PagerDutyConnection { integration_id, .. } => {
             let key =
                 match decrypt_integration_secret(state, integrations, *integration_id, "pagerduty")
                 {
@@ -91,7 +91,7 @@ pub(crate) async fn deliver_channel(
                 .await
                 .with_integration_id(*integration_id)
         }
-        AlertChannel::WebhookConnection { integration_id } => {
+        AlertChannel::WebhookConnection { integration_id, .. } => {
             let url =
                 match decrypt_integration_secret(state, integrations, *integration_id, "webhook") {
                     Ok(u) => u,

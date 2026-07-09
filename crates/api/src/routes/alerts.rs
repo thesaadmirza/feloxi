@@ -7,7 +7,7 @@ use serde::Deserialize;
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use crate::routes::responses::{AlertHistoryResponse, AlertRulesResponse};
+use crate::routes::responses::{AlertHistoryResponse, AlertRulesResponse, SilencesResponse};
 use crate::state::AppState;
 use auth::middleware::CurrentUser;
 use common::AppError;
@@ -20,6 +20,9 @@ pub struct CreateAlertRuleRequest {
     pub condition: AlertCondition,
     pub channels: Vec<AlertChannel>,
     pub cooldown_secs: Option<i32>,
+    /// Overrides the severity derived from the condition (`info` | `warning`
+    /// | `critical`). Null keeps auto.
+    pub severity_override: Option<String>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -30,6 +33,36 @@ pub struct UpdateAlertRuleRequest {
     pub channels: Vec<AlertChannel>,
     pub cooldown_secs: i32,
     pub is_enabled: bool,
+    pub severity_override: Option<String>,
+}
+
+const SEVERITIES: [&str; 3] = ["info", "warning", "critical"];
+
+/// Reject unknown severity strings on rule overrides and channel floors, so a
+/// typo doesn't silently route everything (unknowns rank lowest).
+fn validate_severities(
+    severity_override: Option<&str>,
+    channels: &[AlertChannel],
+) -> Result<(), AppError> {
+    let check = |s: &str| -> Result<(), AppError> {
+        if SEVERITIES.contains(&s) {
+            Ok(())
+        } else {
+            Err(AppError::BadRequest(format!(
+                "unknown severity '{s}' (expected one of: {})",
+                SEVERITIES.join(", ")
+            )))
+        }
+    };
+    if let Some(s) = severity_override {
+        check(s)?;
+    }
+    for channel in channels {
+        if let Some(s) = channel.min_severity() {
+            check(s)?;
+        }
+    }
+    Ok(())
 }
 
 /// Reject channels that reference an integration the caller's tenant does not
@@ -89,6 +122,7 @@ pub async fn create_rule(
 ) -> Result<Json<db::postgres::models::AlertRule>, AppError> {
     auth::rbac::check_permission(&user, "alerts_write")?;
     validate_channel_integrations(&state, user.tenant_id, &req.channels).await?;
+    validate_severities(req.severity_override.as_deref(), &req.channels)?;
 
     let rule = db::postgres::alert_rules::create_alert_rule(
         &state.pg,
@@ -99,6 +133,7 @@ pub async fn create_rule(
             condition: req.condition,
             channels: req.channels,
             cooldown_secs: req.cooldown_secs,
+            severity_override: req.severity_override,
         },
     )
     .await?;
@@ -143,6 +178,7 @@ pub async fn update_rule(
 ) -> Result<Json<db::postgres::models::AlertRule>, AppError> {
     auth::rbac::check_permission(&user, "alerts_write")?;
     validate_channel_integrations(&state, user.tenant_id, &req.channels).await?;
+    validate_severities(req.severity_override.as_deref(), &req.channels)?;
 
     let rule = db::postgres::alert_rules::update_alert_rule(
         &state.pg,
@@ -154,6 +190,7 @@ pub async fn update_rule(
         &req.channels,
         req.cooldown_secs,
         req.is_enabled,
+        req.severity_override.as_deref(),
     )
     .await?;
 
@@ -211,9 +248,93 @@ pub async fn list_history(
     Ok(Json(AlertHistoryResponse { data: history, has_more, total: Some(total) }))
 }
 
+#[derive(Deserialize, ToSchema)]
+pub struct CreateSilenceRequest {
+    /// Rule to silence; null silences every rule in the tenant.
+    pub rule_id: Option<Uuid>,
+    pub reason: Option<String>,
+    /// How long the silence lasts from now.
+    pub duration_minutes: i64,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/alerts/silences",
+    tag = "alerts",
+    responses((status = 200, description = "Success", body = SilencesResponse))
+)]
+pub async fn list_silences(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+) -> Result<Json<SilencesResponse>, AppError> {
+    auth::rbac::check_permission(&user, "alerts_read")?;
+    let silences = db::postgres::silences::list_silences(&state.pg, user.tenant_id, 50).await?;
+    Ok(Json(SilencesResponse { data: silences }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/alerts/silences",
+    tag = "alerts",
+    request_body = CreateSilenceRequest,
+    responses((status = 200, description = "Success", body = db::postgres::models::AlertSilence))
+)]
+pub async fn create_silence(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+    Json(req): Json<CreateSilenceRequest>,
+) -> Result<Json<db::postgres::models::AlertSilence>, AppError> {
+    auth::rbac::check_permission(&user, "alerts_write")?;
+
+    // 1 minute to 30 days.
+    let minutes = req.duration_minutes.clamp(1, 60 * 24 * 30);
+    if let Some(rule_id) = req.rule_id {
+        let rule = db::postgres::alert_rules::get_alert_rule(&state.pg, rule_id).await?;
+        if rule.tenant_id != user.tenant_id {
+            return Err(AppError::NotFound("Alert rule not found".into()));
+        }
+    }
+
+    let ends_at = chrono::Utc::now() + chrono::Duration::minutes(minutes);
+    let silence = db::postgres::silences::create_silence(
+        &state.pg,
+        user.tenant_id,
+        req.rule_id,
+        req.reason.as_deref().filter(|r| !r.trim().is_empty()),
+        ends_at,
+        Some(user.user_id),
+    )
+    .await?;
+
+    Ok(Json(silence))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/alerts/silences/{silence_id}",
+    tag = "alerts",
+    params(("silence_id" = Uuid, Path, description = "Silence ID")),
+    responses((status = 200, description = "Success", body = serde_json::Value))
+)]
+pub async fn expire_silence(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+    Path(silence_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    auth::rbac::check_permission(&user, "alerts_write")?;
+    let expired =
+        db::postgres::silences::expire_silence(&state.pg, user.tenant_id, silence_id).await?;
+    if !expired {
+        return Err(AppError::NotFound("Active silence not found".into()));
+    }
+    Ok(Json(serde_json::json!({ "expired": true })))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/alerts/rules", get(list_rules).post(create_rule))
         .route("/alerts/rules/{rule_id}", get(get_rule).put(update_rule).delete(delete_rule))
         .route("/alerts/history", get(list_history))
+        .route("/alerts/silences", get(list_silences).post(create_silence))
+        .route("/alerts/silences/{silence_id}", axum::routing::delete(expire_silence))
 }

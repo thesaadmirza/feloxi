@@ -52,6 +52,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/alerts/silences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_silences"];
+        put?: never;
+        post: operations["create_silence"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alerts/silences/{silence_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["expire_silence"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/api-keys": {
         parameters: {
             query?: never;
@@ -1084,10 +1116,12 @@ export interface components {
          *     untouched — this enum is internally tagged, so old rows deserialize as-is.
          */
         AlertChannel: {
+            min_severity?: string | null;
             /** @enum {string} */
             type: "slack";
             webhook_url: string;
         } | {
+            min_severity?: string | null;
             to: string[];
             /** @enum {string} */
             type: "email";
@@ -1095,10 +1129,12 @@ export interface components {
             headers?: {
                 [key: string]: string;
             } | null;
+            min_severity?: string | null;
             /** @enum {string} */
             type: "webhook";
             url: string;
         } | {
+            min_severity?: string | null;
             routing_key: string;
             /** @enum {string} */
             type: "pagerduty";
@@ -1107,21 +1143,25 @@ export interface components {
             channel_name: string;
             /** Format: uuid */
             integration_id: string;
+            min_severity?: string | null;
             /** @enum {string} */
             type: "slack_connection";
         } | {
             /** Format: uuid */
             integration_id: string;
+            min_severity?: string | null;
             /** @enum {string} */
             type: "discord_connection";
         } | {
             /** Format: uuid */
             integration_id: string;
+            min_severity?: string | null;
             /** @enum {string} */
             type: "pagerduty_connection";
         } | {
             /** Format: uuid */
             integration_id: string;
+            min_severity?: string | null;
             /** @enum {string} */
             type: "webhook_connection";
         };
@@ -1236,6 +1276,11 @@ export interface components {
             /** Format: date-time */
             last_fired_at?: string | null;
             name: string;
+            /**
+             * @description Overrides the severity derived from the condition type when set
+             *     (`info` | `warning` | `critical`).
+             */
+            severity_override?: string | null;
             /** Format: uuid */
             tenant_id: string;
             /** Format: date-time */
@@ -1244,6 +1289,28 @@ export interface components {
         /** @description List of alert rules. */
         AlertRulesResponse: {
             data: components["schemas"]["AlertRule"][];
+        };
+        /**
+         * @description A maintenance window: notifications are suppressed while a matching
+         *     silence is active. Incidents still open and resolve so history stays
+         *     truthful. `rule_id` NULL silences every rule in the tenant.
+         */
+        AlertSilence: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: date-time */
+            ends_at: string;
+            /** Format: uuid */
+            id: string;
+            reason?: string | null;
+            /** Format: uuid */
+            rule_id?: string | null;
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: uuid */
+            tenant_id: string;
         };
         ApiKey: {
             /** Format: date-time */
@@ -1332,6 +1399,11 @@ export interface components {
             cooldown_secs?: number | null;
             description?: string | null;
             name: string;
+            /**
+             * @description Overrides the severity derived from the condition (`info` | `warning`
+             *     | `critical`). Null keeps auto.
+             */
+            severity_override?: string | null;
         };
         /** @description Response after creating an API key (includes the raw key, shown once). */
         CreateApiKeyResponse: {
@@ -1352,6 +1424,19 @@ export interface components {
             expires_at?: string | null;
             name: string;
             permissions: string[];
+        };
+        CreateSilenceRequest: {
+            /**
+             * Format: int64
+             * @description How long the silence lasts from now.
+             */
+            duration_minutes: number;
+            reason?: string | null;
+            /**
+             * Format: uuid
+             * @description Rule to silence; null silences every rule in the tenant.
+             */
+            rule_id?: string | null;
         };
         /** @description An edge in the workflow DAG. */
         DagEdge: {
@@ -1760,6 +1845,10 @@ export interface components {
             magic_link_enabled: boolean;
             needs_setup: boolean;
         };
+        /** @description Active and recently expired alert silences. */
+        SilencesResponse: {
+            data: components["schemas"]["AlertSilence"][];
+        };
         SlackChannel: {
             id: string;
             name: string;
@@ -2041,6 +2130,7 @@ export interface components {
             description?: string | null;
             is_enabled: boolean;
             name: string;
+            severity_override?: string | null;
         };
         UserInfo: {
             display_name?: string | null;
@@ -2334,6 +2424,73 @@ export interface operations {
             path: {
                 /** @description Alert rule ID */
                 rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    list_silences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SilencesResponse"];
+                };
+            };
+        };
+    };
+    create_silence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSilenceRequest"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertSilence"];
+                };
+            };
+        };
+    };
+    expire_silence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Silence ID */
+                silence_id: string;
             };
             cookie?: never;
         };

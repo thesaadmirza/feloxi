@@ -53,6 +53,26 @@ impl ResolveTracker {
     }
 }
 
+/// Severity rank for channel routing: info < warning < critical. Unknown
+/// strings rank as info. "resolved" notices are routed by the incident's fire
+/// severity, not their own.
+pub fn severity_rank(severity: &str) -> u8 {
+    match severity {
+        "critical" => 2,
+        "warning" => 1,
+        _ => 0,
+    }
+}
+
+/// Whether a channel with the given severity floor accepts an alert of
+/// `severity`. No floor accepts everything.
+pub fn channel_accepts(min_severity: Option<&str>, severity: &str) -> bool {
+    match min_severity {
+        None => true,
+        Some(min) => severity_rank(severity) >= severity_rank(min),
+    }
+}
+
 /// Whether a failed delivery is worth retrying: network errors (no status),
 /// server errors, and rate limits. Client errors (bad webhook, revoked token,
 /// missing integration) won't get better on their own.
@@ -140,6 +160,19 @@ mod tests {
         let mut bad_request = SendResult::err("pagerduty", "invalid key");
         bad_request.status = Some(400);
         assert!(!is_retryable(&bad_request));
+    }
+
+    #[test]
+    fn severity_routing() {
+        assert!(channel_accepts(None, "info"));
+        assert!(channel_accepts(None, "critical"));
+        assert!(channel_accepts(Some("warning"), "critical"));
+        assert!(channel_accepts(Some("warning"), "warning"));
+        assert!(!channel_accepts(Some("warning"), "info"));
+        assert!(!channel_accepts(Some("critical"), "warning"));
+        // Unknown severities rank lowest on both sides.
+        assert!(channel_accepts(Some("bogus"), "info"));
+        assert!(!channel_accepts(Some("critical"), "bogus"));
     }
 
     #[test]

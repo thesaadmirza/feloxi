@@ -26,11 +26,11 @@ import { timeAgo } from "@/lib/utils";
 import { ErrorAlert } from "@/components/shared/error-alert";
 import { Pagination } from "@/components/shared/pagination";
 import { useHasPermission } from "@/hooks/use-current-user";
-import type { AlertRule, AlertHistory, AlertChannel } from "@/types/api";
+import type { AlertRule, AlertHistory, AlertChannel, AlertSilence } from "@/types/api";
 
 const HISTORY_LIMIT = 50;
 
-type TabId = "rules" | "history";
+type TabId = "rules" | "history" | "silences";
 type ConditionType =
   | "task_failure_rate"
   | "queue_depth"
@@ -136,6 +136,8 @@ type ChannelForm = {
 };
 
 function normalizeChannel(ch: ChannelForm): AlertChannel {
+  // Severity floor applies to every channel kind; omit when unset ("any").
+  const minSeverity = (ch.min_severity as string) || undefined;
   switch (ch.type) {
     case "slack_connection":
       return {
@@ -143,24 +145,34 @@ function normalizeChannel(ch: ChannelForm): AlertChannel {
         integration_id: (ch.integration_id as string) ?? "",
         channel_id: (ch.channel_id as string) ?? "",
         channel_name: (ch.channel_name as string) ?? "",
+        min_severity: minSeverity,
       } as AlertChannel;
     case "slack":
-      return { type: "slack", webhook_url: (ch.webhook_url as string) ?? "" } as AlertChannel;
+      return {
+        type: "slack",
+        webhook_url: (ch.webhook_url as string) ?? "",
+        min_severity: minSeverity,
+      } as AlertChannel;
     case "email": {
       const raw = ch.to;
       const to = Array.isArray(raw)
         ? (raw as string[])
         : ((raw as string) ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-      return { type: "email", to } as AlertChannel;
+      return { type: "email", to, min_severity: minSeverity } as AlertChannel;
     }
     case "webhook":
       return {
         type: "webhook",
         url: (ch.url as string) ?? "",
         headers: (ch.headers as Record<string, string> | null) ?? null,
+        min_severity: minSeverity,
       } as AlertChannel;
     case "pagerduty":
-      return { type: "pagerduty", routing_key: (ch.routing_key as string) ?? "" } as AlertChannel;
+      return {
+        type: "pagerduty",
+        routing_key: (ch.routing_key as string) ?? "",
+        min_severity: minSeverity,
+      } as AlertChannel;
     default:
       // Unknown/not-yet-UI-editable variants (e.g. discord_connection): pass
       // through verbatim so editing an existing rule doesn't drop them.
@@ -739,6 +751,16 @@ function ChannelEditor({
             placeholder="PagerDuty Events API v2 key" />
         </div>
       )}
+      <div className="flex items-center gap-2">
+        <label className="text-sm text-muted-foreground w-24 shrink-0">Severity</label>
+        <select value={(channel.min_severity as string) ?? ""}
+          onChange={(e) => onChange(index, "min_severity", e.target.value || undefined)}
+          className="bg-secondary border border-border text-foreground text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring">
+          <option value="">All severities</option>
+          <option value="warning">Warning and above</option>
+          <option value="critical">Critical only</option>
+        </select>
+      </div>
     </div>
   );
 }
@@ -771,6 +793,9 @@ function AlertRuleModal({
     return [];
   });
   const [cooldownSecs, setCooldownSecs] = useState(editRule?.cooldown_secs ?? 300);
+  const [severityOverride, setSeverityOverride] = useState<string>(
+    editRule?.severity_override ?? ""
+  );
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const mutation = useMutation({
@@ -781,6 +806,7 @@ function AlertRuleModal({
         condition: normalizeCondition(conditionType, conditionValues),
         channels: channels.map(normalizeChannel),
         cooldown_secs: cooldownSecs,
+        severity_override: severityOverride || null,
       };
       if (isEditing)
         return unwrap(
@@ -924,7 +950,7 @@ function AlertRuleModal({
             )}
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-4">
             <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Settings</h3>
             <div>
               <label className={labelClass}>Cooldown (seconds)</label>
@@ -932,6 +958,19 @@ function AlertRuleModal({
                 onChange={(e) => setCooldownSecs(parseInt(e.target.value))}
                 className={`${inputClass} max-w-xs`} />
               <p className="text-xs text-muted-foreground mt-1">Minimum time between repeated notifications.</p>
+            </div>
+            <div>
+              <label className={labelClass}>Severity</label>
+              <select value={severityOverride} onChange={(e) => setSeverityOverride(e.target.value)}
+                className={`${inputClass} max-w-xs`}>
+                <option value="">Auto (from condition)</option>
+                <option value="info">Info</option>
+                <option value="warning">Warning</option>
+                <option value="critical">Critical</option>
+              </select>
+              <p className="text-xs text-muted-foreground mt-1">
+                Overrides the severity this rule fires with. Channels can filter on it.
+              </p>
             </div>
           </div>
 
@@ -981,6 +1020,7 @@ function RulesTab({
             channels: rule.channels as AlertChannel[],
             cooldown_secs: rule.cooldown_secs,
             is_enabled: !rule.is_enabled,
+            severity_override: rule.severity_override ?? null,
           } as never,
         })
       ),
@@ -1251,6 +1291,169 @@ function HistoryTab({ history, isLoading, hasMore, total, page, onNext, onPrev }
   );
 }
 
+function timeUntil(dateInput: string): string {
+  const diff = (new Date(dateInput).getTime() - Date.now()) / 1000;
+  if (diff <= 0) return "now";
+  if (diff < 3600) return `${Math.ceil(diff / 60)}m`;
+  if (diff < 86400) return `${Math.ceil(diff / 3600)}h`;
+  return `${Math.ceil(diff / 86400)}d`;
+}
+
+function SilencesTab({ rules, canWrite }: { rules: AlertRule[]; canWrite: boolean }) {
+  const queryClient = useQueryClient();
+  const { data, isLoading, isError } = $api.useQuery("get", "/api/v1/alerts/silences");
+  const silences = (data?.data ?? []) as AlertSilence[];
+
+  const [ruleId, setRuleId] = useState<string>("");
+  const [durationMinutes, setDurationMinutes] = useState(60);
+  const [reason, setReason] = useState("");
+
+  const ruleNames = new Map(rules.map((r) => [r.id, r.name]));
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: ["get", "/api/v1/alerts/silences"] });
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      unwrap(
+        fetchClient.POST("/api/v1/alerts/silences", {
+          body: {
+            rule_id: ruleId || null,
+            reason: reason.trim() || null,
+            duration_minutes: durationMinutes,
+          } as never,
+        })
+      ),
+    onSuccess: () => {
+      setReason("");
+      invalidate();
+    },
+  });
+
+  const expireMutation = useMutation({
+    mutationFn: (id: string) =>
+      unwrap(
+        fetchClient.DELETE("/api/v1/alerts/silences/{silence_id}", {
+          params: { path: { silence_id: id } },
+        })
+      ),
+    onSuccess: invalidate,
+  });
+
+  const now = Date.now();
+  const isActive = (s: AlertSilence) => new Date(s.ends_at).getTime() > now;
+
+  return (
+    <div className="space-y-6">
+      {canWrite && (
+        <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+            New Silence
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            Notifications are held while a silence is active. Incidents still open and resolve,
+            so history stays accurate.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div>
+              <label className={labelClass}>Scope</label>
+              <select value={ruleId} onChange={(e) => setRuleId(e.target.value)} className={inputClass}>
+                <option value="">All rules</option>
+                {rules.map((r) => (
+                  <option key={r.id} value={r.id}>{r.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>Duration</label>
+              <select value={durationMinutes}
+                onChange={(e) => setDurationMinutes(parseInt(e.target.value))} className={inputClass}>
+                <option value={30}>30 minutes</option>
+                <option value={60}>1 hour</option>
+                <option value={240}>4 hours</option>
+                <option value={1440}>24 hours</option>
+                <option value={10080}>7 days</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>Reason</label>
+              <input type="text" value={reason} onChange={(e) => setReason(e.target.value)}
+                className={inputClass} placeholder="e.g. planned maintenance" />
+            </div>
+          </div>
+          <button
+            onClick={() => createMutation.mutate()}
+            disabled={createMutation.isPending}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition disabled:opacity-50"
+          >
+            {createMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <BellOff className="h-4 w-4" />
+            )}
+            Silence
+          </button>
+          {createMutation.isError && (
+            <p className="text-sm text-destructive">
+              {createMutation.error instanceof Error ? createMutation.error.message : "Failed to create silence"}
+            </p>
+          )}
+        </div>
+      )}
+
+      {isError && <ErrorAlert>Failed to load silences</ErrorAlert>}
+
+      {isLoading ? (
+        <div className="rounded-xl border border-border bg-card p-5 animate-pulse">
+          <div className="h-4 bg-secondary rounded w-64" />
+        </div>
+      ) : silences.length === 0 ? (
+        <div className="rounded-xl border border-border bg-card p-8 text-center">
+          <BellOff className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground">No silences. Alerts notify normally.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {silences.map((s) => {
+            const active = isActive(s);
+            return (
+              <div key={s.id}
+                className={`rounded-xl border bg-card p-4 flex items-center justify-between gap-4 ${
+                  active ? "border-[#eab308]/40" : "border-border opacity-60"
+                }`}>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium text-foreground">
+                      {s.rule_id ? (ruleNames.get(s.rule_id) ?? "Deleted rule") : "All rules"}
+                    </span>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                      active ? "bg-[#eab308]/20 text-[#eab308]" : "bg-secondary text-muted-foreground"
+                    }`}>
+                      {active ? "active" : "expired"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {active ? `Ends in ${timeUntil(s.ends_at)}` : `Ended ${timeAgo(s.ends_at)}`}
+                    {s.reason ? ` — ${s.reason}` : ""}
+                  </p>
+                </div>
+                {canWrite && active && (
+                  <button
+                    onClick={() => expireMutation.mutate(s.id)}
+                    disabled={expireMutation.isPending}
+                    className="shrink-0 px-3 py-1.5 rounded-lg bg-secondary text-sm text-foreground hover:bg-secondary/80 transition disabled:opacity-50"
+                  >
+                    End now
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AlertsPage() {
   const canWrite = useHasPermission("alerts_write");
   const [activeTab, setActiveTab] = useState<TabId>("rules");
@@ -1320,6 +1523,15 @@ export default function AlertsPage() {
           <History className="h-4 w-4" />
           History
         </button>
+        <button
+          onClick={() => setActiveTab("silences")}
+          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition ${
+            activeTab === "silences" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <BellOff className="h-4 w-4" />
+          Silences
+        </button>
       </div>
 
       {activeTab === "rules" && rulesError && (
@@ -1353,6 +1565,7 @@ export default function AlertsPage() {
           onPrev={() => setHistoryOffset((prev) => Math.max(0, prev - HISTORY_LIMIT))}
         />
       )}
+      {activeTab === "silences" && <SilencesTab rules={rules} canWrite={canWrite} />}
 
       {modalState.open && (
         <AlertRuleModal
