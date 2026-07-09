@@ -92,6 +92,11 @@ pub enum EventPayload {
         severity: String,
         summary: String,
     },
+    AlertResolved {
+        rule_id: Uuid,
+        rule_name: String,
+        summary: String,
+    },
     MetricsSummary {
         throughput: f64,
         failure_rate: f64,

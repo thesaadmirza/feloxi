@@ -146,3 +146,141 @@ pub(crate) async fn mark_integration_revoked(state: &AppState, tenant_id: Uuid, 
     // A revoked token can't list channels — drop the stale cache.
     let _ = db::redis::cache::clear_slack_channels(&state.redis, id).await;
 }
+
+/// A failed channel delivery queued for retry. Serialized into the Redis ZSET
+/// scored by next-attempt time.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub(crate) struct DeliveryRetryJob {
+    pub tenant_id: Uuid,
+    /// History row whose delivery log gets updated after the retry.
+    pub history_id: Uuid,
+    /// The attempt about to run (2-based: attempt 1 was the inline send).
+    pub attempt: u32,
+    pub channel: AlertChannel,
+    pub alert: FiredAlert,
+}
+
+/// Queue a retry for a failed delivery, if the failure is transient and the
+/// attempt budget allows. `attempt` is the attempt that just failed.
+pub(crate) async fn maybe_schedule_retry(
+    state: &AppState,
+    tenant_id: Uuid,
+    history_id: Uuid,
+    attempt: u32,
+    channel: &AlertChannel,
+    alert: &FiredAlert,
+    result: &SendResult,
+) {
+    if !alerting::recovery::is_retryable(result)
+        || attempt >= alerting::recovery::MAX_DELIVERY_ATTEMPTS
+    {
+        return;
+    }
+    let job = DeliveryRetryJob {
+        tenant_id,
+        history_id,
+        attempt: attempt + 1,
+        channel: channel.clone(),
+        alert: alert.clone(),
+    };
+    let json = match serde_json::to_string(&job) {
+        Ok(j) => j,
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to serialize delivery retry job");
+            return;
+        }
+    };
+    let at = common::time::to_unix_f64(&common::time::now())
+        + alerting::recovery::backoff_secs(attempt, result.retry_after);
+    if let Err(e) = db::redis::cache::schedule_delivery_retry(&state.redis, &json, at).await {
+        tracing::warn!(error = ?e, "failed to queue delivery retry");
+    }
+}
+
+/// How many due retries one drain pass processes.
+const RETRY_DRAIN_BATCH: u64 = 50;
+
+/// Drain due delivery retries: re-send, record the outcome on the history row,
+/// and requeue transient failures until the attempt budget runs out.
+pub(crate) async fn drain_delivery_retries(state: &AppState) {
+    let now = common::time::to_unix_f64(&common::time::now());
+    let due = match db::redis::cache::pop_due_delivery_retries(&state.redis, now, RETRY_DRAIN_BATCH)
+        .await
+    {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!(error = ?e, "failed to pop delivery retries");
+            return;
+        }
+    };
+
+    // One tenant+integrations load per tenant per pass, not per job.
+    let mut tenant_cache: HashMap<Uuid, (Tenant, HashMap<Uuid, Integration>)> = HashMap::new();
+
+    for raw in due {
+        let job: DeliveryRetryJob = match serde_json::from_str(&raw) {
+            Ok(j) => j,
+            Err(e) => {
+                tracing::warn!(error = %e, "dropping malformed delivery retry job");
+                continue;
+            }
+        };
+
+        let (tenant, integrations) = match tenant_cache.entry(job.tenant_id) {
+            std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+            std::collections::hash_map::Entry::Vacant(e) => {
+                let Ok(tenant) =
+                    db::postgres::tenants::get_tenant_by_id(&state.pg, job.tenant_id).await
+                else {
+                    tracing::warn!(tenant_id = %job.tenant_id, "dropping retry for missing tenant");
+                    continue;
+                };
+                let integrations =
+                    db::postgres::integrations::map_integrations(&state.pg, job.tenant_id)
+                        .await
+                        .unwrap_or_default();
+                e.insert((tenant, integrations))
+            }
+        };
+
+        let result =
+            deliver_channel(state, &state.http, tenant, integrations, &job.channel, &job.alert)
+                .await;
+
+        let status = db::postgres::models::ChannelDeliveryStatus {
+            success: result.success,
+            error: result.error.clone(),
+        };
+        if let Err(e) = db::postgres::alert_rules::update_delivery_status(
+            &state.pg,
+            job.tenant_id,
+            job.history_id,
+            &result.delivery_key(),
+            &status,
+        )
+        .await
+        {
+            tracing::warn!(error = %e, history_id = %job.history_id, "failed to update delivery log");
+        }
+
+        if result.success {
+            tracing::info!(
+                history_id = %job.history_id,
+                channel = %result.delivery_key(),
+                attempt = job.attempt,
+                "alert delivery retry succeeded"
+            );
+        } else {
+            maybe_schedule_retry(
+                state,
+                job.tenant_id,
+                job.history_id,
+                job.attempt,
+                &job.channel,
+                &job.alert,
+                &result,
+            )
+            .await;
+        }
+    }
+}

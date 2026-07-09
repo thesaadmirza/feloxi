@@ -115,12 +115,24 @@ fn spawn_background_tasks(state: AppState) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
         let mut throttle = alerting::throttle::AlertThrottle::new();
+        let mut resolver = alerting::recovery::ResolveTracker::new();
 
         loop {
             interval.tick().await;
-            if let Err(e) = run_alert_evaluation(&s, &mut throttle).await {
+            if let Err(e) = run_alert_evaluation(&s, &mut throttle, &mut resolver).await {
                 tracing::warn!(error = %e, "Alert evaluation cycle failed");
             }
+        }
+    });
+
+    // Alert delivery retries (every 30s): re-send transient channel failures.
+    let s = state.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        interval.tick().await; // skip immediate first tick
+        loop {
+            interval.tick().await;
+            alert_dispatch::drain_delivery_retries(&s).await;
         }
     });
 
@@ -303,6 +315,7 @@ async fn drain_retry_queue<T: RetryRow>(state: &AppState) {
 async fn run_alert_evaluation(
     state: &AppState,
     throttle: &mut alerting::throttle::AlertThrottle,
+    resolver: &mut alerting::recovery::ResolveTracker,
 ) -> Result<(), String> {
     use alerting::{
         engine::{determine_severity, evaluate_condition, generate_summary, FiredAlert},
@@ -322,8 +335,30 @@ async fn run_alert_evaluation(
             .await
             .unwrap_or_default();
 
-        if db_rules.is_empty() {
+        // Open incidents by rule: drives fire dedup and the resolve half of
+        // the state machine.
+        let open_alerts: std::collections::HashMap<Uuid, chrono::DateTime<chrono::Utc>> =
+            db::postgres::alert_rules::list_open_alerts(&state.pg, tid)
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .map(|o| (o.rule_id, o.first_fired_at))
+                .collect();
+
+        if db_rules.is_empty() && open_alerts.is_empty() {
             continue;
+        }
+
+        // Close incidents whose rule was deleted or disabled — silently, since
+        // the rule (and its channels) may be gone.
+        let enabled_ids: std::collections::HashSet<Uuid> = db_rules.iter().map(|r| r.id).collect();
+        for rule_id in open_alerts.keys() {
+            if !enabled_ids.contains(rule_id) {
+                let _ =
+                    db::postgres::alert_rules::resolve_alerts_for_rule(&state.pg, tid, *rule_id)
+                        .await;
+                resolver.forget(*rule_id);
+            }
         }
 
         // Metrics are fetched lazily per rule (each condition reads different
@@ -341,90 +376,193 @@ async fn run_alert_evaluation(
             let condition = &db_rule.condition.0;
             let channels = &db_rule.channels.0;
 
-            // Check cooldown
-            if throttle.is_throttled(
-                db_rule.id,
-                std::time::Duration::from_secs(db_rule.cooldown_secs as u64),
-            ) {
-                continue;
-            }
-
             let ctx = ctx_builder.context_for(condition).await;
+            let fired = evaluate_condition(condition, &ctx);
+            let open_since = open_alerts.get(&db_rule.id).copied();
 
-            let resolved = ResolvedAlertRule {
-                id: db_rule.id,
-                tenant_id: tid,
-                name: db_rule.name.clone(),
-                condition: condition.clone(),
-                channels: channels.clone(),
-                cooldown_secs: db_rule.cooldown_secs as u64,
-            };
+            match (fired, open_since) {
+                // Still firing: already notified when the incident opened.
+                (true, Some(_)) => {
+                    resolver.record_firing(db_rule.id);
+                }
 
-            // Evaluate
-            if !evaluate_condition(condition, &ctx) {
-                continue;
+                // New incident — unless we're inside the flap cooldown.
+                (true, None) => {
+                    resolver.record_firing(db_rule.id);
+                    if throttle.is_throttled(
+                        db_rule.id,
+                        std::time::Duration::from_secs(db_rule.cooldown_secs as u64),
+                    ) {
+                        continue;
+                    }
+
+                    let resolved_rule = ResolvedAlertRule {
+                        id: db_rule.id,
+                        tenant_id: tid,
+                        name: db_rule.name.clone(),
+                        condition: condition.clone(),
+                        channels: channels.clone(),
+                        cooldown_secs: db_rule.cooldown_secs as u64,
+                    };
+
+                    let severity = determine_severity(condition);
+                    let summary = generate_summary(&resolved_rule, &ctx);
+                    let details = alerting::engine::generate_details(condition, &ctx);
+                    let condition_type =
+                        Some(alerting::engine::condition_type_str(condition).to_string());
+
+                    let alert = FiredAlert {
+                        id: Uuid::new_v4(),
+                        rule_id: db_rule.id,
+                        tenant_id: tid,
+                        rule_name: db_rule.name.clone(),
+                        condition_type,
+                        severity: severity.to_string(),
+                        summary: summary.clone(),
+                        details: details.clone(),
+                        fired_at: chrono::Utc::now().timestamp() as f64,
+                    };
+
+                    tracing::info!(
+                        rule = %db_rule.name,
+                        severity,
+                        tenant_id = %tid,
+                        "Alert fired: {summary}"
+                    );
+
+                    // Send to all channels and collect delivery results, keyed
+                    // per delivery (type:integration_id) so same-kind
+                    // integrations don't overwrite each other.
+                    let mut delivery_log = std::collections::HashMap::new();
+                    let mut failed: Vec<(
+                        alerting::rules::AlertChannel,
+                        alerting::channels::SendResult,
+                    )> = Vec::new();
+                    for channel in channels {
+                        let result = alert_dispatch::deliver_channel(
+                            state,
+                            &state.http,
+                            tenant,
+                            &integrations,
+                            channel,
+                            &alert,
+                        )
+                        .await;
+                        delivery_log.insert(
+                            result.delivery_key(),
+                            ChannelDeliveryStatus {
+                                success: result.success,
+                                error: result.error.clone(),
+                            },
+                        );
+                        if !result.success {
+                            failed.push((channel.clone(), result));
+                        }
+                    }
+
+                    // Record the incident, then queue retries for transient
+                    // delivery failures against its history row.
+                    match db::postgres::alert_rules::record_alert_fired(
+                        &state.pg,
+                        tid,
+                        db_rule.id,
+                        severity,
+                        &summary,
+                        &details,
+                        &delivery_log,
+                    )
+                    .await
+                    {
+                        Ok(row) => {
+                            for (channel, result) in &failed {
+                                alert_dispatch::maybe_schedule_retry(
+                                    state, tid, row.id, 1, channel, &alert, result,
+                                )
+                                .await;
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, rule = %db_rule.name, "failed to record alert history");
+                        }
+                    }
+
+                    let _ = state.event_tx.send(TenantEvent {
+                        tenant_id: tid,
+                        payload: state::EventPayload::AlertFired {
+                            rule_id: db_rule.id,
+                            rule_name: db_rule.name.clone(),
+                            severity: severity.to_string(),
+                            summary: summary.clone(),
+                        },
+                    });
+
+                    throttle.record_fired(db_rule.id);
+                }
+
+                // Open incident evaluating clear: resolve after two
+                // consecutive clear passes so a hovering metric doesn't
+                // ping-pong fired/resolved notifications.
+                (false, Some(since)) => {
+                    if !resolver.record_clear(db_rule.id) {
+                        continue;
+                    }
+                    let _ = db::postgres::alert_rules::resolve_alerts_for_rule(
+                        &state.pg, tid, db_rule.id,
+                    )
+                    .await;
+                    resolver.forget(db_rule.id);
+
+                    let firing_secs = (chrono::Utc::now() - since).num_seconds().max(0) as f64;
+                    let summary = format!(
+                        "Alert '{}' resolved (was firing for {})",
+                        db_rule.name,
+                        common::time::format_duration_secs(firing_secs)
+                    );
+                    tracing::info!(rule = %db_rule.name, tenant_id = %tid, "{summary}");
+
+                    let notice = FiredAlert {
+                        id: Uuid::new_v4(),
+                        rule_id: db_rule.id,
+                        tenant_id: tid,
+                        rule_name: db_rule.name.clone(),
+                        condition_type: Some(
+                            alerting::engine::condition_type_str(condition).to_string(),
+                        ),
+                        severity: "resolved".to_string(),
+                        summary: summary.clone(),
+                        details: serde_json::json!({
+                            "firing_duration_seconds": firing_secs,
+                        }),
+                        fired_at: chrono::Utc::now().timestamp() as f64,
+                    };
+                    // Best-effort: resolve notices aren't retried.
+                    for channel in channels {
+                        let _ = alert_dispatch::deliver_channel(
+                            state,
+                            &state.http,
+                            tenant,
+                            &integrations,
+                            channel,
+                            &notice,
+                        )
+                        .await;
+                    }
+
+                    let _ = state.event_tx.send(TenantEvent {
+                        tenant_id: tid,
+                        payload: state::EventPayload::AlertResolved {
+                            rule_id: db_rule.id,
+                            rule_name: db_rule.name.clone(),
+                            summary,
+                        },
+                    });
+                }
+
+                // Quiet and nothing open: drop any leftover streak state.
+                (false, None) => {
+                    resolver.forget(db_rule.id);
+                }
             }
-
-            // Fire!
-            let severity = determine_severity(condition);
-            let summary = generate_summary(&resolved, &ctx);
-
-            let details = alerting::engine::generate_details(condition, &ctx);
-            let condition_type = Some(alerting::engine::condition_type_str(condition).to_string());
-
-            let alert = FiredAlert {
-                id: Uuid::new_v4(),
-                rule_id: db_rule.id,
-                tenant_id: tid,
-                rule_name: db_rule.name.clone(),
-                condition_type,
-                severity: severity.to_string(),
-                summary: summary.clone(),
-                details: details.clone(),
-                fired_at: chrono::Utc::now().timestamp() as f64,
-            };
-
-            tracing::info!(
-                rule = %db_rule.name,
-                severity,
-                tenant_id = %tid,
-                "Alert fired: {summary}"
-            );
-
-            // Send to all channels and collect delivery results, keyed per
-            // delivery (type:integration_id) so same-kind integrations don't
-            // overwrite each other.
-            let mut delivery_log = std::collections::HashMap::new();
-            for channel in channels {
-                let result = alert_dispatch::deliver_channel(
-                    state,
-                    &state.http,
-                    tenant,
-                    &integrations,
-                    channel,
-                    &alert,
-                )
-                .await;
-                delivery_log.insert(
-                    result.delivery_key(),
-                    ChannelDeliveryStatus { success: result.success, error: result.error },
-                );
-            }
-
-            // Record in DB
-            let _ = db::postgres::alert_rules::record_alert_fired(
-                &state.pg,
-                tid,
-                db_rule.id,
-                severity,
-                &summary,
-                &details,
-                &delivery_log,
-            )
-            .await;
-
-            // Record in throttle
-            throttle.record_fired(db_rule.id);
         }
     }
 
