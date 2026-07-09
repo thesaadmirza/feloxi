@@ -58,8 +58,35 @@ pub async fn set_worker_state(
     pool.set::<(), _, _>(&hb_key, "1", Some(Expiration::EX(90)), None, false).await?;
     // Add to online set
     pool.sadd::<(), _, _>(&online_key, worker_id).await?;
+    // Track when any worker was last seen alive (no TTL) so the worker-offline
+    // alert can measure staleness beyond the heartbeat key's expiry.
+    let last_seen_key = keys::workers_last_seen(tenant_id);
+    let now = common::time::to_unix_f64(&common::time::now());
+    pool.set::<(), _, _>(&last_seen_key, now.to_string().as_str(), None, None, false).await?;
 
     Ok(())
+}
+
+/// Unix-seconds timestamp of the last worker state update for a tenant, if any
+/// worker has ever been seen.
+pub async fn get_workers_last_seen(pool: &Pool, tenant_id: Uuid) -> Result<Option<f64>, Error> {
+    let key = keys::workers_last_seen(tenant_id);
+    let val: Option<String> = pool.get(&key).await?;
+    Ok(val.and_then(|v| v.parse::<f64>().ok()))
+}
+
+/// Count how many of the tenant's online-set workers still have a live
+/// heartbeat key. A crashed worker never sends `worker-offline`, so it lingers
+/// in the online set forever; the heartbeat TTL is the ground truth for
+/// liveness. Returns (online_set_size, live_count).
+pub async fn count_live_workers(pool: &Pool, tenant_id: Uuid) -> Result<(usize, usize), Error> {
+    let ids = get_online_workers(pool, tenant_id).await?;
+    if ids.is_empty() {
+        return Ok((0, 0));
+    }
+    let hb_keys: Vec<String> = ids.iter().map(|w| keys::worker_heartbeat(tenant_id, w)).collect();
+    let live: i64 = pool.exists(hb_keys).await?;
+    Ok((ids.len(), live.max(0) as usize))
 }
 
 /// Remove worker from online set.

@@ -18,6 +18,13 @@ pub fn workers_online(tenant_id: Uuid) -> String {
     format!("fp:{tenant_id}:workers:online")
 }
 
+/// Unix-seconds timestamp of the most recent worker state update for a tenant.
+/// No TTL: the worker-offline alert reads it to honor grace periods longer
+/// than the heartbeat key's 90s expiry.
+pub fn workers_last_seen(tenant_id: Uuid) -> String {
+    format!("fp:{tenant_id}:workers:last_seen")
+}
+
 pub fn task_state(tenant_id: Uuid, task_id: &str) -> String {
     format!("fp:{tenant_id}:task:{task_id}:state")
 }
