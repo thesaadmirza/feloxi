@@ -43,37 +43,65 @@ impl BrokerConnectionManager {
         let cancel_clone = cancel.clone();
 
         let handle = tokio::spawn(async move {
-            match broker_type.as_str() {
-                "redis" => {
-                    redis_consumer::run_redis_consumer(
-                        state,
-                        tenant_id,
-                        config_id,
-                        connection_url,
-                        cancel_clone,
-                    )
-                    .await;
+            // Supervise the consumer: a death that wasn't a requested stop
+            // (broker unreachable at boot, pubsub stream closed) restarts
+            // with backoff. Without this, one transient failure killed event
+            // ingestion permanently and left the status stuck on error.
+            let mut backoff_secs: u64 = 5;
+            loop {
+                let started = tokio::time::Instant::now();
+                match broker_type.as_str() {
+                    "redis" => {
+                        redis_consumer::run_redis_consumer(
+                            state.clone(),
+                            tenant_id,
+                            config_id,
+                            connection_url.clone(),
+                            cancel_clone.clone(),
+                        )
+                        .await;
+                    }
+                    "rabbitmq" | "amqp" => {
+                        amqp_consumer::run_amqp_consumer(
+                            state.clone(),
+                            tenant_id,
+                            config_id,
+                            connection_url.clone(),
+                            cancel_clone.clone(),
+                        )
+                        .await;
+                    }
+                    other => {
+                        tracing::error!(%config_id, "Unsupported broker type: {other}");
+                        let _ = db::postgres::broker_configs::update_broker_config_status(
+                            &state.pg,
+                            config_id,
+                            "error",
+                            Some(&format!("Unsupported broker type: {other}")),
+                        )
+                        .await;
+                        return;
+                    }
                 }
-                "rabbitmq" | "amqp" => {
-                    amqp_consumer::run_amqp_consumer(
-                        state,
-                        tenant_id,
-                        config_id,
-                        connection_url,
-                        cancel_clone,
-                    )
-                    .await;
+
+                if cancel_clone.is_cancelled() {
+                    return;
                 }
-                other => {
-                    tracing::error!(%config_id, "Unsupported broker type: {other}");
-                    let _ = db::postgres::broker_configs::update_broker_config_status(
-                        &state.pg,
-                        config_id,
-                        "error",
-                        Some(&format!("Unsupported broker type: {other}")),
-                    )
-                    .await;
+
+                // A run that survived a while was healthy — reset the backoff.
+                if started.elapsed() > std::time::Duration::from_secs(300) {
+                    backoff_secs = 5;
                 }
+                tracing::warn!(
+                    %config_id,
+                    backoff_secs,
+                    "Broker consumer exited unexpectedly; restarting"
+                );
+                tokio::select! {
+                    _ = cancel_clone.cancelled() => return,
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)) => {}
+                }
+                backoff_secs = (backoff_secs * 2).min(60);
             }
         });
 
