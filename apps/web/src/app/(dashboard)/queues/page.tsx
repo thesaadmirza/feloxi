@@ -65,9 +65,13 @@ export default function QueuesPage() {
   const connectedBrokers = brokers.filter((b) => b.status === "connected");
 
   const [selectedBrokerId, setSelectedBrokerId] = useState<string | undefined>(undefined);
-  const activeBroker = selectedBrokerId
-    ? connectedBrokers.find((b) => b.id === selectedBrokerId) ?? connectedBrokers[0]
-    : connectedBrokers[0];
+  // Live depths come from a direct on-demand broker connection, independent of
+  // the event consumer — so any broker is queryable, whatever its consumer
+  // status. Prefer a connected one as the default.
+  const activeBroker =
+    (selectedBrokerId ? brokers.find((b) => b.id === selectedBrokerId) : undefined) ??
+    connectedBrokers[0] ??
+    brokers[0];
 
   const {
     data: queueData,
@@ -129,7 +133,7 @@ export default function QueuesPage() {
           <p className="text-sm text-muted-foreground mt-0.5">Live queue depths from connected broker</p>
         </div>
         <div className="flex items-center gap-2">
-          {connectedBrokers.length > 1 && (
+          {brokers.length > 1 && (
             <div className="relative">
               <select
                 value={activeBroker?.id ?? ""}
@@ -137,9 +141,10 @@ export default function QueuesPage() {
                 className="appearance-none pl-3 pr-8 py-2 bg-secondary border border-border text-foreground text-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
                 aria-label="Select broker"
               >
-                {connectedBrokers.map((b) => (
+                {brokers.map((b) => (
                   <option key={b.id} value={b.id}>
-                    {b.broker_type.toUpperCase()} — {b.id.slice(0, 8)}
+                    {b.broker_type.toUpperCase()} — {b.name || b.id.slice(0, 8)}
+                    {b.status !== "connected" ? ` (${b.status})` : ""}
                   </option>
                 ))}
               </select>
@@ -162,7 +167,7 @@ export default function QueuesPage() {
         </div>
       )}
 
-      {!activeBroker && !isLoading && brokers.length === 0 && (
+      {!activeBroker && !isLoading && (
         <EmptyState
           icon={<Layers className="w-8 h-8" />}
           title="No broker configured"
@@ -170,42 +175,16 @@ export default function QueuesPage() {
         />
       )}
 
-      {!activeBroker && !isLoading && brokers.length > 0 && (
-        <div className="space-y-3">
-          <EmptyState
-            icon={<AlertTriangle className="w-8 h-8" />}
-            title="Broker not connected"
-            description="Queue depths come from a live broker connection. Your broker exists but isn't connected right now:"
-          />
-          <div className="max-w-xl mx-auto space-y-2">
-            {brokers.map((b) => (
-              <div
-                key={b.id}
-                className="rounded-lg border border-border bg-card px-4 py-3 text-sm flex items-center justify-between gap-3"
-              >
-                <div className="min-w-0">
-                  <span className="font-medium text-foreground">{b.name || b.broker_type}</span>
-                  <span className="ml-2 text-xs text-muted-foreground uppercase">{b.broker_type}</span>
-                  {b.last_error && (
-                    <p className="text-xs text-red-400 mt-1 truncate" title={b.last_error}>
-                      {b.last_error}
-                    </p>
-                  )}
-                </div>
-                <span
-                  className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${
-                    b.status === "error"
-                      ? "text-red-400 bg-red-400/10 border-red-400/20"
-                      : "text-yellow-400 bg-yellow-400/10 border-yellow-400/20"
-                  }`}
-                >
-                  {b.status}
-                </span>
-              </div>
-            ))}
-            <p className="text-xs text-muted-foreground text-center">
-              Check the broker&apos;s status on the Brokers page — reconnecting it restores this view.
-            </p>
+      {activeBroker && activeBroker.status !== "connected" && (
+        <div className="flex items-start gap-2 px-4 py-3 bg-yellow-400/10 border border-yellow-400/30 rounded-lg text-sm">
+          <AlertTriangle className="w-4 h-4 shrink-0 text-yellow-400 mt-0.5" />
+          <div className="min-w-0 text-yellow-400">
+            Event consumer for this broker is <span className="font-medium">{activeBroker.status}</span>
+            {activeBroker.last_error ? (
+              <span className="text-yellow-400/80"> — {activeBroker.last_error}</span>
+            ) : null}
+            . Depths below come from a direct broker connection and stay live; task events may be
+            delayed until the consumer reconnects (it retries automatically).
           </div>
         </div>
       )}
