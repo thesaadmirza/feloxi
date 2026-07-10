@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] — 2026-07-10
+
+### Fixed
+
+- Broker event consumers restart themselves. A consumer that failed to connect at boot (broker briefly unreachable while pods come up) or whose event stream closed mid-run stayed dead — and the broker status stuck on `error` — until a manual restart. The connection manager now supervises consumers with 5s–60s backoff.
+- The queues page shows live depths for any broker instead of blanking unless the event consumer reported `connected`. Live depths come from a direct broker connection and never depended on the consumer; a not-connected consumer now renders as a warning banner (with the last error) above the data.
+
 ## [2.0.0] — 2026-07-09
 
 The alerting release. Every advertised alert condition now actually evaluates, alerts resolve instead of spamming, and notifications can be silenced and routed by severity. Plus Discord, Google sign-in, and a batch of dashboard fixes.
