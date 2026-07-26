@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   CheckCircle2,
@@ -41,6 +41,8 @@ const TIME_RANGES: TimeRange[] = [
   { label: "7d", minutes: 10080 },
   { label: "30d", minutes: 43200 },
 ];
+
+const TIME_RANGE_KEY = "fp_dashboard_time_range";
 
 const ONBOARDING_STEPS = [
   {
@@ -169,7 +171,18 @@ export default function DashboardPage() {
     { refetchInterval: 30_000 }
   );
 
-  const handleSelectRange = useCallback((r: TimeRange) => setTimeRange(r), []);
+  // Restored after mount rather than in the initial state: reading
+  // localStorage while rendering would not match the server-rendered markup.
+  useEffect(() => {
+    const saved = localStorage.getItem(TIME_RANGE_KEY);
+    const match = TIME_RANGES.find((r) => r.label === saved);
+    if (match) setTimeRange(match);
+  }, []);
+
+  const handleSelectRange = useCallback((r: TimeRange) => {
+    setTimeRange(r);
+    localStorage.setItem(TIME_RANGE_KEY, r.label);
+  }, []);
 
   const taskHref = (state?: string) => {
     const rangeIdMap: Record<number, string> = { 60: "1h", 360: "6h", 1440: "24h", 10080: "7d", 43200: "30d" };
