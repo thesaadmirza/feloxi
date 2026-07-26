@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] — 2026-07-26
+
+### Added
+
+- The getting started panel can be dismissed. It renders whenever the selected window has no tasks, not only on a fresh install, so a working setup that sat idle for an hour got the onboarding steps back with no way to hide them. The dismissal is remembered per browser.
+
+### Fixed
+
+- The dashboard time range survives a reload instead of snapping back to 1h, so a window other than the default no longer has to be reselected on every visit. The selection is remembered per browser.
+
 ## [2.0.1] — 2026-07-10
 
 ### Fixed
