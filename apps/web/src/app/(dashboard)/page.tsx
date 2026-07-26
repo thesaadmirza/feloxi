@@ -14,6 +14,7 @@ import {
   Users,
   Bell,
   ArrowRight,
+  X,
 } from "lucide-react";
 import { $api } from "@/lib/api";
 import { formatDuration, formatPercent, formatNumber } from "@/lib/utils";
@@ -43,6 +44,7 @@ const TIME_RANGES: TimeRange[] = [
 ];
 
 const TIME_RANGE_KEY = "fp_dashboard_time_range";
+const ONBOARDING_DISMISSED_KEY = "fp_onboarding_dismissed";
 
 const ONBOARDING_STEPS = [
   {
@@ -68,9 +70,16 @@ const ONBOARDING_STEPS = [
   },
 ];
 
-function GettingStarted() {
+function GettingStarted({ onDismiss }: { onDismiss: () => void }) {
   return (
-    <div className="rounded-xl border border-border bg-card/50 p-8">
+    <div className="relative rounded-xl border border-border bg-card/50 p-8">
+      <button
+        onClick={onDismiss}
+        className="absolute top-4 right-4 p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-secondary transition"
+        aria-label="Dismiss getting started"
+      >
+        <X className="w-4 h-4" />
+      </button>
       <div className="text-center mb-8">
         <h2 className="text-lg font-bold text-foreground">Welcome to Feloxi</h2>
         <p className="text-sm text-muted-foreground mt-1">
@@ -158,6 +167,7 @@ function Kpi({
 
 export default function DashboardPage() {
   const [timeRange, setTimeRange] = useState<TimeRange>(TIME_RANGES[0]);
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
 
   const {
     data: overview,
@@ -177,11 +187,19 @@ export default function DashboardPage() {
     const saved = localStorage.getItem(TIME_RANGE_KEY);
     const match = TIME_RANGES.find((r) => r.label === saved);
     if (match) setTimeRange(match);
+    if (localStorage.getItem(ONBOARDING_DISMISSED_KEY) === "true") {
+      setOnboardingDismissed(true);
+    }
   }, []);
 
   const handleSelectRange = useCallback((r: TimeRange) => {
     setTimeRange(r);
     localStorage.setItem(TIME_RANGE_KEY, r.label);
+  }, []);
+
+  const dismissOnboarding = useCallback(() => {
+    setOnboardingDismissed(true);
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
   }, []);
 
   const taskHref = (state?: string) => {
@@ -236,7 +254,9 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {!isLoading && !isError && overview?.total_tasks === 0 && <GettingStarted />}
+      {!isLoading && !isError && overview?.total_tasks === 0 && !onboardingDismissed && (
+        <GettingStarted onDismiss={dismissOnboarding} />
+      )}
 
       {/* Live cluster snapshot — running, queued, online workers */}
       <LiveClusterStrip />
