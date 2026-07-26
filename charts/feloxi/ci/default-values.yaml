@@ -1,0 +1,12 @@
+# Throwaway values so CI can render every template. `helm lint` alone only
+# warns when the required secrets are missing and never renders the chart, so
+# these supply the four required fields and nothing else.
+auth:
+  jwtSecret: "ci-jwt-secret-that-is-at-least-32-chars"
+  encryptionKey: "Y2ktb25seS1kdW1teS0zMi1ieXRlLWtleS0wMDAwMDA="
+postgresql:
+  auth:
+    password: "ci-postgres-password"
+clickhouse:
+  auth:
+    password: "ci-clickhouse-password"
