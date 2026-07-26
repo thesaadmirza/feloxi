@@ -1,0 +1,24 @@
+name: Chart CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "charts/**"
+  pull_request:
+    paths:
+      - "charts/**"
+
+jobs:
+  check:
+    name: Lint & Render
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Lint
+        run: helm lint --strict charts/feloxi -f charts/feloxi/ci/default-values.yaml
+      - name: Render
+        run: helm template ci charts/feloxi -f charts/feloxi/ci/default-values.yaml > /dev/null
+      - name: Validate Artifact Hub annotations
+        run: python3 .github/scripts/check-chart-annotations.py
