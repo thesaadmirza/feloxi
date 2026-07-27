@@ -13,7 +13,9 @@
   "packageManager": "pnpm@9.15.0",
   "pnpm": {
     "overrides": {
-      "lodash": ">=4.18.0"
+      "lodash": ">=4.18.0",
+      "postcss": ">=8.5.12",
+      "sharp": ">=0.35.0"
     }
   }
 }
