@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.3] — 2026-07-27
+
+### Security
+
+- Bundled dependencies move past advisories published after 2.0.2: Next.js to 15.5.22 (CVE-2026-64641, CVE-2026-64645, CVE-2026-64649), PostCSS to 8.5.23 (CVE-2026-45623), sharp to 0.35.3 (GHSA-f88m-g3jw-g9cj), and quinn-proto to 0.11.16 (GHSA-4w2j-m93h-cj5j). No application code changed; the published images rebuild on the fixed versions.
+
 ## [2.0.2] — 2026-07-26
 
 ### Added

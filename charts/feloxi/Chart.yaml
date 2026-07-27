@@ -1,7 +1,7 @@
 apiVersion: v2
 name: feloxi
 version: 0.2.0
-appVersion: "2.0.2"
+appVersion: "2.0.3"
 description: >-
   Open-source Celery task queue monitoring platform. Real-time task and worker
   visibility via a Rust API, Next.js dashboard, PostgreSQL, ClickHouse, and Redis.
@@ -30,9 +30,7 @@ annotations:
   artifacthub.io/category: monitoring-logging
   artifacthub.io/license: Apache-2.0
   artifacthub.io/changes: |
-    - kind: fixed
-      description: "App restarts dead broker event consumers and shows live queue depths while a consumer reconnects (2.0.1)"
-    - kind: added
-      description: "App remembers the selected dashboard time range and lets the getting started panel be dismissed (2.0.2)"
-  artifacthub.io/containsSecurityUpdates: "false"
+    - kind: security
+      description: "App images rebuild on fixed Next.js, PostCSS, sharp and quinn-proto (2.0.3)"
+  artifacthub.io/containsSecurityUpdates: "true"
   artifacthub.io/prerelease: "false"
