@@ -1,1 +1,4 @@
 020c477fa2647fda30477ba5ef4144cf0aafede4:apps/web/src/lib/constants.ts:generic-api-key:45
+# Throwaway CI render value, replaced with an obvious placeholder in a later
+# commit. The history entry cannot be edited away, so ignore it by fingerprint.
+8919dd2b54d2a0cd8fc0dea7fb1ffbaec1e9c8ec:charts/feloxi/ci/default-values.yaml:generic-api-key:6
