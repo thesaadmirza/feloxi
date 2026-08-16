@@ -137,24 +137,11 @@ fn value_to_string(value: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uuid::Uuid;
+    use crate::channels::fixtures;
 
     #[test]
     fn footer_names_the_tenant() {
-        let alert = FiredAlert {
-            id: Uuid::nil(),
-            rule_id: Uuid::nil(),
-            tenant_id: Uuid::nil(),
-            rule_name: "Workers offline".into(),
-            condition_type: Some("worker_offline".into()),
-            severity: "critical".into(),
-            summary: "1 worker(s) went offline".into(),
-            details: json!({ "workers_offline_count": 1 }),
-            fired_at: 1_700_000_000.0,
-        };
-        let tenant =
-            AlertTenant { id: Uuid::nil(), name: "Acme Payments".into(), slug: "acme".into() };
-        let embed = build_embed(&alert, &tenant);
+        let embed = build_embed(&fixtures::alert(), &fixtures::tenant());
         assert_eq!(embed["footer"]["text"], "Feloxi Alert Engine • Acme Payments");
     }
 }

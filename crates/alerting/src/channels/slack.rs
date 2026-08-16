@@ -172,28 +172,11 @@ fn format_value(key: &str, value: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uuid::Uuid;
-
-    fn fixtures() -> (FiredAlert, AlertTenant) {
-        let alert = FiredAlert {
-            id: Uuid::nil(),
-            rule_id: Uuid::nil(),
-            tenant_id: Uuid::nil(),
-            rule_name: "Workers offline".into(),
-            condition_type: Some("worker_offline".into()),
-            severity: "critical".into(),
-            summary: "1 worker(s) went offline".into(),
-            details: json!({ "workers_offline_count": 1 }),
-            fired_at: 1_700_000_000.0,
-        };
-        let tenant =
-            AlertTenant { id: Uuid::nil(), name: "Acme Payments".into(), slug: "acme".into() };
-        (alert, tenant)
-    }
+    use crate::channels::fixtures;
 
     #[test]
     fn context_block_names_the_tenant() {
-        let (alert, tenant) = fixtures();
+        let (alert, tenant) = (fixtures::alert(), fixtures::tenant());
         let blocks = build_blocks(&alert, &tenant);
         let context = blocks.last().expect("context block");
         assert_eq!(context["type"], "context");
@@ -205,7 +188,7 @@ mod tests {
 
     #[test]
     fn fallback_text_leads_with_the_tenant() {
-        let (alert, tenant) = fixtures();
+        let (alert, tenant) = (fixtures::alert(), fixtures::tenant());
         assert_eq!(
             fallback_text(&alert, &tenant),
             "[Acme Payments] [CRITICAL] Workers offline: 1 worker(s) went offline"
@@ -214,7 +197,7 @@ mod tests {
 
     #[test]
     fn user_controlled_text_is_escaped_for_mrkdwn() {
-        let (mut alert, mut tenant) = fixtures();
+        let (mut alert, mut tenant) = (fixtures::alert(), fixtures::tenant());
         tenant.name = "Ops <A&B>".into();
         alert.summary = "queue <default> backed up".into();
         alert.details = json!({ "queue": "<default>" });
@@ -227,7 +210,7 @@ mod tests {
 
     #[test]
     fn slack_date_markup_is_left_intact() {
-        let (alert, tenant) = fixtures();
+        let (alert, tenant) = (fixtures::alert(), fixtures::tenant());
         let blocks = build_blocks(&alert, &tenant);
         let elements = &blocks.last().unwrap()["elements"];
         let timestamp = elements[elements.as_array().unwrap().len() - 1]["text"].as_str().unwrap();

@@ -53,30 +53,11 @@ pub(crate) fn build_payload(alert: &FiredAlert, tenant: &AlertTenant) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uuid::Uuid;
-
-    const RULE_ID: Uuid = Uuid::from_u128(0x2b1c);
-
-    fn fixtures() -> (FiredAlert, AlertTenant) {
-        let alert = FiredAlert {
-            id: Uuid::nil(),
-            rule_id: RULE_ID,
-            tenant_id: Uuid::nil(),
-            rule_name: "Workers offline".into(),
-            condition_type: Some("worker_offline".into()),
-            severity: "critical".into(),
-            summary: "1 worker(s) went offline".into(),
-            details: json!({ "workers_offline_count": 1 }),
-            fired_at: 1_700_000_000.0,
-        };
-        let tenant =
-            AlertTenant { id: Uuid::nil(), name: "Acme Payments".into(), slug: "acme".into() };
-        (alert, tenant)
-    }
+    use crate::channels::fixtures::{self, RULE_ID};
 
     #[test]
     fn payload_identifies_the_tenant() {
-        let (alert, tenant) = fixtures();
+        let (alert, tenant) = (fixtures::alert(), fixtures::tenant());
         let payload = build_payload(&alert, &tenant);
         assert_eq!(payload["tenant"]["name"], "Acme Payments");
         assert_eq!(payload["tenant"]["slug"], "acme");
@@ -85,14 +66,13 @@ mod tests {
 
     #[test]
     fn payload_carries_the_rule_id_to_join_on() {
-        let (alert, tenant) = fixtures();
-        let payload = build_payload(&alert, &tenant);
+        let payload = build_payload(&fixtures::alert(), &fixtures::tenant());
         assert_eq!(payload["rule_id"], RULE_ID.to_string());
     }
 
     #[test]
     fn payload_keeps_the_pre_existing_fields() {
-        let (alert, tenant) = fixtures();
+        let (alert, tenant) = (fixtures::alert(), fixtures::tenant());
         let payload = build_payload(&alert, &tenant);
         assert_eq!(payload["rule_name"], "Workers offline");
         assert_eq!(payload["condition_type"], "worker_offline");

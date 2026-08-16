@@ -63,43 +63,24 @@ pub(crate) fn build_payload(routing_key: &str, alert: &FiredAlert, tenant: &Aler
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uuid::Uuid;
-
-    fn alert() -> FiredAlert {
-        FiredAlert {
-            id: Uuid::nil(),
-            rule_id: Uuid::nil(),
-            tenant_id: Uuid::nil(),
-            rule_name: "Workers offline".into(),
-            condition_type: Some("worker_offline".into()),
-            severity: "critical".into(),
-            summary: "1 worker(s) went offline".into(),
-            details: json!({ "workers_offline_count": 1 }),
-            fired_at: 1_700_000_000.0,
-        }
-    }
+    use crate::channels::fixtures::{self, RULE_ID};
 
     #[test]
     fn tenant_becomes_the_source_and_reaches_custom_details() {
-        let tenant =
-            AlertTenant { id: Uuid::nil(), name: "Acme Payments".into(), slug: "acme".into() };
-        let payload = build_payload("routing-key", &alert(), &tenant);
+        let payload = build_payload("routing-key", &fixtures::alert(), &fixtures::tenant());
         assert_eq!(payload["payload"]["source"], "Acme Payments");
         assert_eq!(payload["payload"]["custom_details"]["tenant"], "Acme Payments");
         assert_eq!(payload["payload"]["custom_details"]["tenant_slug"], "acme");
         // Condition details survive alongside the tenant keys.
         assert_eq!(payload["payload"]["custom_details"]["workers_offline_count"], 1);
         // Dedup stays keyed on rule+tenant so open incidents keep matching.
-        assert_eq!(
-            payload["dedup_key"],
-            "fp-00000000-0000-0000-0000-000000000000-00000000-0000-0000-0000-000000000000"
-        );
+        assert_eq!(payload["dedup_key"], format!("fp-{}-{}", RULE_ID, uuid::Uuid::nil()));
     }
 
     #[test]
     fn blank_tenant_name_falls_back_to_a_valid_source() {
-        let tenant = AlertTenant { id: Uuid::nil(), name: "  ".into(), slug: "acme".into() };
-        let payload = build_payload("routing-key", &alert(), &tenant);
+        let tenant = AlertTenant { name: "  ".into(), ..fixtures::tenant() };
+        let payload = build_payload("routing-key", &fixtures::alert(), &tenant);
         assert_eq!(payload["payload"]["source"], "Feloxi");
     }
 }
