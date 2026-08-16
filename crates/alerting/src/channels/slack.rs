@@ -40,10 +40,10 @@ pub(crate) fn severity_color(alert: &FiredAlert) -> &'static str {
 pub(crate) fn fallback_text(alert: &FiredAlert, tenant: &AlertTenant) -> String {
     format!(
         "[{}] [{}] {}: {}",
-        tenant.name,
+        mrkdwn_escape(&tenant.name),
         alert.severity.to_uppercase(),
-        alert.rule_name,
-        alert.summary
+        mrkdwn_escape(&alert.rule_name),
+        mrkdwn_escape(&alert.summary)
     )
 }
 
@@ -72,7 +72,7 @@ pub(crate) fn build_blocks(alert: &FiredAlert, tenant: &AlertTenant) -> Vec<Valu
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": alert.summary
+                "text": mrkdwn_escape(&alert.summary)
             }
         }),
     ];
@@ -101,6 +101,7 @@ pub(crate) fn build_blocks(alert: &FiredAlert, tenant: &AlertTenant) -> Vec<Valu
             "text": format!("Type: `{ct}`")
         }));
     }
+    // Not escaped: the <!date^…> is deliberate Slack markup, not user text.
     context_elements.push(json!({
         "type": "mrkdwn",
         "text": format!("Feloxi Alert Engine | <!date^{}^{{date_short_pretty}} {{time}}|{}>",
@@ -118,7 +119,9 @@ pub(crate) fn build_blocks(alert: &FiredAlert, tenant: &AlertTenant) -> Vec<Valu
     blocks
 }
 
-/// Escape the three characters Slack reserves in message text.
+/// Escape the three characters Slack reserves in message text. Applied to every
+/// user-controlled value (tenant name, rule name, summary, detail keys and
+/// values) — never to the markup Feloxi builds itself, such as `<!date^…>`.
 fn mrkdwn_escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
@@ -131,8 +134,8 @@ fn format_detail_fields(details: &Value) -> Vec<Value> {
 
     obj.iter()
         .map(|(key, value)| {
-            let label = super::snake_to_title(key);
-            let display = format_value(key, value);
+            let label = mrkdwn_escape(&super::snake_to_title(key));
+            let display = mrkdwn_escape(&format_value(key, value));
             json!({
                 "type": "mrkdwn",
                 "text": format!("*{label}*\n{display}")
@@ -210,11 +213,24 @@ mod tests {
     }
 
     #[test]
-    fn tenant_name_is_escaped_for_mrkdwn() {
-        let (alert, mut tenant) = fixtures();
+    fn user_controlled_text_is_escaped_for_mrkdwn() {
+        let (mut alert, mut tenant) = fixtures();
         tenant.name = "Ops <A&B>".into();
+        alert.summary = "queue <default> backed up".into();
+        alert.details = json!({ "queue": "<default>" });
+
         let blocks = build_blocks(&alert, &tenant);
-        let context = blocks.last().unwrap();
-        assert_eq!(context["elements"][0]["text"], "Tenant: *Ops &lt;A&amp;B&gt;*");
+        assert_eq!(blocks[1]["text"]["text"], "queue &lt;default&gt; backed up");
+        assert_eq!(blocks[3]["fields"][0]["text"], "*Queue*\n&lt;default&gt;");
+        assert_eq!(blocks.last().unwrap()["elements"][0]["text"], "Tenant: *Ops &lt;A&amp;B&gt;*");
+    }
+
+    #[test]
+    fn slack_date_markup_is_left_intact() {
+        let (alert, tenant) = fixtures();
+        let blocks = build_blocks(&alert, &tenant);
+        let elements = &blocks.last().unwrap()["elements"];
+        let timestamp = elements[elements.as_array().unwrap().len() - 1]["text"].as_str().unwrap();
+        assert!(timestamp.contains("<!date^"), "date markup must not be escaped");
     }
 }
