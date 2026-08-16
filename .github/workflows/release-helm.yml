@@ -13,11 +13,11 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
 
-      - uses: oras-project/setup-oras@v1
+      - uses: oras-project/setup-oras@v2
 
       - name: Extract version
         id: version
