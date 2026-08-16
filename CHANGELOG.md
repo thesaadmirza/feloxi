@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.4] — 2026-08-16
+
+### Added
+
+- Alert notifications say which tenant they came from. On an instance with several tenants, two of them alerting into one webhook endpoint, Slack channel, or inbox produced messages nothing could tell apart. Webhook payloads gain a `tenant` object (`id`, `name`, `slug`) plus the `rule_id` to join back on, Slack names the tenant in the message context, Discord in the embed footer, email in the subject prefix and header, and PagerDuty as the incident `source` with `tenant` and `tenant_slug` in `custom_details`. PagerDuty's `dedup_key` is unchanged, so open incidents keep matching, and the webhook payload is documented in [docs/integrations.md](docs/integrations.md).
+
+### Fixed
+
+- Alert emails and Slack messages escape the text users write. A rule name, summary, or task name containing `<`, `>`, or `&` went into the HTML email body and the Slack message raw, so it rendered as markup instead of as the name.
+- The "send test" buttons for integrations and SMTP reported a nil tenant id instead of the tenant actually sending.
+
+### Security
+
+- lettre moves to 0.11.22 (CVE-2026-46428, rated critical), which had TLS hostname verification disabled on some paths. lettre is the SMTP client behind alert emails, so it carries the configured SMTP credentials. Anyone sending alert email should upgrade.
+- nanoid moves to 3.3.18 (CVE-2026-67213), an infinite loop reachable through a non-integer size. It arrives through postcss in the web build.
+
 ## [2.0.3] — 2026-07-27
 
 ### Security
