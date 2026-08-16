@@ -3,16 +3,18 @@ use serde_json::{json, Value};
 
 use super::SendResult;
 use crate::engine::FiredAlert;
+use crate::tenant::AlertTenant;
 
 pub async fn send_slack_alert(
     client: &Client,
     webhook_url: &str,
     alert: &FiredAlert,
+    tenant: &AlertTenant,
 ) -> SendResult {
     let payload = json!({
         "attachments": [{
             "color": severity_color(alert),
-            "blocks": build_blocks(alert)
+            "blocks": build_blocks(alert, tenant)
         }]
     });
 
@@ -33,15 +35,22 @@ pub(crate) fn severity_color(alert: &FiredAlert) -> &'static str {
     }
 }
 
-/// Plain-text fallback (notification/accessibility text) for an alert.
-pub(crate) fn fallback_text(alert: &FiredAlert) -> String {
-    format!("[{}] {}: {}", alert.severity.to_uppercase(), alert.rule_name, alert.summary)
+/// Plain-text fallback (notification/accessibility text) for an alert. This is
+/// what a mobile push preview shows, so it leads with the tenant.
+pub(crate) fn fallback_text(alert: &FiredAlert, tenant: &AlertTenant) -> String {
+    format!(
+        "[{}] [{}] {}: {}",
+        mrkdwn_escape(&tenant.name),
+        alert.severity.to_uppercase(),
+        mrkdwn_escape(&alert.rule_name),
+        mrkdwn_escape(&alert.summary)
+    )
 }
 
 /// Build the Block Kit blocks for an alert. Shared between the incoming-webhook
 /// sender and the bot-token (`chat.postMessage`) sender. Capped at 50 blocks
 /// (Slack's per-message limit).
-pub(crate) fn build_blocks(alert: &FiredAlert) -> Vec<Value> {
+pub(crate) fn build_blocks(alert: &FiredAlert, tenant: &AlertTenant) -> Vec<Value> {
     let emoji = match alert.severity.as_str() {
         "critical" => ":rotating_light:",
         "warning" => ":warning:",
@@ -63,7 +72,7 @@ pub(crate) fn build_blocks(alert: &FiredAlert) -> Vec<Value> {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": alert.summary
+                "text": mrkdwn_escape(&alert.summary)
             }
         }),
     ];
@@ -81,14 +90,18 @@ pub(crate) fn build_blocks(alert: &FiredAlert) -> Vec<Value> {
         }
     }
 
-    // Context: condition type + timestamp
-    let mut context_elements = Vec::new();
+    // Context: tenant + condition type + timestamp
+    let mut context_elements = vec![json!({
+        "type": "mrkdwn",
+        "text": format!("Tenant: *{}*", mrkdwn_escape(&tenant.name))
+    })];
     if let Some(ct) = &alert.condition_type {
         context_elements.push(json!({
             "type": "mrkdwn",
             "text": format!("Type: `{ct}`")
         }));
     }
+    // Not escaped: the <!date^…> is deliberate Slack markup, not user text.
     context_elements.push(json!({
         "type": "mrkdwn",
         "text": format!("Feloxi Alert Engine | <!date^{}^{{date_short_pretty}} {{time}}|{}>",
@@ -106,6 +119,13 @@ pub(crate) fn build_blocks(alert: &FiredAlert) -> Vec<Value> {
     blocks
 }
 
+/// Escape the three characters Slack reserves in message text. Applied to every
+/// user-controlled value (tenant name, rule name, summary, detail keys and
+/// values) — never to the markup Feloxi builds itself, such as `<!date^…>`.
+fn mrkdwn_escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
 fn format_detail_fields(details: &Value) -> Vec<Value> {
     let obj = match details.as_object() {
         Some(o) => o,
@@ -114,8 +134,8 @@ fn format_detail_fields(details: &Value) -> Vec<Value> {
 
     obj.iter()
         .map(|(key, value)| {
-            let label = super::snake_to_title(key);
-            let display = format_value(key, value);
+            let label = mrkdwn_escape(&super::snake_to_title(key));
+            let display = mrkdwn_escape(&format_value(key, value));
             json!({
                 "type": "mrkdwn",
                 "text": format!("*{label}*\n{display}")
@@ -147,4 +167,53 @@ fn format_value(key: &str, value: &Value) -> String {
         return s.to_string();
     }
     value.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::channels::fixtures;
+
+    #[test]
+    fn context_block_names_the_tenant() {
+        let (alert, tenant) = (fixtures::alert(), fixtures::tenant());
+        let blocks = build_blocks(&alert, &tenant);
+        let context = blocks.last().expect("context block");
+        assert_eq!(context["type"], "context");
+        assert_eq!(context["elements"][0]["text"], "Tenant: *Acme Payments*");
+        // The condition type and timestamp elements are still there.
+        assert_eq!(context["elements"][1]["text"], "Type: `worker_offline`");
+        assert!(context["elements"][2]["text"].as_str().unwrap().contains("Feloxi Alert Engine"));
+    }
+
+    #[test]
+    fn fallback_text_leads_with_the_tenant() {
+        let (alert, tenant) = (fixtures::alert(), fixtures::tenant());
+        assert_eq!(
+            fallback_text(&alert, &tenant),
+            "[Acme Payments] [CRITICAL] Workers offline: 1 worker(s) went offline"
+        );
+    }
+
+    #[test]
+    fn user_controlled_text_is_escaped_for_mrkdwn() {
+        let (mut alert, mut tenant) = (fixtures::alert(), fixtures::tenant());
+        tenant.name = "Ops <A&B>".into();
+        alert.summary = "queue <default> backed up".into();
+        alert.details = json!({ "queue": "<default>" });
+
+        let blocks = build_blocks(&alert, &tenant);
+        assert_eq!(blocks[1]["text"]["text"], "queue &lt;default&gt; backed up");
+        assert_eq!(blocks[3]["fields"][0]["text"], "*Queue*\n&lt;default&gt;");
+        assert_eq!(blocks.last().unwrap()["elements"][0]["text"], "Tenant: *Ops &lt;A&amp;B&gt;*");
+    }
+
+    #[test]
+    fn slack_date_markup_is_left_intact() {
+        let (alert, tenant) = (fixtures::alert(), fixtures::tenant());
+        let blocks = build_blocks(&alert, &tenant);
+        let elements = &blocks.last().unwrap()["elements"];
+        let timestamp = elements[elements.as_array().unwrap().len() - 1]["text"].as_str().unwrap();
+        assert!(timestamp.contains("<!date^"), "date markup must not be escaped");
+    }
 }

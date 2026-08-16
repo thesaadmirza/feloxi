@@ -22,6 +22,35 @@ pub(crate) fn snake_to_title(s: &str) -> String {
         .join(" ")
 }
 
+/// Fixtures for the per-channel payload tests, so a new field on
+/// [`crate::engine::FiredAlert`] is threaded through one place, not five.
+#[cfg(test)]
+pub(crate) mod fixtures {
+    use crate::engine::FiredAlert;
+    use crate::tenant::AlertTenant;
+    use uuid::Uuid;
+
+    pub(crate) const RULE_ID: Uuid = Uuid::from_u128(0x2b1c);
+
+    pub(crate) fn alert() -> FiredAlert {
+        FiredAlert {
+            id: Uuid::nil(),
+            rule_id: RULE_ID,
+            tenant_id: Uuid::nil(),
+            rule_name: "Workers offline".into(),
+            condition_type: Some("worker_offline".into()),
+            severity: "critical".into(),
+            summary: "1 worker(s) went offline".into(),
+            details: serde_json::json!({ "workers_offline_count": 1 }),
+            fired_at: 1_700_000_000.0,
+        }
+    }
+
+    pub(crate) fn tenant() -> AlertTenant {
+        AlertTenant { id: Uuid::nil(), name: "Acme Payments".into(), slug: "acme".into() }
+    }
+}
+
 /// Result of sending an alert notification.
 #[derive(Debug, Clone)]
 pub struct SendResult {

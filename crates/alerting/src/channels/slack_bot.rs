@@ -4,6 +4,7 @@ use serde_json::json;
 use super::slack::{build_blocks, fallback_text, severity_color};
 use super::SendResult;
 use crate::engine::FiredAlert;
+use crate::tenant::AlertTenant;
 
 /// Send an alert via a Slack bot token using `chat.postMessage`.
 ///
@@ -18,13 +19,14 @@ pub async fn send_slack_bot_alert(
     bot_token: &str,
     channel_id: &str,
     alert: &FiredAlert,
+    tenant: &AlertTenant,
 ) -> SendResult {
     let payload = json!({
         "channel": channel_id,
-        "text": fallback_text(alert),
+        "text": fallback_text(alert, tenant),
         "attachments": [{
             "color": severity_color(alert),
-            "blocks": build_blocks(alert),
+            "blocks": build_blocks(alert, tenant),
         }]
     });
 

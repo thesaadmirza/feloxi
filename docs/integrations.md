@@ -107,6 +107,34 @@ Discord connects through an incoming webhook: the consent screen asks you to pic
 
 Removing the webhook in Discord (Server Settings → Integrations) makes the next send fail; Feloxi then marks the connection revoked — reconnect to fix it. Reconnecting the same channel updates the existing connection rather than creating a duplicate.
 
+## Webhook payload
+
+A webhook channel POSTs this JSON body, plus any custom headers set on the channel:
+
+```json
+{
+  "alert_id": "304cf714-bec4-486d-9303-611a39b56394",
+  "rule_id": "8f2a19d4-1c77-4a53-9f0e-6c4b2d8e5a31",
+  "tenant": {
+    "id": "f571e934-69b7-4f05-8519-82d78fa00d0c",
+    "name": "Acme Payments",
+    "slug": "acme"
+  },
+  "rule_name": "Workers offline",
+  "condition_type": "worker_offline",
+  "severity": "critical",
+  "summary": "1 worker(s) went offline",
+  "details": { "workers_offline_count": 1, "grace_period_seconds": 60 },
+  "fired_at": "2026-08-16T11:07:36+00:00"
+}
+```
+
+`tenant` tells you which tenant the alert came from when one endpoint receives alerts from several tenants on the same instance. Route on `slug`, the stable key — `name` is a display label. `rule_id` matches the alert rule the notification came from, so you can join back to it through the API. `details` varies by condition type, and `condition_type` is absent on notifications that aren't tied to a condition.
+
+Resolution notices use the same shape with `"severity": "resolved"` and a `firing_duration_seconds` detail.
+
+The other channels carry the tenant too: Slack shows it in the message context line, Discord in the embed footer, email in the subject prefix and header, and PagerDuty as the incident `source` (plus `tenant` and `tenant_slug` in `custom_details`).
+
 ## Enable Google sign-in
 
 "Sign in with Google" signs in existing users by their verified Google email. It does not create accounts — invite people first, then they can use SSO.

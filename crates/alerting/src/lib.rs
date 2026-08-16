@@ -4,4 +4,5 @@ pub mod recovery;
 pub mod rules;
 pub mod stats;
 pub mod templates;
+pub mod tenant;
 pub mod throttle;
