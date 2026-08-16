@@ -9,10 +9,15 @@ use std::time::{Duration, Instant};
 use alerting::engine::{evaluate_condition, EvaluationContext, FiredAlert};
 use alerting::rules::AlertCondition;
 use alerting::templates::{format_html, format_plain_text};
+use alerting::tenant::AlertTenant;
 use alerting::throttle::AlertThrottle;
 use uuid::Uuid;
 
 // ─── Helpers ──────────────────────────────────────────────────────────
+
+fn make_tenant() -> AlertTenant {
+    AlertTenant { id: Uuid::new_v4(), name: "Acme Payments".to_string(), slug: "acme".to_string() }
+}
 
 fn make_alert(index: usize) -> FiredAlert {
     FiredAlert {
@@ -345,12 +350,13 @@ fn stress_template_rendering_throughput() {
 
     // Pre-build alerts with varying severities and content
     let alerts: Vec<FiredAlert> = (0..num_renders).map(make_alert).collect();
+    let tenant = make_tenant();
 
     // Render plain text
     let plain_start = Instant::now();
     let mut plain_total_len = 0;
     for alert in &alerts {
-        let text = format_plain_text(alert);
+        let text = format_plain_text(alert, &tenant);
         plain_total_len += text.len();
         // Verify the output has the expected structure
         assert!(text.contains(']'), "Plain text should contain severity brackets");
@@ -361,7 +367,7 @@ fn stress_template_rendering_throughput() {
     let html_start = Instant::now();
     let mut html_total_len = 0;
     for alert in &alerts {
-        let html = format_html(alert);
+        let html = format_html(alert, &tenant);
         html_total_len += html.len();
         // Verify the output is valid HTML-like structure
         assert!(html.contains("<div"), "HTML should contain div elements");
@@ -393,15 +399,15 @@ fn stress_template_rendering_throughput() {
 
     // Verify content correctness for different severity types
     let critical_alert = make_alert(0); // index 0 -> "critical"
-    let critical_html = format_html(&critical_alert);
+    let critical_html = format_html(&critical_alert, &tenant);
     assert!(critical_html.contains("#dc2626"), "Critical should use red");
 
     let warning_alert = make_alert(1); // index 1 -> "warning"
-    let warning_html = format_html(&warning_alert);
+    let warning_html = format_html(&warning_alert, &tenant);
     assert!(warning_html.contains("#f59e0b"), "Warning should use amber");
 
     let info_alert = make_alert(2); // index 2 -> "info"
-    let info_html = format_html(&info_alert);
+    let info_html = format_html(&info_alert, &tenant);
     assert!(info_html.contains("#10b981"), "Info should use green");
 
     // Should complete quickly
@@ -431,11 +437,12 @@ fn stress_template_rendering_large_content() {
             fired_at: 1700000000.0 + i as f64,
         })
         .collect();
+    let tenant = make_tenant();
 
     let start = Instant::now();
     for alert in &alerts {
-        let plain = format_plain_text(alert);
-        let html = format_html(alert);
+        let plain = format_plain_text(alert, &tenant);
+        let html = format_html(alert, &tenant);
         assert!(plain.len() > 50);
         assert!(html.len() > 200);
     }

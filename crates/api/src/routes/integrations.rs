@@ -163,7 +163,7 @@ pub async fn test_integration(
 
     let tenant = db::postgres::tenants::get_tenant_by_id(&state.pg, user.tenant_id).await?;
     let integrations = std::iter::once((id, integration)).collect();
-    let alert = test_alert();
+    let alert = test_alert(tenant.id);
 
     let result =
         deliver_channel(&state, &state.http, &tenant, &integrations, &channel, &alert).await;
@@ -171,11 +171,11 @@ pub async fn test_integration(
 }
 
 /// A synthetic alert used by the "send test" endpoint.
-fn test_alert() -> alerting::engine::FiredAlert {
+fn test_alert(tenant_id: Uuid) -> alerting::engine::FiredAlert {
     alerting::engine::FiredAlert {
         id: Uuid::new_v4(),
         rule_id: Uuid::nil(),
-        tenant_id: Uuid::nil(),
+        tenant_id,
         rule_name: "Test alert".into(),
         condition_type: Some("test".into()),
         severity: "info".into(),

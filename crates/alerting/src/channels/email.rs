@@ -4,6 +4,7 @@ use std::sync::{Arc, OnceLock};
 use super::SendResult;
 use crate::engine::FiredAlert;
 use crate::templates;
+use crate::tenant::AlertTenant;
 
 use dashmap::DashMap;
 use lettre::message::header::ContentType;
@@ -99,10 +100,11 @@ pub async fn send_email(
 pub async fn send_email_alert(
     to: &[String],
     alert: &FiredAlert,
+    tenant: &AlertTenant,
     smtp_config: &SmtpConfig,
 ) -> SendResult {
-    let subject = templates::format_plain_text(alert);
-    let html_body = templates::format_html(alert);
+    let subject = templates::format_plain_text(alert, tenant);
+    let html_body = templates::format_html(alert, tenant);
 
     match send_email(to, &subject, html_body, smtp_config).await {
         Ok(()) => {

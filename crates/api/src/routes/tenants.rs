@@ -452,6 +452,7 @@ pub async fn test_notification(
             let result = alerting::channels::email::send_email_alert(
                 &[recipient],
                 &test_alert,
+                &alerting::tenant::AlertTenant::from(&tenant),
                 &smtp_config,
             )
             .await;

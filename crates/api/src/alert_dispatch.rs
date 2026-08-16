@@ -10,6 +10,7 @@ use uuid::Uuid;
 use alerting::channels::{self, SendResult};
 use alerting::engine::FiredAlert;
 use alerting::rules::AlertChannel;
+use alerting::tenant::AlertTenant;
 use common::crypto::Secret;
 use db::postgres::models::{Integration, Tenant};
 
@@ -21,6 +22,11 @@ use crate::state::AppState;
 /// sender, and marks the integration `revoked` on a dead token/webhook. The
 /// returned [`SendResult`] is tagged with the integration id so the delivery
 /// log keys per-integration.
+///
+/// Every sender also receives the tenant's identity, derived here from the row
+/// that owns the rule, so a shared endpoint can tell whose alert it is. Taking
+/// it from the live row (rather than the alert) means a retried delivery
+/// renders the current name.
 pub(crate) async fn deliver_channel(
     state: &AppState,
     http_client: &reqwest::Client,
@@ -29,20 +35,22 @@ pub(crate) async fn deliver_channel(
     channel: &AlertChannel,
     alert: &FiredAlert,
 ) -> SendResult {
+    let source = AlertTenant::from(tenant);
     match channel {
         // ── Legacy inline channels (plaintext secrets, kept for back-compat) ──
         AlertChannel::Slack { webhook_url, .. } => {
-            channels::slack::send_slack_alert(http_client, webhook_url, alert).await
+            channels::slack::send_slack_alert(http_client, webhook_url, alert, &source).await
         }
         AlertChannel::Webhook { url, headers, .. } => {
-            channels::webhook::send_webhook_alert(http_client, url, headers, alert).await
+            channels::webhook::send_webhook_alert(http_client, url, headers, alert, &source).await
         }
         AlertChannel::PagerDuty { routing_key, .. } => {
-            channels::pagerduty::send_pagerduty_alert(http_client, routing_key, alert).await
+            channels::pagerduty::send_pagerduty_alert(http_client, routing_key, alert, &source)
+                .await
         }
         AlertChannel::Email { to, .. } => {
             let smtp_cfg = tenant_smtp_config(tenant);
-            channels::email::send_email_alert(to, alert, &smtp_cfg).await
+            channels::email::send_email_alert(to, alert, &source, &smtp_cfg).await
         }
 
         // ── Connected (encrypted) integrations ──
@@ -58,6 +66,7 @@ pub(crate) async fn deliver_channel(
                 token.expose(),
                 channel_id,
                 alert,
+                &source,
             )
             .await;
             if let Some(err) = result.error.as_deref() {
@@ -74,7 +83,8 @@ pub(crate) async fn deliver_channel(
                     Err(e) => return e,
                 };
             let result =
-                channels::discord::send_discord_alert(http_client, url.expose(), alert).await;
+                channels::discord::send_discord_alert(http_client, url.expose(), alert, &source)
+                    .await;
             if channels::discord::is_webhook_revoked(&result) {
                 mark_integration_revoked(state, tenant.id, *integration_id).await;
             }
@@ -87,7 +97,7 @@ pub(crate) async fn deliver_channel(
                     Ok(k) => k,
                     Err(e) => return e,
                 };
-            channels::pagerduty::send_pagerduty_alert(http_client, key.expose(), alert)
+            channels::pagerduty::send_pagerduty_alert(http_client, key.expose(), alert, &source)
                 .await
                 .with_integration_id(*integration_id)
         }
@@ -103,9 +113,15 @@ pub(crate) async fn deliver_channel(
                     .get("headers")
                     .and_then(|h| serde_json::from_value::<HashMap<String, String>>(h.clone()).ok())
             });
-            channels::webhook::send_webhook_alert(http_client, url.expose(), &headers, alert)
-                .await
-                .with_integration_id(*integration_id)
+            channels::webhook::send_webhook_alert(
+                http_client,
+                url.expose(),
+                &headers,
+                alert,
+                &source,
+            )
+            .await
+            .with_integration_id(*integration_id)
         }
     }
 }

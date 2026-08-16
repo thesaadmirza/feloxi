@@ -3,16 +3,18 @@ use serde_json::{json, Value};
 
 use super::SendResult;
 use crate::engine::FiredAlert;
+use crate::tenant::AlertTenant;
 
 pub async fn send_slack_alert(
     client: &Client,
     webhook_url: &str,
     alert: &FiredAlert,
+    tenant: &AlertTenant,
 ) -> SendResult {
     let payload = json!({
         "attachments": [{
             "color": severity_color(alert),
-            "blocks": build_blocks(alert)
+            "blocks": build_blocks(alert, tenant)
         }]
     });
 
@@ -33,15 +35,22 @@ pub(crate) fn severity_color(alert: &FiredAlert) -> &'static str {
     }
 }
 
-/// Plain-text fallback (notification/accessibility text) for an alert.
-pub(crate) fn fallback_text(alert: &FiredAlert) -> String {
-    format!("[{}] {}: {}", alert.severity.to_uppercase(), alert.rule_name, alert.summary)
+/// Plain-text fallback (notification/accessibility text) for an alert. This is
+/// what a mobile push preview shows, so it leads with the tenant.
+pub(crate) fn fallback_text(alert: &FiredAlert, tenant: &AlertTenant) -> String {
+    format!(
+        "[{}] [{}] {}: {}",
+        tenant.name,
+        alert.severity.to_uppercase(),
+        alert.rule_name,
+        alert.summary
+    )
 }
 
 /// Build the Block Kit blocks for an alert. Shared between the incoming-webhook
 /// sender and the bot-token (`chat.postMessage`) sender. Capped at 50 blocks
 /// (Slack's per-message limit).
-pub(crate) fn build_blocks(alert: &FiredAlert) -> Vec<Value> {
+pub(crate) fn build_blocks(alert: &FiredAlert, tenant: &AlertTenant) -> Vec<Value> {
     let emoji = match alert.severity.as_str() {
         "critical" => ":rotating_light:",
         "warning" => ":warning:",
@@ -81,8 +90,11 @@ pub(crate) fn build_blocks(alert: &FiredAlert) -> Vec<Value> {
         }
     }
 
-    // Context: condition type + timestamp
-    let mut context_elements = Vec::new();
+    // Context: tenant + condition type + timestamp
+    let mut context_elements = vec![json!({
+        "type": "mrkdwn",
+        "text": format!("Tenant: *{}*", mrkdwn_escape(&tenant.name))
+    })];
     if let Some(ct) = &alert.condition_type {
         context_elements.push(json!({
             "type": "mrkdwn",
@@ -104,6 +116,11 @@ pub(crate) fn build_blocks(alert: &FiredAlert) -> Vec<Value> {
     // Slack rejects messages with more than 50 blocks.
     blocks.truncate(50);
     blocks
+}
+
+/// Escape the three characters Slack reserves in message text.
+fn mrkdwn_escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
 fn format_detail_fields(details: &Value) -> Vec<Value> {
@@ -147,4 +164,57 @@ fn format_value(key: &str, value: &Value) -> String {
         return s.to_string();
     }
     value.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    fn fixtures() -> (FiredAlert, AlertTenant) {
+        let alert = FiredAlert {
+            id: Uuid::nil(),
+            rule_id: Uuid::nil(),
+            tenant_id: Uuid::nil(),
+            rule_name: "Workers offline".into(),
+            condition_type: Some("worker_offline".into()),
+            severity: "critical".into(),
+            summary: "1 worker(s) went offline".into(),
+            details: json!({ "workers_offline_count": 1 }),
+            fired_at: 1_700_000_000.0,
+        };
+        let tenant =
+            AlertTenant { id: Uuid::nil(), name: "Acme Payments".into(), slug: "acme".into() };
+        (alert, tenant)
+    }
+
+    #[test]
+    fn context_block_names_the_tenant() {
+        let (alert, tenant) = fixtures();
+        let blocks = build_blocks(&alert, &tenant);
+        let context = blocks.last().expect("context block");
+        assert_eq!(context["type"], "context");
+        assert_eq!(context["elements"][0]["text"], "Tenant: *Acme Payments*");
+        // The condition type and timestamp elements are still there.
+        assert_eq!(context["elements"][1]["text"], "Type: `worker_offline`");
+        assert!(context["elements"][2]["text"].as_str().unwrap().contains("Feloxi Alert Engine"));
+    }
+
+    #[test]
+    fn fallback_text_leads_with_the_tenant() {
+        let (alert, tenant) = fixtures();
+        assert_eq!(
+            fallback_text(&alert, &tenant),
+            "[Acme Payments] [CRITICAL] Workers offline: 1 worker(s) went offline"
+        );
+    }
+
+    #[test]
+    fn tenant_name_is_escaped_for_mrkdwn() {
+        let (alert, mut tenant) = fixtures();
+        tenant.name = "Ops <A&B>".into();
+        let blocks = build_blocks(&alert, &tenant);
+        let context = blocks.last().unwrap();
+        assert_eq!(context["elements"][0]["text"], "Tenant: *Ops &lt;A&amp;B&gt;*");
+    }
 }

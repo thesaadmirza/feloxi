@@ -1,12 +1,15 @@
 use common::html::escape;
 
 use crate::engine::FiredAlert;
+use crate::tenant::AlertTenant;
 
-/// Format an alert as a plain text message.
-pub fn format_plain_text(alert: &FiredAlert) -> String {
+/// Format an alert as a plain text message. Used as the email subject, so it
+/// leads with the tenant — one inbox can collect alerts from several tenants.
+pub fn format_plain_text(alert: &FiredAlert, tenant: &AlertTenant) -> String {
     let ct = alert.condition_type.as_deref().map(|t| format!(" ({t})")).unwrap_or_default();
     format!(
-        "[{severity}] {rule}{ct}: {summary}",
+        "[{tenant}] [{severity}] {rule}{ct}: {summary}",
+        tenant = tenant.name,
         severity = alert.severity.to_uppercase(),
         rule = alert.rule_name,
         summary = alert.summary,
@@ -14,9 +17,9 @@ pub fn format_plain_text(alert: &FiredAlert) -> String {
 }
 
 /// Format an alert as an HTML message (for email). Every interpolated value is
-/// user-controlled (rule name, summary, condition details), so it is
-/// HTML-escaped on the way in.
-pub fn format_html(alert: &FiredAlert) -> String {
+/// user-controlled (tenant name, rule name, summary, condition details), so it
+/// is HTML-escaped on the way in.
+pub fn format_html(alert: &FiredAlert, tenant: &AlertTenant) -> String {
     let color = match alert.severity.as_str() {
         "critical" => "#dc2626",
         "warning" => "#f59e0b",
@@ -41,6 +44,7 @@ pub fn format_html(alert: &FiredAlert) -> String {
     format!(
         r#"<div style="font-family:sans-serif;max-width:600px;margin:0 auto;">
     <div style="background:{color};color:white;padding:16px;border-radius:8px 8px 0 0;">
+        <p style="margin:0 0 4px;opacity:0.85;font-size:12px;text-transform:uppercase;letter-spacing:0.04em;">{tenant}</p>
         <h2 style="margin:0;">{severity} Alert</h2>
         <p style="margin:4px 0 0;opacity:0.9;">{rule}</p>
     </div>
@@ -55,6 +59,7 @@ pub fn format_html(alert: &FiredAlert) -> String {
     </div>
 </div>"#,
         color = color,
+        tenant = escape(&tenant.name),
         severity = escape(&alert.severity.to_uppercase()),
         rule = escape(&alert.rule_name),
         summary = escape(&alert.summary),
@@ -155,24 +160,28 @@ mod tests {
         }
     }
 
+    fn make_tenant() -> AlertTenant {
+        AlertTenant { id: Uuid::nil(), name: "Acme Payments".into(), slug: "acme".into() }
+    }
+
     #[test]
-    fn plain_text_includes_condition_type() {
+    fn plain_text_includes_tenant_and_condition_type() {
         let alert = make_alert("critical", "Worker Alert", "2 workers offline");
-        let text = format_plain_text(&alert);
+        let text = format_plain_text(&alert, &make_tenant());
+        assert!(text.starts_with("[Acme Payments] [CRITICAL]"));
         assert!(text.contains("(task_failure_rate)"));
-        assert!(text.contains("[CRITICAL]"));
 
         // Without condition_type
         let mut alert_no_ct = alert;
         alert_no_ct.condition_type = None;
-        let text = format_plain_text(&alert_no_ct);
-        assert!(!text.contains("("));
+        let text = format_plain_text(&alert_no_ct, &make_tenant());
+        assert!(!text.contains("(task_failure_rate)"));
     }
 
     #[test]
     fn html_contains_metrics_table() {
         let alert = make_alert("warning", "Rate Alert", "33% failure rate");
-        let html = format_html(&alert);
+        let html = format_html(&alert, &make_tenant());
         assert!(html.contains("<table"), "should contain metrics table");
         assert!(html.contains("Failure Rate"), "should have title-cased key");
         assert!(html.contains("33.3%"), "should format rate as percentage");
@@ -181,10 +190,23 @@ mod tests {
     }
 
     #[test]
+    fn html_header_names_the_tenant() {
+        let alert = make_alert("critical", "Rate Alert", "33% failure rate");
+        let html = format_html(&alert, &make_tenant());
+        assert!(html.contains("Acme Payments"));
+    }
+
+    #[test]
     fn html_escapes_user_controlled_text() {
         let alert = make_alert("warning", "<img src=x onerror=alert(1)>", "a & b");
-        let html = format_html(&alert);
+        let tenant = AlertTenant {
+            id: Uuid::nil(),
+            name: "<script>steal()</script>".into(),
+            slug: "acme".into(),
+        };
+        let html = format_html(&alert, &tenant);
         assert!(!html.contains("<img"), "rule name must not inject markup");
+        assert!(!html.contains("<script>"), "tenant name must not inject markup");
         assert!(html.contains("&lt;img src=x onerror=alert(1)&gt;"));
         assert!(html.contains("a &amp; b"));
     }
@@ -193,7 +215,7 @@ mod tests {
     fn html_no_table_when_empty_details() {
         let mut alert = make_alert("info", "Test", "ok");
         alert.details = serde_json::json!({});
-        let html = format_html(&alert);
+        let html = format_html(&alert, &make_tenant());
         assert!(!html.contains("<table"));
     }
 

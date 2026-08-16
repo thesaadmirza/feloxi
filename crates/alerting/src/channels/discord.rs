@@ -3,12 +3,14 @@ use serde_json::{json, Value};
 
 use super::SendResult;
 use crate::engine::FiredAlert;
+use crate::tenant::AlertTenant;
 
 // Discord embed limits (https://discord.com/developers/docs/resources/message).
 const MAX_FIELDS: usize = 25;
 const MAX_TITLE: usize = 256;
 const MAX_DESC: usize = 4096;
 const MAX_FIELD_VALUE: usize = 1024;
+const MAX_FOOTER: usize = 2048;
 
 /// Send an alert to a Discord channel via an incoming webhook URL.
 ///
@@ -20,8 +22,9 @@ pub async fn send_discord_alert(
     client: &Client,
     webhook_url: &str,
     alert: &FiredAlert,
+    tenant: &AlertTenant,
 ) -> SendResult {
-    let payload = json!({ "embeds": [build_embed(alert)] });
+    let payload = json!({ "embeds": [build_embed(alert, tenant)] });
 
     let resp = match client.post(webhook_url).json(&payload).send().await {
         Ok(r) => r,
@@ -70,7 +73,7 @@ pub fn is_webhook_revoked(result: &SendResult) -> bool {
     result.status == Some(404)
 }
 
-fn build_embed(alert: &FiredAlert) -> Value {
+fn build_embed(alert: &FiredAlert, tenant: &AlertTenant) -> Value {
     let color: u32 = match alert.severity.as_str() {
         "critical" => 0xFF_0000,
         "warning" => 0xFF_A500,
@@ -109,7 +112,7 @@ fn build_embed(alert: &FiredAlert) -> Value {
         "description": description,
         "color": color,
         "fields": fields,
-        "footer": { "text": "Feloxi Alert Engine" },
+        "footer": { "text": truncate(&format!("Feloxi Alert Engine • {}", tenant.name), MAX_FOOTER) },
         "timestamp": chrono::DateTime::from_timestamp(alert.fired_at as i64, 0)
             .unwrap_or_else(chrono::Utc::now)
             .to_rfc3339(),
@@ -128,5 +131,30 @@ fn value_to_string(value: &Value) -> String {
     match value {
         Value::String(s) => s.clone(),
         other => other.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[test]
+    fn footer_names_the_tenant() {
+        let alert = FiredAlert {
+            id: Uuid::nil(),
+            rule_id: Uuid::nil(),
+            tenant_id: Uuid::nil(),
+            rule_name: "Workers offline".into(),
+            condition_type: Some("worker_offline".into()),
+            severity: "critical".into(),
+            summary: "1 worker(s) went offline".into(),
+            details: json!({ "workers_offline_count": 1 }),
+            fired_at: 1_700_000_000.0,
+        };
+        let tenant =
+            AlertTenant { id: Uuid::nil(), name: "Acme Payments".into(), slug: "acme".into() };
+        let embed = build_embed(&alert, &tenant);
+        assert_eq!(embed["footer"]["text"], "Feloxi Alert Engine • Acme Payments");
     }
 }
