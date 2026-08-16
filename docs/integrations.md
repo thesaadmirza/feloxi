@@ -129,7 +129,7 @@ A webhook channel POSTs this JSON body, plus any custom headers set on the chann
 }
 ```
 
-`tenant` tells you which tenant the alert came from when one endpoint receives alerts from several tenants on the same instance. Route on `slug` — `name` is editable in **Settings**. `rule_id` matches the alert rule the notification came from, so you can join back to it through the API. `details` varies by condition type, and `condition_type` is absent on notifications that aren't tied to a condition.
+`tenant` tells you which tenant the alert came from when one endpoint receives alerts from several tenants on the same instance. Route on `slug`, the stable key — `name` is a display label. `rule_id` matches the alert rule the notification came from, so you can join back to it through the API. `details` varies by condition type, and `condition_type` is absent on notifications that aren't tied to a condition.
 
 Resolution notices use the same shape with `"severity": "resolved"` and a `firing_duration_seconds` detail.
 

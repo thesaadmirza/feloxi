@@ -32,7 +32,7 @@ pub async fn send_webhook_alert(
 
 /// The JSON body posted to a webhook endpoint. `tenant` says which tenant of
 /// the instance fired the alert, so one endpoint can serve several tenants.
-pub(crate) fn build_payload(alert: &FiredAlert, tenant: &AlertTenant) -> Value {
+fn build_payload(alert: &FiredAlert, tenant: &AlertTenant) -> Value {
     let fired_at_iso = chrono::DateTime::from_timestamp(alert.fired_at as i64, 0)
         .map(|dt| dt.to_rfc3339())
         .unwrap_or_else(|| alert.fired_at.to_string());

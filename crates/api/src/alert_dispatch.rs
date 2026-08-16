@@ -23,10 +23,8 @@ use crate::state::AppState;
 /// returned [`SendResult`] is tagged with the integration id so the delivery
 /// log keys per-integration.
 ///
-/// Every sender also receives the tenant's identity, derived here from the row
-/// that owns the rule, so a shared endpoint can tell whose alert it is. Taking
-/// it from the live row (rather than the alert) means a retried delivery
-/// renders the current name.
+/// Senders also receive the tenant's identity, taken from the row that owns the
+/// rule, so a shared endpoint can tell whose alert it is.
 pub(crate) async fn deliver_channel(
     state: &AppState,
     http_client: &reqwest::Client,

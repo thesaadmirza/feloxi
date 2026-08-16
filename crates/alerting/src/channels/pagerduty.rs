@@ -26,7 +26,7 @@ pub async fn send_pagerduty_alert(
 /// (what PagerDuty shows in the incident list) and is repeated in
 /// `custom_details` for machine consumers. `dedup_key` is unchanged — it
 /// already carries the tenant, and altering it would orphan open incidents.
-pub(crate) fn build_payload(routing_key: &str, alert: &FiredAlert, tenant: &AlertTenant) -> Value {
+fn build_payload(routing_key: &str, alert: &FiredAlert, tenant: &AlertTenant) -> Value {
     let severity = match alert.severity.as_str() {
         "critical" => "critical",
         "warning" => "warning",

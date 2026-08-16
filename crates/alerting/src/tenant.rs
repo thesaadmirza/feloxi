@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use uuid::Uuid;
 
 use db::postgres::models::Tenant;
@@ -10,14 +10,15 @@ use db::postgres::models::Tenant;
 /// in the payload to attribute them to a source.
 ///
 /// Built at dispatch from the tenant row that owns the rule rather than stored
-/// on [`crate::engine::FiredAlert`], so a delivery retried hours later still
-/// renders the current name and no caller can construct an unattributed alert.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// on [`crate::engine::FiredAlert`], which is serialized into the delivery
+/// retry queue — keeping it out of that payload means no caller can construct
+/// an unattributed alert and a retry never renders a stale name.
+#[derive(Debug, Clone, Serialize)]
 pub struct AlertTenant {
     pub id: Uuid,
     /// Display name, e.g. `Acme Payments`.
     pub name: String,
-    /// Stable machine key. Route on this — `name` is editable.
+    /// Stable machine key. Route on this — the display name is a label.
     pub slug: String,
 }
 
