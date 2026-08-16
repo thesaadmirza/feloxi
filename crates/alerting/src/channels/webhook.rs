@@ -39,6 +39,7 @@ pub(crate) fn build_payload(alert: &FiredAlert, tenant: &AlertTenant) -> Value {
 
     json!({
         "alert_id": alert.id,
+        "rule_id": alert.rule_id,
         "tenant": tenant,
         "rule_name": alert.rule_name,
         "condition_type": alert.condition_type,
@@ -54,10 +55,12 @@ mod tests {
     use super::*;
     use uuid::Uuid;
 
+    const RULE_ID: Uuid = Uuid::from_u128(0x2b1c);
+
     fn fixtures() -> (FiredAlert, AlertTenant) {
         let alert = FiredAlert {
             id: Uuid::nil(),
-            rule_id: Uuid::nil(),
+            rule_id: RULE_ID,
             tenant_id: Uuid::nil(),
             rule_name: "Workers offline".into(),
             condition_type: Some("worker_offline".into()),
@@ -78,6 +81,13 @@ mod tests {
         assert_eq!(payload["tenant"]["name"], "Acme Payments");
         assert_eq!(payload["tenant"]["slug"], "acme");
         assert_eq!(payload["tenant"]["id"], "00000000-0000-0000-0000-000000000000");
+    }
+
+    #[test]
+    fn payload_carries_the_rule_id_to_join_on() {
+        let (alert, tenant) = fixtures();
+        let payload = build_payload(&alert, &tenant);
+        assert_eq!(payload["rule_id"], RULE_ID.to_string());
     }
 
     #[test]
