@@ -31,7 +31,9 @@ jobs:
         with:
           context: .
           file: deploy/docker/Dockerfile.api
-          push: true
+          # A manual run builds without publishing: off a tag there is no
+          # version to publish under, and `latest` must not move.
+          push: ${{ github.ref_type == 'tag' }}
           tags: |
             ${{ env.IMAGE_PREFIX }}/api:${{ github.ref_name }}
             ${{ env.IMAGE_PREFIX }}/api:${{ steps.version.outputs.version }}
@@ -57,7 +59,8 @@ jobs:
         with:
           context: .
           file: deploy/docker/Dockerfile.web
-          push: true
+          # See the API image above: manual runs build but do not publish.
+          push: ${{ github.ref_type == 'tag' }}
           tags: |
             ${{ env.IMAGE_PREFIX }}/web:${{ github.ref_name }}
             ${{ env.IMAGE_PREFIX }}/web:${{ steps.version.outputs.version }}
@@ -65,6 +68,9 @@ jobs:
 
   create-release:
     name: Create GitHub Release
+    # Only a tag names a release. A manual run would publish one called
+    # after the branch and mark it latest.
+    if: github.ref_type == 'tag'
     needs: [build-api, build-web]
     runs-on: ubuntu-latest
     permissions:

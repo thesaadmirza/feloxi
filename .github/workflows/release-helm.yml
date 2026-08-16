@@ -1,6 +1,7 @@
 name: Release Helm Chart
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - "v*"
@@ -21,9 +22,17 @@ jobs:
 
       - name: Extract version
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            # A manual run lints and packages only, so keep the chart's own
+            # version. A branch name is not valid SemVer and helm would reject it.
+            awk '/^version:/ { print "version=" $2; exit }' charts/feloxi/Chart.yaml >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Stamp chart versions
+        if: github.ref_type == 'tag'
         run: |
           sed -i "s/^version:.*/version: ${{ steps.version.outputs.version }}/" charts/feloxi/Chart.yaml
           sed -i "s/^appVersion:.*/appVersion: \"${{ steps.version.outputs.version }}\"/" charts/feloxi/Chart.yaml
@@ -32,6 +41,7 @@ jobs:
         run: helm lint charts/feloxi
 
       - name: Log in to GHCR
+        if: github.ref_type == 'tag'
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
             --username "${{ github.actor }}" \
@@ -44,11 +54,13 @@ jobs:
         run: helm package charts/feloxi --destination /tmp/chart-pkg
 
       - name: Push chart to GHCR
+        if: github.ref_type == 'tag'
         run: |
           helm push /tmp/chart-pkg/feloxi-${{ steps.version.outputs.version }}.tgz \
             oci://ghcr.io/${{ github.repository_owner }}/charts
 
       - name: Push ArtifactHub repository metadata
+        if: github.ref_type == 'tag'
         run: |
           oras push \
             ghcr.io/${{ github.repository_owner }}/charts/feloxi:artifacthub.io \
