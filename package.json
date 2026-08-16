@@ -14,6 +14,7 @@
   "pnpm": {
     "overrides": {
       "lodash": ">=4.18.0",
+      "nanoid": "^3.3.18",
       "postcss": ">=8.5.12",
       "sharp": ">=0.35.0"
     }
