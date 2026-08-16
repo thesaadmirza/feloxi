@@ -1,3 +1,5 @@
+use common::html::escape;
+
 use crate::engine::FiredAlert;
 
 /// Format an alert as a plain text message.
@@ -11,7 +13,9 @@ pub fn format_plain_text(alert: &FiredAlert) -> String {
     )
 }
 
-/// Format an alert as an HTML message (for email).
+/// Format an alert as an HTML message (for email). Every interpolated value is
+/// user-controlled (rule name, summary, condition details), so it is
+/// HTML-escaped on the way in.
 pub fn format_html(alert: &FiredAlert) -> String {
     let color = match alert.severity.as_str() {
         "critical" => "#dc2626",
@@ -23,6 +27,7 @@ pub fn format_html(alert: &FiredAlert) -> String {
         .condition_type
         .as_deref()
         .map(|ct| {
+            let ct = escape(ct);
             format!(
                 r#"<span style="display:inline-block;background:#374151;color:#d1d5db;
                     font-size:11px;padding:2px 8px;border-radius:4px;margin-bottom:8px;">
@@ -50,9 +55,9 @@ pub fn format_html(alert: &FiredAlert) -> String {
     </div>
 </div>"#,
         color = color,
-        severity = alert.severity.to_uppercase(),
-        rule = alert.rule_name,
-        summary = alert.summary,
+        severity = escape(&alert.severity.to_uppercase()),
+        rule = escape(&alert.rule_name),
+        summary = escape(&alert.summary),
     )
 }
 
@@ -65,8 +70,8 @@ fn build_details_table(details: &serde_json::Value) -> String {
     let rows: Vec<String> = obj
         .iter()
         .map(|(key, value)| {
-            let label = snake_to_title(key);
-            let display = format_value(key, value);
+            let label = escape(&snake_to_title(key));
+            let display = escape(&format_value(key, value));
             format!(
                 r#"<tr>
     <td style="padding:6px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:13px;">{label}</td>
@@ -173,6 +178,15 @@ mod tests {
         assert!(html.contains("33.3%"), "should format rate as percentage");
         assert!(html.contains("task_failure_rate"), "should show condition badge");
         assert!(html.contains("Feloxi Alert Engine"));
+    }
+
+    #[test]
+    fn html_escapes_user_controlled_text() {
+        let alert = make_alert("warning", "<img src=x onerror=alert(1)>", "a & b");
+        let html = format_html(&alert);
+        assert!(!html.contains("<img"), "rule name must not inject markup");
+        assert!(html.contains("&lt;img src=x onerror=alert(1)&gt;"));
+        assert!(html.contains("a &amp; b"));
     }
 
     #[test]

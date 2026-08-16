@@ -1,6 +1,7 @@
 pub mod crypto;
 pub mod errors;
 pub mod events;
+pub mod html;
 pub mod pagination;
 pub mod time;
 pub mod types;

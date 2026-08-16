@@ -177,21 +177,13 @@ async fn send_invite_email(
   <p style="color: #71717a; font-size: 13px; line-height: 1.55;">Or copy and paste this link into your browser:<br><span style="word-break: break-all;">{url}</span></p>
   <p style="color: #71717a; font-size: 13px;">This link expires in {days} days.</p>
 </body></html>"#,
-        tenant = html_escape(&tenant.name),
-        role = html_escape(role),
-        url = html_escape(invite_url),
+        tenant = common::html::escape(&tenant.name),
+        role = common::html::escape(role),
+        url = common::html::escape(invite_url),
         days = INVITE_EXPIRY_DAYS,
     );
 
     alerting::channels::email::send_email(&[to.to_string()], &subject, html, &smtp_config).await
-}
-
-fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
 }
 
 #[utoipa::path(
