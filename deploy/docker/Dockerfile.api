@@ -1,5 +1,8 @@
 # ── Stage 1: Cache dependencies ──────────────────────────────────────
-FROM rust:1.88-bookworm AS builder
+# Alpine's Rust links a static musl binary. curl is for utoipa-swagger-ui's
+# build script, which downloads the Swagger UI bundle.
+FROM rust:1.88-alpine AS builder
+RUN apk add --no-cache musl-dev curl
 WORKDIR /app
 
 # Copy workspace manifests
@@ -29,9 +32,9 @@ RUN touch crates/*/src/*.rs 2>/dev/null; \
     cargo build --release --bin api
 
 # ── Stage 3: Minimal runtime image ──────────────────────────────────
-# Distroless (glibc matches the bookworm builder), runs as uid 65532. No shell,
-# so container healthchecks use `api healthcheck`.
-FROM gcr.io/distroless/cc-debian12:nonroot
+# Distroless static: CA certificates and tzdata only, no libc or OpenSSL.
+# Runs as uid 65532. No shell, so container healthchecks use `api healthcheck`.
+FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=builder /app/target/release/api /usr/local/bin/
 
