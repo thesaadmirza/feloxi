@@ -177,10 +177,15 @@ fn load_oauth_client(prefix: &str) -> Option<OAuthClient> {
     Some(OAuthClient { client_id: id, client_secret: secret })
 }
 
+/// The port the server listens on, from `PORT` (default 8080).
+pub fn port_from_env() -> anyhow::Result<u16> {
+    Ok(std::env::var("PORT").unwrap_or_else(|_| "8080".into()).parse()?)
+}
+
 impl AppConfig {
     pub fn from_env() -> anyhow::Result<Self> {
         Ok(Self {
-            port: std::env::var("PORT").unwrap_or_else(|_| "8080".into()).parse()?,
+            port: port_from_env()?,
             database_url: std::env::var("DATABASE_URL")
                 .unwrap_or_else(|_| "postgres://fp:fp@localhost:5432/feloxi".into()),
             clickhouse_url: std::env::var("CLICKHOUSE_URL")

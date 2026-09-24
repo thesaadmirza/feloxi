@@ -29,14 +29,11 @@ RUN touch crates/*/src/*.rs 2>/dev/null; \
     cargo build --release --bin api
 
 # ── Stage 3: Minimal runtime image ──────────────────────────────────
-FROM debian:bookworm-slim
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates curl && \
-    rm -rf /var/lib/apt/lists/* && \
-    useradd -r -s /bin/false feloxi
+# Distroless (glibc matches the bookworm builder), runs as uid 65532. No shell,
+# so container healthchecks use `api healthcheck`.
+FROM gcr.io/distroless/cc-debian12:nonroot
 
 COPY --from=builder /app/target/release/api /usr/local/bin/
 
-USER feloxi
 EXPOSE 8080
 CMD ["api"]
