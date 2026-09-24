@@ -18,6 +18,12 @@ mod ws;
 
 use state::{AppConfig, AppState, HealthCache, TenantEvent};
 
+// The release image is a static musl binary; musl's malloc is slow under
+// multithreaded load, so that build uses mimalloc instead.
+#[cfg(target_env = "musl")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Load .env if present
