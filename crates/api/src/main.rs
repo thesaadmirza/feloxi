@@ -23,6 +23,12 @@ async fn main() -> Result<()> {
     // Load .env if present
     let _ = dotenvy::dotenv();
 
+    // `api healthcheck` probes a running server and exits. The runtime image
+    // has no shell or curl, so container healthchecks call the binary itself.
+    if std::env::args().nth(1).as_deref() == Some("healthcheck") {
+        return healthcheck().await;
+    }
+
     // Initialize tracing
     fmt()
         .with_env_filter(
@@ -106,6 +112,17 @@ async fn main() -> Result<()> {
     axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()).await?;
 
     tracing::info!("Server shut down gracefully");
+    Ok(())
+}
+
+async fn healthcheck() -> Result<()> {
+    let port = state::port_from_env()?;
+    reqwest::Client::new()
+        .get(format!("http://127.0.0.1:{port}/api/v1/healthz"))
+        .timeout(std::time::Duration::from_secs(3))
+        .send()
+        .await?
+        .error_for_status()?;
     Ok(())
 }
 
