@@ -1,7 +1,7 @@
 apiVersion: v2
 name: feloxi
 version: 0.2.0
-appVersion: "2.0.5"
+appVersion: "2.0.6"
 description: >-
   Open-source Celery task queue monitoring platform. Real-time task and worker
   visibility via a Rust API, Next.js dashboard, PostgreSQL, ClickHouse, and Redis.
@@ -31,12 +31,6 @@ annotations:
   artifacthub.io/license: Apache-2.0
   artifacthub.io/changes: |
     - kind: security
-      description: "Next.js 15.5.26 fixes an unauthenticated RCE in the image optimization endpoint (GHSA-2xp9-vwfh-vxw4) (2.0.5)"
-    - kind: security
-      description: "The API image runs on distroless cc-debian12, dropping unfixed critical CVEs in the Debian base (2.0.5)"
-    - kind: security
-      description: "The web image no longer ships npm, corepack or yarn, and picks up OpenSSL 3.5.8 (2.0.5)"
-    - kind: changed
-      description: "The API container runs as uid 65532 with no shell; use `api healthcheck` for container healthchecks (2.0.5)"
+      description: "The API image is a static binary on distroless static-debian12, with no glibc or OpenSSL and their NVD-critical CVEs (2.0.6)"
   artifacthub.io/containsSecurityUpdates: "true"
   artifacthub.io/prerelease: "false"

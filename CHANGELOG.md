@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.6] — 2026-09-25
+
+### Security
+
+- The API image is a static binary on `gcr.io/distroless/static-debian12`, with no glibc or OpenSSL left in it. The `distroless/cc-debian12` base from 2.0.5 still carried both, and their unfixed CVEs include network-reachable ones that NVD scores critical (CVE-2019-1010022, CVE-2026-5450). Debian rates those low, so Trivy passed the image while scanners that go by NVD kept flagging running API containers. The binary now builds against musl and uses mimalloc as its allocator.
+
 ## [2.0.5] — 2026-09-24
 
 ### Security
