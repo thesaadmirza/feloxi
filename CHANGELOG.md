@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.5] — 2026-09-24
+
+### Security
+
+- Next.js moves to 15.5.26. 15.5.22 has an unauthenticated remote code execution in the image optimization endpoint when it handles AVIF files (GHSA-2xp9-vwfh-vxw4, critical). `/_next/image` is served whether or not the app uses `next/image`, so any exposed web container was open to it. The bump also covers CVE-2026-75604, which only affects Windows hosts. sharp moves to 0.35.4 for its bundled libheif (GHSA-rgj7-g3m4-5g8c), and browserslist to 4.29 (CVE-2026-73088, CVE-2026-73089).
+- The API image runs on `gcr.io/distroless/cc-debian12` instead of `debian:bookworm-slim`. The Debian base had critical CVEs in perl and zlib that Debian hasn't fixed, and about seventy high ones, in packages the binary never used. There is no shell or curl in the new image and it runs as uid 65532, so anything that exec'd `curl` or `sh` into the API container needs another way in. For container healthchecks, use `api healthcheck`.
+- The web image drops npm, corepack and yarn. Their bundled dependencies included a critical in tar (CVE-2026-59873). It also picks up OpenSSL 3.5.8 (CVE-2026-14456). Both images scan clean for critical and high findings at release.
+
 ## [2.0.4] — 2026-08-16
 
 ### Added
