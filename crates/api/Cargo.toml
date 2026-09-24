@@ -40,5 +40,8 @@ utoipa = { workspace = true }
 utoipa-swagger-ui = { workspace = true }
 reqwest = { workspace = true }
 
+[target.'cfg(target_env = "musl")'.dependencies]
+mimalloc = { workspace = true }
+
 [lints]
 workspace = true
