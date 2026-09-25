@@ -9,7 +9,7 @@ COPY apps/web/package.json apps/web/
 RUN pnpm install --frozen-lockfile
 
 # Next.js standalone bakes API_URL into the routes manifest at build time.
-# The runtime entrypoint script patches the manifest from the value below
+# The runtime entrypoint patches the manifest from the value below
 # to whatever API_URL is set in the container's environment.
 COPY apps/web/ apps/web/
 ARG API_URL=http://api:8080
@@ -37,10 +37,9 @@ COPY --from=builder --chown=feloxi:feloxi /app/apps/web/.next/standalone ./
 COPY --from=builder --chown=feloxi:feloxi /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=builder --chown=feloxi:feloxi /app/apps/web/public ./apps/web/public
 COPY --from=builder --chown=feloxi:feloxi /tmp/.api-url ./.api-url
-COPY --chown=feloxi:feloxi deploy/docker/web-entrypoint.sh ./entrypoint.sh
-RUN chmod +x ./entrypoint.sh
+COPY --chown=feloxi:feloxi deploy/docker/web-entrypoint.mjs ./entrypoint.mjs
 
 USER feloxi
 EXPOSE 3000
 ENV HOSTNAME="0.0.0.0"
-ENTRYPOINT ["./entrypoint.sh"]
+ENTRYPOINT ["node", "entrypoint.mjs"]
