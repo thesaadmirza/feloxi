@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.7] — 2026-09-25
+
+### Security
+
+- The web image no longer contains busybox, zlib, apk or OpenSSL. Alpine ships zlib 1.3.2 (CVE-2026-85091) and busybox 1.37 (CVE-2025-60876) with no fixed version, and scanners that track unfixed Alpine CVEs kept flagging running web containers; Trivy didn't, because Alpine's secdb only lists fixed advisories. node needs none of these packages, so they are removed through apk and the image keeps only musl, libgcc, libstdc++, alpine-keys and alpine-release. The container has no shell: its entrypoint, which patches a runtime `API_URL` into the Next.js build, now runs under node.
+
 ## [2.0.6] — 2026-09-25
 
 ### Security
