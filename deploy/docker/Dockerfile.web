@@ -1,7 +1,8 @@
 # ── Stage 1: Build ───────────────────────────────────────────────────
 FROM node:22-alpine AS builder
 WORKDIR /app
-RUN corepack enable
+# /runtime-root/tmp replaces the /tmp that the runtime stage's apk del removes.
+RUN corepack enable && mkdir -p -m 1777 /runtime-root/tmp
 
 # Install dependencies (cached layer)
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
@@ -22,13 +23,21 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 # Only node is needed at runtime. npm, corepack and yarn go, along with the
-# dependency trees scanners flag in them.
+# dependency trees scanners flag in them. node links only musl, libstdc++ and
+# libgcc and bundles its own zlib and OpenSSL, so the shell and apk go too:
+# they pull in busybox, zlib and OpenSSL, which carry CVEs with no Alpine fix.
+# Removing them through apk keeps the package database accurate, and apk takes
+# their now-unused dependencies with them. alpine-baselayout requires /bin/sh;
+# without --purge apk keeps modified config such as /etc/passwd. No shell is
+# left after this RUN.
 RUN apk upgrade --no-cache && \
     rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
            /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
            /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-* && \
     addgroup --system --gid 1001 feloxi && \
-    adduser --system --uid 1001 feloxi
+    adduser --system --uid 1001 feloxi && \
+    apk del alpine-baselayout busybox apk-tools musl-utils
+COPY --from=builder /runtime-root/ /
 
 # Next.js standalone output in a monorepo preserves the full directory tree:
 #   .next/standalone/apps/web/server.js  (entry point)
