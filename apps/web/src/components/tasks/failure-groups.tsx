@@ -9,6 +9,7 @@ import { cn, timeAgo } from "@/lib/utils";
 import { Skeleton } from "@/components/shared/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ExceptionMessage } from "@/components/overview/exception-message";
+import { Traceback } from "./traceback";
 
 /// Longest literal run of a normalized message: a search string that finds
 /// every variant of the group ("Payment declined for order").
@@ -181,9 +182,13 @@ export function FailureGroups({
                           )}
                         </ul>
                       )}
-                      <pre className="mt-3 max-h-72 overflow-auto rounded-lg border border-border bg-code p-3 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap break-words text-t2">
-                        {g.traceback || "No traceback recorded for the latest occurrence."}
-                      </pre>
+                      {g.traceback ? (
+                        <Traceback raw={g.traceback} className="mt-3 max-h-80 overflow-y-auto" />
+                      ) : (
+                        <p className="mt-3 text-xs text-t3">
+                          No traceback recorded for the latest occurrence.
+                        </p>
+                      )}
                     </td>
                   </tr>
                 )}
