@@ -305,14 +305,19 @@ export default function TeamPage() {
                           <KeyRound />
                           Reset password
                         </MenuItem>
-                        <MenuSeparator />
-                        <MenuItem
-                          onSelect={() => openFromMenu(() => setConfirmRemove(member.id))}
-                          className="text-fail data-[highlighted]:bg-fail-wash [&_svg]:text-fail"
-                        >
-                          <Trash2 />
-                          Remove member
-                        </MenuItem>
+                        {/* The API won't let you remove yourself, so don't offer it. */}
+                        {!isYou && (
+                          <>
+                            <MenuSeparator />
+                            <MenuItem
+                              onSelect={() => openFromMenu(() => setConfirmRemove(member.id))}
+                              className="text-fail data-[highlighted]:bg-fail-wash [&_svg]:text-fail"
+                            >
+                              <Trash2 />
+                              Remove member
+                            </MenuItem>
+                          </>
+                        )}
                       </MenuContent>
                     </Menu>
                   </li>

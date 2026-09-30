@@ -67,8 +67,8 @@ export function OutcomeAreaChart({
       <AreaChart data={data} margin={{ top: 8, right: 26, bottom: 0, left: -14 }}>
         <defs>
           <linearGradient id={`${id}-ok`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" style={{ stopColor: "var(--ok)", stopOpacity: 0.22 }} />
-            <stop offset="100%" style={{ stopColor: "var(--ok)", stopOpacity: 0 }} />
+            <stop offset="0%" style={{ stopColor: "var(--t3)", stopOpacity: 0.16 }} />
+            <stop offset="100%" style={{ stopColor: "var(--t3)", stopOpacity: 0 }} />
           </linearGradient>
           <linearGradient id={`${id}-fail`} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" style={{ stopColor: "var(--fail)", stopOpacity: 0.28 }} />
@@ -92,7 +92,7 @@ export function OutcomeAreaChart({
         <Area
           type="monotone"
           dataKey="success"
-          stroke="var(--ok)"
+          stroke="var(--t2)"
           fill={`url(#${id}-ok)`}
           strokeWidth={1.5}
           isAnimationActive={false}

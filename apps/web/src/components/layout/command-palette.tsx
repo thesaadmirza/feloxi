@@ -54,14 +54,14 @@ const EXTRA_PAGES: {
     label: "Settings › Members",
     href: "/settings/team",
     icon: Settings,
-    requires: "settings_read",
+    requires: "team_manage",
     keywords: "team users invite roles",
   },
   {
     label: "Settings › API keys",
     href: "/settings/api-keys",
     icon: Settings,
-    requires: "settings_read",
+    requires: "api_keys_manage",
     keywords: "tokens agent",
   },
   {

@@ -9,11 +9,10 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Chip } from "@/components/ui/chip";
 import { ConfirmDialog } from "@/components/ui/dialog";
-import { Field, Input } from "@/components/ui/field";
+import { Field, Input, Select } from "@/components/ui/field";
 import { Panel, PanelHeader } from "@/components/ui/panel";
 import { Switch } from "@/components/ui/switch";
 import { ErrorAlert, Notice } from "@/components/shared/error-alert";
-import { JsonViewer } from "@/components/shared/json-viewer";
 import { Skeleton } from "@/components/shared/skeleton";
 import { CopyButton } from "@/components/settings/copy-button";
 import { CodeWell, IconTile, SettingsHeader, SettingsRow } from "@/components/settings/section";
@@ -62,8 +61,10 @@ const WEBHOOK_PAYLOAD_EXAMPLE = {
     recent_failures: 42,
   },
 };
+const PAYLOAD_TEXT = JSON.stringify(WEBHOOK_PAYLOAD_EXAMPLE, null, 2);
 
 const PASSWORD_MASK = "••••••••";
+const RETRY_OPTIONS = [0, 1, 2, 3, 4, 5];
 
 function ProviderMark({ kind }: { kind: string }) {
   const meta = PROVIDER_META[kind];
@@ -354,7 +355,8 @@ export default function NotificationSettingsPage() {
       };
       if (s.smtp) {
         setSmtpHost(s.smtp.host ?? "");
-        setSmtpPort(s.smtp.port ?? 587);
+        // The API reports an unset port as 0; the field then shows the default as a placeholder.
+        setSmtpPort(s.smtp.port ?? 0);
         setSmtpUsername(s.smtp.username ?? "");
         setSmtpFrom(s.smtp.from_address ?? "");
         setSmtpTls(s.smtp.tls ?? true);
@@ -383,7 +385,7 @@ export default function NotificationSettingsPage() {
               tls: smtpTls,
             },
             webhook_defaults: {
-              timeout_seconds: webhookTimeout,
+              timeout_seconds: webhookTimeout || 10,
               retry_count: webhookRetries,
             },
           } as never,
@@ -458,8 +460,9 @@ export default function NotificationSettingsPage() {
                 <Input
                   id="smtp-port"
                   type="number"
-                  value={smtpPort}
-                  onChange={(e) => setSmtpPort(parseInt(e.target.value))}
+                  value={smtpPort || ""}
+                  placeholder="587"
+                  onChange={(e) => setSmtpPort(parseInt(e.target.value) || 0)}
                   className="font-mono text-[12.5px] tabular-nums"
                 />
               </Field>
@@ -564,8 +567,9 @@ export default function NotificationSettingsPage() {
                   unit="seconds"
                   min="1"
                   max="60"
-                  value={webhookTimeout}
-                  onChange={(e) => setWebhookTimeout(parseInt(e.target.value))}
+                  value={webhookTimeout || ""}
+                  placeholder="10"
+                  onChange={(e) => setWebhookTimeout(parseInt(e.target.value) || 0)}
                   className="text-left"
                 />
               </Field>
@@ -574,15 +578,20 @@ export default function NotificationSettingsPage() {
                 htmlFor="webhook-retries"
                 hint="How many times to retry a failed delivery."
               >
-                <Input
+                <Select
                   id="webhook-retries"
-                  type="number"
-                  min="0"
-                  max="5"
                   value={webhookRetries}
                   onChange={(e) => setWebhookRetries(parseInt(e.target.value))}
                   className="tabular-nums"
-                />
+                >
+                  {RETRY_OPTIONS.concat(
+                    RETRY_OPTIONS.includes(webhookRetries) ? [] : [webhookRetries],
+                  ).map((n) => (
+                    <option key={n} value={n}>
+                      {n === 0 ? "No retries" : n === 1 ? "1 retry" : `${n} retries`}
+                    </option>
+                  ))}
+                </Select>
               </Field>
             </div>
             <div className="flex flex-col gap-3 border-t border-line-soft px-4 py-4">
@@ -592,7 +601,16 @@ export default function NotificationSettingsPage() {
                   Every webhook notification is a JSON POST with this structure.
                 </p>
               </div>
-              <JsonViewer value={WEBHOOK_PAYLOAD_EXAMPLE} label="Request body" />
+              {/* A static example: plain text keeps the syntax highlighter off this page. */}
+              <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-code">
+                <div className="flex items-center justify-between border-b border-border py-1 pr-1 pl-3">
+                  <span className="label">Request body</span>
+                  <CopyButton text={PAYLOAD_TEXT} variant="ghost" />
+                </div>
+                <pre className="overflow-x-auto px-3.5 py-2.5 font-mono text-[12px] leading-relaxed text-t1">
+                  {PAYLOAD_TEXT}
+                </pre>
+              </div>
             </div>
           </Panel>
 

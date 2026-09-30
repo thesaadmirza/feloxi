@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import * as RadixDialog from "@radix-ui/react-dialog";
 import { Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -35,11 +36,24 @@ export function Modal({
   size = "md",
   className,
 }: ModalProps) {
+  const returnFocus = useRef<HTMLElement | null>(null);
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
       <RadixDialog.Portal>
         <RadixDialog.Overlay className="fixed inset-0 z-50 bg-[var(--scrim)]" />
         <RadixDialog.Content
+          // Dialogs here open from buttons and menus rather than a Radix
+          // Trigger, so remember what had focus and hand it back on close.
+          onOpenAutoFocus={() => {
+            returnFocus.current = document.activeElement as HTMLElement | null;
+          }}
+          onCloseAutoFocus={(e) => {
+            const el = returnFocus.current;
+            if (el?.isConnected) {
+              e.preventDefault();
+              el.focus();
+            }
+          }}
           className={cn(
             "fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-32px)] w-[calc(100vw-24px)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-2xl border border-line-strong bg-card shadow-float outline-none",
             SIZES[size],

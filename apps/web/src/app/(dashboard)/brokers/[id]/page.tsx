@@ -1,5 +1,6 @@
 "use client";
 
+import { format } from "date-fns";
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
@@ -36,10 +37,7 @@ function aggregateThroughput(rows: TaskMetricsRow[]) {
   return Array.from(byMinute.entries())
     .sort(([a], [b]) => a - b)
     .map(([minute, counts]) => ({
-      time: new Date(minute).toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
+      time: format(minute, "HH:mm"),
       ...counts,
     }));
 }
@@ -98,7 +96,7 @@ export default function BrokerDetailPage() {
   const { data: throughputData, isLoading: throughputLoading } = $api.useQuery(
     "get",
     "/api/v1/metrics/throughput",
-    { params: { query: { from_minutes: 60 } } },
+    { params: { query: { from_minutes: 60, agent_id: brokerId } } },
     { enabled: !!brokerId, refetchInterval: 30_000 },
   );
 
@@ -271,11 +269,11 @@ export default function BrokerDetailPage() {
           <Panel aria-label="Tasks per minute">
             <PanelHeader
               title="Tasks per minute"
-              subtitle="last hour, all brokers"
+              subtitle="last hour, this broker"
               action={
                 chart.length > 0 ? (
                   <div className="hidden items-center gap-4 sm:flex">
-                    <OutcomeLegend color="var(--ok)" label="Succeeded" value={chartTotals.s} />
+                    <OutcomeLegend color="var(--t2)" label="Succeeded" value={chartTotals.s} />
                     <OutcomeLegend color="var(--fail)" label="Failed" value={chartTotals.f} />
                   </div>
                 ) : undefined
