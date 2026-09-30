@@ -38,6 +38,26 @@ pub async fn create_magic_link(
 /// Atomically consume a valid token: finds by hash, checks expiry + unconsumed,
 /// and marks consumed in one statement so concurrent verify attempts can't
 /// reuse the same link.
+/// Returns the token if it is still usable, without using it up. The
+/// multi-org picker needs a second request with the same token.
+pub async fn peek_magic_link(
+    pool: &PgPool,
+    token_hash: &str,
+) -> Result<Option<MagicLinkToken>, AppError> {
+    let row = sqlx::query_as::<_, MagicLinkToken>(
+        r#"
+        SELECT * FROM magic_link_tokens
+         WHERE token_hash = $1
+           AND consumed_at IS NULL
+           AND expires_at > NOW()
+        "#,
+    )
+    .bind(token_hash)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
+}
+
 pub async fn consume_magic_link(
     pool: &PgPool,
     token_hash: &str,

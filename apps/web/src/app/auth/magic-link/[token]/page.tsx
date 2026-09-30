@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { AuthShell, AuthSpinner } from "@/components/auth/auth-shell";
@@ -23,16 +23,19 @@ export default function MagicLinkVerifyPage() {
   const [orgs, setOrgs] = useState<OrgSummary[] | null>(null);
   const [pickingOrg, setPickingOrg] = useState(false);
 
+  // Verify each token once. Strict mode mounts effects twice in development,
+  // and a second request would find the link already used.
+  const verified = useRef<string | null>(null);
+
   useEffect(() => {
-    if (!token) return;
-    let cancelled = false;
+    if (!token || verified.current === token) return;
+    verified.current = token;
 
     (async () => {
       try {
         const result = (await unwrap(
           fetchClient.POST("/api/v1/auth/magic-link/verify", { body: { token } }),
         )) as VerifyResult;
-        if (cancelled) return;
         if ("needs_org_selection" in result) {
           setOrgs(result.organizations);
           setLoading(false);
@@ -41,15 +44,10 @@ export default function MagicLinkVerifyPage() {
         saveUser(result.user);
         router.push("/");
       } catch (err) {
-        if (cancelled) return;
         setError(err instanceof Error ? err.message : "This sign-in link is invalid or expired.");
         setLoading(false);
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
   }, [token, router]);
 
   async function handleOrgPick(slug: string) {

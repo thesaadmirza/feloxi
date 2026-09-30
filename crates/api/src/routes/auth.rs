@@ -622,11 +622,13 @@ pub async fn magic_link_verify(
 ) -> Result<axum::response::Response, AppError> {
     let token_hash = auth::jwt::hash_refresh_token(&req.token);
 
-    let consumed = db::postgres::magic_links::consume_magic_link(&state.pg, &token_hash)
+    // Look first, use up later: when the email belongs to several orgs the
+    // picker needs a second request with the same token.
+    let link = db::postgres::magic_links::peek_magic_link(&state.pg, &token_hash)
         .await?
         .ok_or_else(|| AppError::Unauthorized("Invalid or expired link".into()))?;
 
-    let email = consumed.email;
+    let email = link.email;
 
     let (tenant, user) = match req.tenant_slug.as_deref().filter(|s| !s.is_empty()) {
         Some(slug) => {
@@ -665,6 +667,11 @@ pub async fn magic_link_verify(
             }
         }
     };
+
+    // Atomic: of two concurrent requests with the same token, one signs in.
+    db::postgres::magic_links::consume_magic_link(&state.pg, &token_hash)
+        .await?
+        .ok_or_else(|| AppError::Unauthorized("Invalid or expired link".into()))?;
 
     let roles = db::postgres::rbac::get_user_roles(&state.pg, user.id).await?;
     let role_names: Vec<String> = roles.iter().map(|r| r.name.clone()).collect();
