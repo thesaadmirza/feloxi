@@ -1,29 +1,39 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { format } from "date-fns";
 import {
-  ArrowLeft,
-  Users,
-  Mail,
-  UserPlus,
-  Loader2,
-  AlertTriangle,
-  CheckCircle,
-  Shield,
-  Trash2,
-  Copy,
   Check,
+  Ellipsis,
   KeyRound,
+  Loader2,
+  MailCheck,
+  MailWarning,
+  Trash2,
+  UserPlus,
+  Users,
 } from "lucide-react";
 import { $api, fetchClient, unwrap } from "@/lib/api";
+import { useCurrentUser } from "@/hooks/use-current-user";
+import { Button } from "@/components/ui/button";
+import { Chip } from "@/components/ui/chip";
+import { ConfirmDialog, Modal } from "@/components/ui/dialog";
+import { Field, Input, Select } from "@/components/ui/field";
+import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
+import { Panel, PanelHeader } from "@/components/ui/panel";
+import { EmptyState } from "@/components/shared/empty-state";
+import { ErrorAlert } from "@/components/shared/error-alert";
+import { PasswordInput } from "@/components/shared/password-input";
 import { Skeleton } from "@/components/shared/skeleton";
+import { CopyButton } from "@/components/settings/copy-button";
+import { CodeWell, SettingsHeader } from "@/components/settings/section";
 
 type InviteResult = {
   email: string;
   invite_url: string;
   email_sent: boolean;
   email_error?: string | null;
+  expires_at?: string;
 };
 
 type TeamMember = {
@@ -37,40 +47,33 @@ type TeamMember = {
 
 const DEFAULT_INVITE_ROLE = "viewer";
 
-function RoleBadge({ role }: { role: string }) {
-  const colors: Record<string, string> = {
-    admin: "bg-primary/20 text-primary",
-    editor: "bg-[#3b82f6]/20 text-[#3b82f6]",
-    viewer: "bg-secondary text-muted-foreground",
-  };
+const roleLabel = (role: string) => role.charAt(0).toUpperCase() + role.slice(1);
+
+function initials(text: string) {
+  const parts = text.split(/[\s._@-]+/).filter(Boolean);
+  return (parts.length > 1 ? parts[0][0] + parts[1][0] : text.slice(0, 2)).toUpperCase();
+}
+
+function Avatar({ name }: { name: string }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-        colors[role] ?? colors.viewer
-      }`}
+      className="flex size-7 shrink-0 items-center justify-center rounded-full border border-line-strong bg-raised text-[11px] font-semibold text-t2"
+      aria-hidden
     >
-      <Shield className="h-3 w-3" />
-      {role}
+      {initials(name)}
     </span>
   );
 }
 
 export default function TeamPage() {
-  const router = useRouter();
+  const currentUser = useCurrentUser();
+  const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<string>("");
   const [inviting, setInviting] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteResult, setInviteResult] = useState<InviteResult | null>(null);
-  const [linkCopied, setLinkCopied] = useState(false);
-  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-    };
-  }, []);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
   const [resetOpenId, setResetOpenId] = useState<string | null>(null);
@@ -79,12 +82,30 @@ export default function TeamPage() {
   const [resetError, setResetError] = useState<string | null>(null);
   const [resetSuccessId, setResetSuccessId] = useState<string | null>(null);
   const resetSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Set when a row-menu item opens a dialog, so the closing menu doesn't pull
+  // focus back to its trigger while the dialog is taking it.
+  const menuOpensDialog = useRef(false);
+
+  /// Radix runs a menu item's onSelect before the (focus-trapping) menu has
+  /// closed, so a dialog opened right there loses its initial focus. Open it
+  /// on the next tick instead.
+  function openFromMenu(open: () => void) {
+    menuOpensDialog.current = true;
+    setTimeout(open, 0);
+  }
 
   useEffect(() => {
     return () => {
       if (resetSuccessTimerRef.current) clearTimeout(resetSuccessTimerRef.current);
     };
   }, []);
+
+  // PasswordInput has no autoFocus prop; focus it once the dialog is up.
+  useEffect(() => {
+    if (!resetOpenId) return;
+    const t = setTimeout(() => document.getElementById("reset-password-input")?.focus(), 0);
+    return () => clearTimeout(t);
+  }, [resetOpenId]);
 
   const { data, isLoading, isError, error, refetch } = $api.useQuery("get", "/api/v1/team");
 
@@ -94,9 +115,25 @@ export default function TeamPage() {
   useEffect(() => {
     if (inviteRole || availableRoles.length === 0) return;
     setInviteRole(
-      availableRoles.includes(DEFAULT_INVITE_ROLE) ? DEFAULT_INVITE_ROLE : availableRoles[0]
+      availableRoles.includes(DEFAULT_INVITE_ROLE) ? DEFAULT_INVITE_ROLE : availableRoles[0],
     );
   }, [availableRoles, inviteRole]);
+
+  const memberName = (id: string | null) => {
+    const m = members.find((x) => x.id === id);
+    return m ? (m.display_name ?? m.email) : "this member";
+  };
+  const removeTarget = members.find((m) => m.id === confirmRemove);
+
+  function openInvite() {
+    setInviteError(null);
+    setInviteOpen(true);
+  }
+
+  function finishInvite() {
+    setInviteOpen(false);
+    setInviteResult(null);
+  }
 
   async function handleInvite(e: React.FormEvent) {
     e.preventDefault();
@@ -104,13 +141,12 @@ export default function TeamPage() {
     setInviting(true);
     setInviteError(null);
     setInviteResult(null);
-    setLinkCopied(false);
 
     try {
       const result = (await unwrap(
         fetchClient.POST("/api/v1/team/members", {
           body: { email: inviteEmail.trim(), role: inviteRole } as never,
-        })
+        }),
       )) as InviteResult;
       setInviteResult(result);
       setInviteEmail("");
@@ -119,18 +155,6 @@ export default function TeamPage() {
       setInviteError(err instanceof Error ? err.message : "Failed to send invitation");
     } finally {
       setInviting(false);
-    }
-  }
-
-  async function copyInviteLink() {
-    if (!inviteResult) return;
-    try {
-      await navigator.clipboard.writeText(inviteResult.invite_url);
-      setLinkCopied(true);
-      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-      copyTimerRef.current = setTimeout(() => setLinkCopied(false), 2000);
-    } catch {
-      // Clipboard permission denied — leave the URL visible for manual copy.
     }
   }
 
@@ -154,7 +178,7 @@ export default function TeamPage() {
         fetchClient.POST("/api/v1/team/members/{member_id}/password", {
           params: { path: { member_id: memberId } },
           body: { password: resetPassword },
-        })
+        }),
       );
       setResetOpenId(null);
       setResetPassword("");
@@ -175,11 +199,12 @@ export default function TeamPage() {
       await unwrap(
         fetchClient.DELETE("/api/v1/team/members/{member_id}", {
           params: { path: { member_id: memberId } },
-        })
+        }),
       );
       setConfirmRemove(null);
       refetch();
     } catch (err) {
+      setConfirmRemove(null);
       setRemoveError(err instanceof Error ? err.message : "Failed to remove member");
     } finally {
       setRemovingId(null);
@@ -187,282 +212,269 @@ export default function TeamPage() {
   }
 
   return (
-    <div className="max-w-2xl space-y-6">
-      <div className="flex items-center gap-3">
-        <button
-          onClick={() => router.push("/settings")}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Settings
-        </button>
-        <span className="text-muted-foreground">/</span>
-        <span className="text-sm font-medium text-foreground">Team</span>
-      </div>
+    <>
+      <SettingsHeader
+        title="Members"
+        description="People who can sign in to this organization. Their role decides what they can see and change."
+        action={
+          <Button variant="primary" onClick={openInvite}>
+            <UserPlus />
+            Invite member
+          </Button>
+        }
+      />
 
-      {removeError && (
-        <div className="flex items-center gap-2 p-3 rounded-lg border border-destructive/40 bg-destructive/5 text-destructive text-sm">
-          <AlertTriangle className="h-4 w-4 shrink-0" />
-          {removeError}
-        </div>
+      {removeError && <ErrorAlert onDismiss={() => setRemoveError(null)}>{removeError}</ErrorAlert>}
+
+      {isError ? (
+        <ErrorAlert>{(error as unknown as Error)?.message ?? "Failed to load team"}</ErrorAlert>
+      ) : (
+        <Panel aria-label="Members">
+          <PanelHeader
+            title="People"
+            subtitle={
+              members.length > 0
+                ? `${members.length} ${members.length === 1 ? "member" : "members"}`
+                : undefined
+            }
+          />
+          {isLoading ? (
+            <div className="flex flex-col gap-3 border-t border-line-soft px-4 py-4">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-9 w-full" />
+              ))}
+            </div>
+          ) : members.length === 0 ? (
+            <EmptyState
+              icon={<Users />}
+              title="No members yet"
+              description="Invite people to give them access to this organization."
+              className="border-t border-line-soft"
+            />
+          ) : (
+            <ul>
+              {members.map((member) => {
+                const name = member.display_name ?? member.email;
+                const isYou = currentUser?.id === member.id;
+                return (
+                  <li
+                    key={member.id}
+                    className="flex items-center gap-3 border-t border-line-soft px-4 py-3"
+                  >
+                    <Avatar name={name} />
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="truncate text-[13.5px] font-[550] text-foreground">
+                          {name}
+                        </span>
+                        {isYou && <span className="text-xs text-t3">You</span>}
+                        {resetSuccessId === member.id && (
+                          <Chip tone="ok" icon={<Check strokeWidth={2.6} />}>
+                            Password reset
+                          </Chip>
+                        )}
+                      </div>
+                      {member.display_name && (
+                        <span className="truncate text-[13px] text-t3">{member.email}</span>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                      {(member.roles ?? []).map((r) => (
+                        <Chip key={r} title={`Role: ${r}`}>
+                          {roleLabel(r)}
+                        </Chip>
+                      ))}
+                    </div>
+                    <Menu>
+                      <MenuTrigger asChild>
+                        <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${name}`}>
+                          <Ellipsis />
+                        </Button>
+                      </MenuTrigger>
+                      <MenuContent
+                        onCloseAutoFocus={(e) => {
+                          if (!menuOpensDialog.current) return;
+                          menuOpensDialog.current = false;
+                          e.preventDefault();
+                        }}
+                      >
+                        <div className="truncate px-2.5 pt-1.5 pb-1 text-xs text-t3">
+                          {member.email}
+                        </div>
+                        <MenuItem onSelect={() => openFromMenu(() => openReset(member.id))}>
+                          <KeyRound />
+                          Reset password
+                        </MenuItem>
+                        <MenuSeparator />
+                        <MenuItem
+                          onSelect={() => openFromMenu(() => setConfirmRemove(member.id))}
+                          className="text-fail data-[highlighted]:bg-fail-wash [&_svg]:text-fail"
+                        >
+                          <Trash2 />
+                          Remove member
+                        </MenuItem>
+                      </MenuContent>
+                    </Menu>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Panel>
       )}
 
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
-        <div className="flex items-center gap-2 px-5 py-4 border-b border-border">
-          <Users className="h-4 w-4 text-primary" />
-          <h2 className="font-semibold text-foreground">Team Members</h2>
-          {members.length > 0 && (
-            <span className="ml-1 px-2 py-0.5 rounded-full bg-secondary text-xs text-muted-foreground">
-              {members.length}
-            </span>
-          )}
-        </div>
-
-        {isLoading ? (
-          <div className="p-5 space-y-3">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-12 w-full" />
-            ))}
-          </div>
-        ) : isError ? (
-          <div className="flex items-center gap-3 p-5 text-destructive text-sm">
-            <AlertTriangle className="h-4 w-4 shrink-0" />
-            {(error as Error)?.message ?? "Failed to load team"}
-          </div>
-        ) : members.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
-            <Users className="h-10 w-10 opacity-30" />
-            <p className="text-sm">No team members found</p>
+      <Modal
+        open={inviteOpen}
+        onOpenChange={setInviteOpen}
+        title={inviteResult ? "Invitation created" : "Invite member"}
+        description={
+          inviteResult
+            ? undefined
+            : "Feloxi emails them a link to join. If email isn't set up, you get a link to share instead."
+        }
+        footer={
+          inviteResult ? (
+            <>
+              <Button onClick={() => setInviteResult(null)}>Invite another</Button>
+              <Button variant="primary" onClick={finishInvite}>
+                Done
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" onClick={() => setInviteOpen(false)}>
+                Cancel
+              </Button>
+              <Button variant="primary" type="submit" form="invite-member" disabled={inviting}>
+                {inviting ? <Loader2 className="animate-spin" /> : <UserPlus />}
+                Send invite
+              </Button>
+            </>
+          )
+        }
+      >
+        {inviteResult ? (
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-center gap-2 text-[13px] text-t2">
+                {inviteResult.email_sent ? (
+                  <Chip tone="ok" icon={<MailCheck />}>
+                    Email sent
+                  </Chip>
+                ) : (
+                  <Chip tone="warn" icon={<MailWarning />}>
+                    Email not sent
+                  </Chip>
+                )}
+                <span className="min-w-0 truncate text-foreground">{inviteResult.email}</span>
+              </div>
+              <p className="text-[13px] leading-relaxed text-t2">
+                {inviteResult.email_sent
+                  ? "An email with the sign-in link has been sent."
+                  : inviteResult.email_error
+                    ? `Email delivery failed (${inviteResult.email_error}). Share the link below manually.`
+                    : "Email was not sent. Share the link below manually."}
+              </p>
+            </div>
+            <Field
+              label="Invite link"
+              hint={
+                inviteResult.expires_at
+                  ? `Expires ${format(new Date(inviteResult.expires_at), "d MMM yyyy, HH:mm")}.`
+                  : undefined
+              }
+            >
+              <CodeWell actions={<CopyButton text={inviteResult.invite_url} />}>
+                {inviteResult.invite_url}
+              </CodeWell>
+            </Field>
           </div>
         ) : (
-          <div className="divide-y divide-border">
-            {members.map((member) => (
-              <div key={member.id} className="px-5 py-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="h-9 w-9 rounded-full bg-secondary flex items-center justify-center text-sm font-semibold text-foreground shrink-0">
-                      {(member.display_name ?? member.email).charAt(0).toUpperCase()}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">
-                        {member.display_name ?? member.email}
-                      </p>
-                      <p className="text-xs text-muted-foreground truncate flex items-center gap-1">
-                        <Mail className="h-3 w-3 shrink-0" />
-                        {member.email}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {(member.roles ?? []).map((r) => (
-                      <RoleBadge key={r} role={r} />
-                    ))}
-                    {resetSuccessId === member.id && (
-                      <span className="flex items-center gap-1 text-xs text-[#22c55e]">
-                        <CheckCircle className="h-3 w-3" />
-                        Password reset
-                      </span>
-                    )}
-                    {confirmRemove === member.id ? (
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => handleRemove(member.id)}
-                          className="px-2 py-1 rounded bg-destructive text-white text-xs"
-                        >
-                          {removingId === member.id ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            "Remove"
-                          )}
-                        </button>
-                        <button
-                          onClick={() => setConfirmRemove(null)}
-                          className="px-2 py-1 rounded bg-secondary text-xs text-foreground"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() =>
-                            resetOpenId === member.id ? cancelReset() : openReset(member.id)
-                          }
-                          className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition"
-                          title="Reset password"
-                        >
-                          <KeyRound className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          onClick={() => setConfirmRemove(member.id)}
-                          className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition"
-                          title="Remove member"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-                {resetOpenId === member.id && (
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      handleResetPassword(member.id);
-                    }}
-                    className="mt-3 pl-12 space-y-2"
-                  >
-                    <p className="text-xs text-muted-foreground">
-                      Set a new password for this member. They will be signed out of all
-                      sessions and must sign in again.
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="password"
-                        value={resetPassword}
-                        onChange={(e) => setResetPassword(e.target.value)}
-                        placeholder="New password (min 8 chars)"
-                        autoComplete="new-password"
-                        className="flex-1 bg-secondary border border-border text-foreground text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring"
-                      />
-                      <button
-                        type="submit"
-                        disabled={resetSubmitting}
-                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 transition disabled:opacity-50"
-                      >
-                        {resetSubmitting ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          "Set password"
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={cancelReset}
-                        className="px-3 py-1.5 rounded-lg bg-secondary text-xs text-foreground hover:bg-secondary/80 transition"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                    {resetError && (
-                      <p className="flex items-center gap-1 text-xs text-destructive">
-                        <AlertTriangle className="h-3 w-3" />
-                        {resetError}
-                      </p>
-                    )}
-                  </form>
-                )}
-              </div>
-            ))}
-          </div>
+          <form id="invite-member" onSubmit={handleInvite} className="flex flex-col gap-4">
+            {inviteError && <ErrorAlert>{inviteError}</ErrorAlert>}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_160px]">
+              <Field label="Email" htmlFor="invite-email">
+                <Input
+                  id="invite-email"
+                  type="email"
+                  required
+                  autoFocus
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder="colleague@company.com"
+                />
+              </Field>
+              <Field label="Role" htmlFor="invite-role">
+                <Select
+                  id="invite-role"
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value)}
+                >
+                  {availableRoles.map((r) => (
+                    <option key={r} value={r}>
+                      {roleLabel(r)}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
+          </form>
         )}
-      </div>
+      </Modal>
 
-      <div className="rounded-xl border border-border bg-card p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <UserPlus className="h-4 w-4 text-primary" />
-          <h2 className="font-semibold text-foreground">Add Team Member</h2>
-        </div>
-
-        {inviteResult && (
-          <div className="p-4 rounded-lg border border-[#22c55e]/40 bg-[#22c55e]/5 mb-4 space-y-3">
-            <div className="flex items-start gap-2 text-[#22c55e] text-sm">
-              <CheckCircle className="h-4 w-4 shrink-0 mt-0.5" />
-              <div className="space-y-1">
-                <p className="font-medium">
-                  Invitation created for {inviteResult.email}
-                </p>
-                <p className="text-xs text-[#22c55e]/80">
-                  {inviteResult.email_sent
-                    ? "An email with the sign-in link has been sent."
-                    : inviteResult.email_error
-                      ? `Email delivery failed (${inviteResult.email_error}). Share the link below manually.`
-                      : "Email was not sent. Share the link below manually."}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 p-2 rounded-md bg-secondary border border-border">
-              <code className="flex-1 text-xs text-foreground truncate select-all">
-                {inviteResult.invite_url}
-              </code>
-              <button
-                type="button"
-                onClick={copyInviteLink}
-                className="shrink-0 flex items-center gap-1 px-2 py-1 rounded bg-background border border-border text-xs text-foreground hover:bg-secondary transition"
-                title="Copy invite link"
-              >
-                {linkCopied ? (
-                  <>
-                    <Check className="h-3 w-3" />
-                    Copied
-                  </>
-                ) : (
-                  <>
-                    <Copy className="h-3 w-3" />
-                    Copy
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {inviteError && (
-          <div className="flex items-center gap-2 p-3 rounded-lg border border-destructive/40 bg-destructive/5 text-destructive text-sm mb-4">
-            <AlertTriangle className="h-4 w-4 shrink-0" />
-            {inviteError}
-          </div>
-        )}
-
-        <form onSubmit={handleInvite} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-muted-foreground mb-1">
-                Email Address
-              </label>
-              <input
-                type="email"
-                required
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                placeholder="colleague@company.com"
-                className="w-full bg-secondary border border-border text-foreground text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-muted-foreground mb-1">
-                Role
-              </label>
-              <select
-                value={inviteRole}
-                onChange={(e) => setInviteRole(e.target.value)}
-                className="w-full bg-secondary border border-border text-foreground text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring"
-              >
-                {availableRoles.map((r) => (
-                  <option key={r} value={r}>
-                    {r.charAt(0).toUpperCase() + r.slice(1)}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="flex justify-end">
-            <button
+      <Modal
+        open={resetOpenId != null}
+        onOpenChange={(open) => !open && cancelReset()}
+        title="Reset password"
+        description={`Set a new password for ${memberName(resetOpenId)}. They'll be signed out of all sessions and must sign in again.`}
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={cancelReset} disabled={resetSubmitting}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
               type="submit"
-              disabled={inviting}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition disabled:opacity-50"
+              form="reset-password"
+              disabled={resetSubmitting}
             >
-              {inviting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <UserPlus className="h-4 w-4" />
-              )}
-              Add Member
-            </button>
-          </div>
+              {resetSubmitting && <Loader2 className="animate-spin" />}
+              Set password
+            </Button>
+          </>
+        }
+      >
+        <form
+          id="reset-password"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (resetOpenId) handleResetPassword(resetOpenId);
+          }}
+        >
+          <Field label="New password" htmlFor="reset-password-input" error={resetError}>
+            <PasswordInput
+              id="reset-password-input"
+              name="new-password"
+              value={resetPassword}
+              onChange={setResetPassword}
+              hasError={!!resetError}
+            />
+          </Field>
         </form>
-      </div>
-    </div>
+      </Modal>
+
+      <ConfirmDialog
+        open={confirmRemove != null}
+        onOpenChange={(open) => !open && removingId == null && setConfirmRemove(null)}
+        title="Remove this member?"
+        description={`${memberName(confirmRemove)} loses access to this organization right away.`}
+        subject={removeTarget?.email}
+        confirmLabel="Remove member"
+        tone="danger"
+        busy={removingId != null}
+        onConfirm={() => confirmRemove && handleRemove(confirmRemove)}
+      />
+    </>
   );
 }

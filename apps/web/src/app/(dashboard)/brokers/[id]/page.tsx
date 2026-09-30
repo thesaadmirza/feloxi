@@ -1,91 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import {
-  ArrowLeft,
-  Cable,
-  Database,
-  Plug,
-  Play,
-  Square,
-  Trash2,
-  Loader2,
-  AlertTriangle,
-  Activity,
-  Clock,
-  CheckCircle,
-  XCircle,
-  BarChart2,
-} from "lucide-react";
-import {
-  Area,
-  AreaChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { Loader2, Play, SearchX, Square, Trash2 } from "lucide-react";
 import { $api, fetchClient, unwrap } from "@/lib/api";
-import { timeAgo } from "@/lib/utils";
+import { cn, timeAgo } from "@/lib/utils";
+import { PageBody, PageHeader } from "@/components/layout/page";
+import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/dialog";
+import { Panel, PanelHeader, PanelLink } from "@/components/ui/panel";
+import { FlatPulse } from "@/components/ui/pulse";
+import { Readout, Readouts } from "@/components/ui/readout";
+import { Table, Td, Th, THead, Tr } from "@/components/ui/table";
+import { EmptyState } from "@/components/shared/empty-state";
+import { ErrorAlert } from "@/components/shared/error-alert";
 import { Skeleton } from "@/components/shared/skeleton";
+import { BrokerStatusChip, BrokerTypeTag } from "@/components/infra/broker-status";
+import { DepthBar } from "@/components/infra/depth-bar";
+import { errorText, maskUrlPasswords } from "@/components/infra/error-text";
+import { EVEN_READOUTS } from "@/components/infra/even-readouts";
+import { OutcomeAreaChart, OutcomeLegend } from "@/components/infra/outcome-chart";
 import type { TaskMetricsRow } from "@/types/api";
-
-function StatCard({
-  label,
-  value,
-  icon: Icon,
-  color,
-}: {
-  label: string;
-  value: string | number;
-  icon: React.ElementType;
-  color?: string;
-}) {
-  return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
-      <div className="flex items-center gap-2 text-sm text-zinc-500 mb-2">
-        <Icon className="h-4 w-4" />
-        {label}
-      </div>
-      <p className={`text-2xl font-bold ${color ?? "text-white"}`}>{value}</p>
-    </div>
-  );
-}
-
-function StatusDot({ status }: { status: string }) {
-  const color =
-    status === "connected"
-      ? "bg-emerald-400"
-      : status === "error"
-        ? "bg-red-400"
-        : "bg-zinc-600";
-
-  return (
-    <span className="relative flex h-2.5 w-2.5">
-      {status === "connected" && (
-        <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-30 animate-ping" />
-      )}
-      <span
-        className={`relative inline-flex rounded-full h-2.5 w-2.5 ${color}`}
-      />
-    </span>
-  );
-}
-
-function BrokerTypeBadge({ type }: { type: string }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium bg-zinc-800 text-zinc-300">
-      {type === "redis" ? (
-        <Database className="w-3 h-3" />
-      ) : (
-        <Plug className="w-3 h-3" />
-      )}
-      {type === "redis" ? "Redis" : "RabbitMQ"}
-    </span>
-  );
-}
 
 /** Aggregate per-task throughput rows into per-minute totals for the chart. */
 function aggregateThroughput(rows: TaskMetricsRow[]) {
@@ -105,6 +42,23 @@ function aggregateThroughput(rows: TaskMetricsRow[]) {
       }),
       ...counts,
     }));
+}
+
+function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[96px_minmax(0,1fr)] items-center gap-3 border-t border-line-soft px-4 py-2.5 text-[13px]">
+      <dt className="text-t3">{label}</dt>
+      <dd className="min-w-0 text-foreground">{children}</dd>
+    </div>
+  );
+}
+
+function PanelNote({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="border-t border-line-soft px-4 pt-4 pb-6 text-center text-[13px] text-t3">
+      {children}
+    </p>
+  );
 }
 
 export default function BrokerDetailPage() {
@@ -127,21 +81,21 @@ export default function BrokerDetailPage() {
     { enabled: !!brokerId, refetchInterval: 10_000 },
   );
 
-  const { data: stats } = $api.useQuery(
+  const { data: stats, isLoading: statsLoading } = $api.useQuery(
     "get",
     "/api/v1/brokers/{id}/stats",
     { params: { path: { id: brokerId } } },
     { enabled: !!brokerId, refetchInterval: 10_000 },
   );
 
-  const { data: queuesData } = $api.useQuery(
+  const { data: queuesData, isLoading: queuesLoading } = $api.useQuery(
     "get",
     "/api/v1/brokers/{id}/queues",
     { params: { path: { id: brokerId } } },
     { enabled: !!brokerId && broker?.status === "connected", refetchInterval: 10_000 },
   );
 
-  const { data: throughputData } = $api.useQuery(
+  const { data: throughputData, isLoading: throughputLoading } = $api.useQuery(
     "get",
     "/api/v1/metrics/throughput",
     { params: { query: { from_minutes: 60 } } },
@@ -149,49 +103,69 @@ export default function BrokerDetailPage() {
   );
 
   const startMutation = useMutation({
-    mutationFn: () => unwrap(fetchClient.POST("/api/v1/brokers/{id}/start", { params: { path: { id: brokerId } } })),
+    mutationFn: () =>
+      unwrap(
+        fetchClient.POST("/api/v1/brokers/{id}/start", { params: { path: { id: brokerId } } }),
+      ),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["get", "/api/v1/brokers/{id}"] }),
   });
 
   const stopMutation = useMutation({
-    mutationFn: () => unwrap(fetchClient.POST("/api/v1/brokers/{id}/stop", { params: { path: { id: brokerId } } })),
+    mutationFn: () =>
+      unwrap(fetchClient.POST("/api/v1/brokers/{id}/stop", { params: { path: { id: brokerId } } })),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["get", "/api/v1/brokers/{id}"] }),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: () => unwrap(fetchClient.DELETE("/api/v1/brokers/{id}", { params: { path: { id: brokerId } } })),
+    mutationFn: () =>
+      unwrap(fetchClient.DELETE("/api/v1/brokers/{id}", { params: { path: { id: brokerId } } })),
     onSuccess: () => router.push("/brokers"),
   });
 
+  const chart = useMemo(
+    () => (throughputData ? aggregateThroughput(throughputData.data) : []),
+    [throughputData],
+  );
+  const chartTotals = useMemo(
+    () =>
+      chart.reduce((acc, p) => ({ s: acc.s + p.success, f: acc.f + p.failure }), { s: 0, f: 0 }),
+    [chart],
+  );
+
   if (isLoading) {
     return (
-      <div className="space-y-6">
-        <Skeleton className="h-8 w-32" />
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-28 w-full" />
-          ))}
-        </div>
-        <Skeleton className="h-64 w-full" />
-      </div>
+      <>
+        <PageHeader crumbs={[{ label: "Brokers", href: "/brokers" }, { label: "…" }]} />
+        <PageBody>
+          <Skeleton className="h-[106px] w-full rounded-xl" />
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+            <Skeleton className="h-64 w-full rounded-xl" />
+            <Skeleton className="h-64 w-full rounded-xl" />
+          </div>
+        </PageBody>
+      </>
     );
   }
 
   if (isError) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
-        <AlertTriangle className="h-12 w-12 text-red-400 opacity-60" />
-        <p className="text-lg font-medium text-white">Broker not found</p>
-        <p className="text-sm text-zinc-500">
-          {(error as Error)?.message ?? "Could not load broker details"}
-        </p>
-        <button
-          onClick={() => router.push("/brokers")}
-          className="mt-2 px-4 py-2 rounded-lg bg-zinc-800 text-zinc-200 text-sm hover:bg-zinc-700 transition"
-        >
-          Go back
-        </button>
-      </div>
+      <>
+        <PageHeader crumbs={[{ label: "Brokers", href: "/brokers" }, { label: "Not found" }]} />
+        <PageBody>
+          <Panel>
+            <EmptyState
+              icon={<SearchX />}
+              title="Broker not found"
+              description={errorText(error) ?? "Could not load broker details"}
+              action={
+                <Button asChild>
+                  <Link href="/brokers">Back to brokers</Link>
+                </Button>
+              }
+            />
+          </Panel>
+        </PageBody>
+      </>
     );
   }
 
@@ -202,301 +176,269 @@ export default function BrokerDetailPage() {
 
   const successRate =
     stats && stats.total_events > 0
-      ? Math.round(
-          (stats.success_count / (stats.success_count + stats.failure_count)) * 100
-        ) || 0
+      ? Math.round((stats.success_count / (stats.success_count + stats.failure_count)) * 100) || 0
       : 0;
+  const finished = stats ? stats.success_count + stats.failure_count : 0;
+
+  const queues = queuesData?.data ?? [];
+  const maxDepth = Math.max(0, ...queues.map((q) => q.depth));
+  const topTasks = stats?.top_tasks ?? [];
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => router.push("/brokers")}
-            className="flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-200 transition"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Brokers
-          </button>
-          <span className="text-zinc-700">/</span>
-          <span className="text-sm font-medium text-zinc-200">{broker.name}</span>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Start / Stop */}
-          <button
-            onClick={() =>
-              isConnected ? stopMutation.mutate() : startMutation.mutate()
-            }
-            disabled={isToggling}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-zinc-800 text-zinc-200 text-sm font-medium hover:bg-zinc-700 transition disabled:opacity-50"
-          >
-            {isToggling ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : isConnected ? (
-              <Square className="w-4 h-4" />
-            ) : (
-              <Play className="w-4 h-4" />
-            )}
-            {isConnected ? "Stop" : "Start"}
-          </button>
-
-          {/* Delete */}
-          {deleteConfirm ? (
-            <div className="flex items-center gap-1.5">
-              <span className="text-sm text-zinc-500">Delete broker?</span>
-              <button
-                onClick={() => deleteMutation.mutate()}
-                disabled={deleteMutation.isPending}
-                className="px-3 py-2 rounded-lg bg-red-500/20 text-red-400 text-sm font-medium hover:bg-red-500/30 transition disabled:opacity-50"
-              >
-                {deleteMutation.isPending ? "..." : "Confirm"}
-              </button>
-              <button
-                onClick={() => setDeleteConfirm(false)}
-                className="px-3 py-2 rounded-lg bg-zinc-800 text-zinc-400 text-sm hover:bg-zinc-700 transition"
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setDeleteConfirm(true)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-500/10 text-red-400 text-sm hover:bg-red-500/20 transition"
-            >
-              <Trash2 className="w-4 h-4" />
-              Delete
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Broker Info Card */}
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
-        <div className="flex items-center gap-3 mb-4">
-          <Cable className="h-5 w-5 text-zinc-400" />
-          <h2 className="font-semibold text-white">{broker.name}</h2>
-          <StatusDot status={broker.status} />
-          <span
-            className={`text-xs font-medium capitalize ${
-              broker.status === "connected"
-                ? "text-emerald-400"
-                : broker.status === "error"
-                  ? "text-red-400"
-                  : "text-zinc-500"
-            }`}
-          >
-            {broker.status}
+    <>
+      <PageHeader
+        crumbs={[{ label: "Brokers", href: "/brokers" }, { label: broker.name }]}
+        meta={
+          <span className="inline-flex items-center gap-2">
+            <BrokerStatusChip broker={broker} />
+            <span className="font-mono">{broker.broker_type}</span>
           </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-3 gap-x-8 text-sm">
-          <div className="flex gap-2">
-            <span className="text-zinc-500 w-28 shrink-0">Type</span>
-            <BrokerTypeBadge type={broker.broker_type} />
-          </div>
-          <div className="flex gap-2">
-            <span className="text-zinc-500 w-28 shrink-0">Broker ID</span>
-            <span className="font-mono text-zinc-300 text-xs break-all">
-              {broker.id}
-            </span>
-          </div>
-          <div className="flex gap-2">
-            <span className="text-zinc-500 w-28 shrink-0">Created</span>
-            <span className="text-zinc-300">{timeAgo(broker.created_at)}</span>
-          </div>
-          <div className="flex gap-2">
-            <span className="text-zinc-500 w-28 shrink-0">Updated</span>
-            <span className="text-zinc-300">{timeAgo(broker.updated_at)}</span>
-          </div>
-        </div>
-
+        }
+        actions={
+          <>
+            <Button
+              onClick={() => (isConnected ? stopMutation.mutate() : startMutation.mutate())}
+              disabled={isToggling}
+            >
+              {isToggling ? (
+                <Loader2 className="animate-spin" aria-hidden />
+              ) : isConnected ? (
+                <Square aria-hidden />
+              ) : (
+                <Play aria-hidden />
+              )}
+              {isConnected ? "Stop" : "Start"}
+            </Button>
+            <Button variant="danger" onClick={() => setDeleteConfirm(true)}>
+              <Trash2 aria-hidden />
+              Delete
+            </Button>
+          </>
+        }
+      />
+      <PageBody>
         {broker.last_error && (
-          <div className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">
-            <p className="font-medium mb-1">Last Error</p>
-            <p className="text-red-400/80 font-mono text-xs break-all">
-              {broker.last_error}
-            </p>
-          </div>
+          <ErrorAlert>
+            <span className="font-semibold">Last error</span>
+            <span className="mt-0.5 block font-mono text-[12px] break-all opacity-90">
+              {maskUrlPasswords(broker.last_error)}
+            </span>
+          </ErrorAlert>
         )}
-      </div>
 
-      {/* Stats Grid */}
-      <div>
-        <h2 className="text-sm font-semibold text-zinc-500 uppercase tracking-wider mb-3">
-          Ingestion Stats
-        </h2>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard
-            label="Total Events"
+        <Readouts className={cn("lg:grid-cols-4", EVEN_READOUTS)}>
+          <Readout
+            label="Total events"
             value={stats?.total_events?.toLocaleString() ?? "0"}
-            icon={Activity}
+            loading={statsLoading}
           />
-          <StatCard
-            label="Last Hour"
+          <Readout
+            label="Last hour"
             value={stats?.events_last_hour?.toLocaleString() ?? "0"}
-            icon={Clock}
+            unit="events"
+            loading={statsLoading}
           />
-          <StatCard
+          <Readout
             label="Last 24h"
             value={stats?.events_last_24h?.toLocaleString() ?? "0"}
-            icon={BarChart2}
+            unit="events"
+            loading={statsLoading}
           />
-          <StatCard
-            label="Success Rate"
-            value={stats ? `${successRate}%` : "—"}
-            icon={CheckCircle}
-            color={
-              successRate >= 95
-                ? "text-emerald-400"
-                : successRate >= 80
-                  ? "text-yellow-400"
-                  : "text-red-400"
+          <Readout
+            label="Success rate"
+            value={
+              stats && finished > 0 ? (
+                <span
+                  className={cn(successRate < 80 ? "text-fail" : successRate < 95 && "text-warn")}
+                >
+                  {successRate}
+                </span>
+              ) : (
+                "—"
+              )
             }
+            unit={stats && finished > 0 ? "%" : undefined}
+            delta={
+              stats && finished > 0 ? (
+                <span>{stats.failure_count.toLocaleString()} failed</span>
+              ) : undefined
+            }
+            loading={statsLoading}
           />
-        </div>
-      </div>
+        </Readouts>
 
-      {/* Queue Depths */}
-      {queuesData && queuesData.data.length > 0 && (
-        <div>
-          <h2 className="text-sm font-semibold text-zinc-500 uppercase tracking-wider mb-3">
-            Queue Depths
-          </h2>
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="text-xs text-zinc-500 uppercase tracking-wider">
-                  <th className="px-4 py-3 font-medium">Queue</th>
-                  <th className="px-4 py-3 font-medium text-right">Messages</th>
-                </tr>
-              </thead>
-              <tbody>
-                {queuesData.data.map((q) => (
-                  <tr
-                    key={q.queue_name}
-                    className="border-t border-zinc-800/60 hover:bg-white/[0.02] transition"
-                  >
-                    <td className="px-4 py-3 text-sm font-mono text-zinc-300">
-                      {q.queue_name}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right tabular-nums">
-                      <span
-                        className={
-                          q.depth > 100
-                            ? "text-yellow-400 font-medium"
-                            : "text-zinc-400"
-                        }
-                      >
-                        {q.depth.toLocaleString()}
-                      </span>
-                    </td>
-                  </tr>
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <Panel aria-label="Tasks per minute">
+            <PanelHeader
+              title="Tasks per minute"
+              subtitle="last hour, all brokers"
+              action={
+                chart.length > 0 ? (
+                  <div className="hidden items-center gap-4 sm:flex">
+                    <OutcomeLegend color="var(--ok)" label="Succeeded" value={chartTotals.s} />
+                    <OutcomeLegend color="var(--fail)" label="Failed" value={chartTotals.f} />
+                  </div>
+                ) : undefined
+              }
+            />
+            <div className="px-2 pb-3">
+              {throughputLoading ? (
+                <Skeleton className="mx-2 h-[200px] w-[calc(100%-16px)]" />
+              ) : chart.length === 0 ? (
+                <div className="flex h-[200px] flex-col items-center justify-center gap-2 text-center">
+                  <FlatPulse />
+                  <span className="text-[13px] text-t3">No tasks finished in the last hour.</span>
+                </div>
+              ) : (
+                <OutcomeAreaChart data={chart} />
+              )}
+            </div>
+          </Panel>
+
+          <Panel aria-label="Connection details">
+            <PanelHeader title="Connection" />
+            <dl className="pb-1">
+              <DetailRow label="Status">
+                <BrokerStatusChip broker={broker} />
+              </DetailRow>
+              <DetailRow label="Type">
+                <BrokerTypeTag type={broker.broker_type} />
+              </DetailRow>
+              <DetailRow label="Broker ID">
+                <span className="block truncate font-mono text-[12px] text-t2" title={broker.id}>
+                  {broker.id}
+                </span>
+              </DetailRow>
+              <DetailRow label="Created">
+                <span title={new Date(broker.created_at).toLocaleString()}>
+                  {timeAgo(broker.created_at)}
+                </span>
+              </DetailRow>
+              <DetailRow label="Updated">
+                <span title={new Date(broker.updated_at).toLocaleString()}>
+                  {timeAgo(broker.updated_at)}
+                </span>
+              </DetailRow>
+            </dl>
+          </Panel>
+        </div>
+
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <Panel aria-label="Queue depths">
+            <PanelHeader
+              title="Queues"
+              subtitle="messages waiting now"
+              action={<PanelLink href="/queues">All queues</PanelLink>}
+            />
+            {!isConnected ? (
+              <PanelNote>Queue depths show while the broker is connected.</PanelNote>
+            ) : queuesLoading ? (
+              <div className="flex flex-col gap-2 px-4 pb-4">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Skeleton key={i} className="h-8 w-full" />
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+              </div>
+            ) : queues.length === 0 ? (
+              <PanelNote>No queues reported by the broker.</PanelNote>
+            ) : (
+              <Table className="table-fixed border-t border-border">
+                <THead>
+                  <Th>Queue</Th>
+                  <Th align="right" className="w-[45%]">
+                    Messages
+                  </Th>
+                </THead>
+                <tbody>
+                  {queues.map((q) => (
+                    <Tr key={q.queue_name}>
+                      <Td>
+                        <Link
+                          href={`/tasks?queue=${encodeURIComponent(q.queue_name)}`}
+                          className="block truncate font-mono text-[12.5px] text-foreground transition-colors hover:text-link"
+                          title={q.queue_name}
+                        >
+                          {q.queue_name}
+                        </Link>
+                      </Td>
+                      <Td align="right">
+                        <div className="flex items-center justify-end gap-3">
+                          <DepthBar value={q.depth} max={maxDepth} className="flex-1" />
+                          <span className="w-[52px] shrink-0 text-foreground">
+                            {q.depth.toLocaleString()}
+                          </span>
+                        </div>
+                      </Td>
+                    </Tr>
+                  ))}
+                </tbody>
+              </Table>
+            )}
+          </Panel>
 
-      {/* Throughput Chart */}
-      {throughputData && throughputData.data.length > 0 && (
-        <div>
-          <h2 className="text-sm font-semibold text-zinc-500 uppercase tracking-wider mb-3">
-            Throughput (Last Hour)
-          </h2>
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
-            <ResponsiveContainer width="100%" height={200}>
-              <AreaChart
-                data={aggregateThroughput(throughputData.data)}
-                margin={{ top: 4, right: 4, bottom: 0, left: 0 }}
-              >
-                <defs>
-                  <linearGradient id="successGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#22c55e" stopOpacity={0.3} />
-                    <stop offset="100%" stopColor="#22c55e" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="failureGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#ef4444" stopOpacity={0.3} />
-                    <stop offset="100%" stopColor="#ef4444" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis
-                  dataKey="time"
-                  tick={{ fontSize: 10, fill: "var(--chart-axis)" }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fontSize: 10, fill: "var(--chart-axis)" }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={40}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "var(--chart-tooltip-bg)",
-                    border: "1px solid var(--chart-tooltip-border)",
-                    borderRadius: 8,
-                    fontSize: 12,
-                    color: "var(--chart-tooltip-color)",
-                  }}
-                  labelStyle={{ color: "var(--chart-tooltip-label)" }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="success"
-                  stroke="#22c55e"
-                  fill="url(#successGrad)"
-                  strokeWidth={1.5}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="failure"
-                  stroke="#ef4444"
-                  fill="url(#failureGrad)"
-                  strokeWidth={1.5}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
-
-      {/* Top Tasks */}
-      {stats && stats.top_tasks.length > 0 && (
-        <div>
-          <h2 className="text-sm font-semibold text-zinc-500 uppercase tracking-wider mb-3">
-            Top Tasks
-          </h2>
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="text-xs text-zinc-500 uppercase tracking-wider">
-                  <th className="px-4 py-3 font-medium">Task Name</th>
-                  <th className="px-4 py-3 font-medium text-right">Count</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stats.top_tasks.map((task) => (
-                  <tr
-                    key={task.name}
-                    className="border-t border-zinc-800/60 hover:bg-white/[0.02] transition"
-                  >
-                    <td className="px-4 py-3 text-sm font-mono text-zinc-300">
-                      {task.name}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-zinc-400 text-right tabular-nums">
-                      {task.count.toLocaleString()}
-                    </td>
-                  </tr>
+          <Panel aria-label="Top tasks">
+            <PanelHeader title="Top tasks" subtitle="by finished runs" />
+            {statsLoading ? (
+              <div className="flex flex-col gap-2 px-4 pb-4">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Skeleton key={i} className="h-8 w-full" />
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </div>
+            ) : topTasks.length === 0 ? (
+              <PanelNote>No finished tasks from this broker yet.</PanelNote>
+            ) : (
+              <Table className="table-fixed border-t border-border">
+                <THead>
+                  <Th>Task</Th>
+                  <Th align="right" className="w-[96px]">
+                    Runs
+                  </Th>
+                </THead>
+                <tbody>
+                  {topTasks.map((task) => (
+                    <Tr key={task.name}>
+                      <Td>
+                        <Link
+                          href={`/tasks?task_name=${encodeURIComponent(task.name)}`}
+                          className="block truncate font-mono text-[12.5px] text-foreground transition-colors hover:text-link"
+                          title={task.name}
+                        >
+                          {task.name}
+                        </Link>
+                      </Td>
+                      <Td align="right" className="text-t2">
+                        {task.count.toLocaleString()}
+                      </Td>
+                    </Tr>
+                  ))}
+                </tbody>
+              </Table>
+            )}
+          </Panel>
         </div>
-      )}
-    </div>
+      </PageBody>
+
+      <ConfirmDialog
+        open={deleteConfirm}
+        onOpenChange={(open) => {
+          if (!open && !deleteMutation.isPending) {
+            setDeleteConfirm(false);
+            deleteMutation.reset();
+          }
+        }}
+        title="Delete this broker?"
+        description="Feloxi stops consuming its events and removes the connection. Events already stored are kept."
+        subject={broker.name}
+        confirmLabel="Delete broker"
+        tone="danger"
+        busy={deleteMutation.isPending}
+        onConfirm={() => deleteMutation.mutate()}
+      >
+        {deleteMutation.isError && (
+          <p className="text-xs text-fail">
+            {errorText(deleteMutation.error) ?? "Couldn't delete the broker."}
+          </p>
+        )}
+      </ConfirmDialog>
+    </>
   );
 }

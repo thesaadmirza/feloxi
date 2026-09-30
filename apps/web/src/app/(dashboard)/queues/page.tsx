@@ -1,66 +1,79 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { RefreshCw, Layers, AlertTriangle, ChevronDown, Trash2, Loader2 } from "lucide-react";
+import Link from "next/link";
+import { Check, CircleDot, Layers, OctagonAlert, Trash2, TriangleAlert } from "lucide-react";
 import { $api, fetchClient, unwrap } from "@/lib/api";
-import { formatNumber } from "@/lib/utils";
-import { EmptyState } from "@/components/shared/empty-state";
 import { useHasPermission } from "@/hooks/use-current-user";
+import { PageBody, PageHeader } from "@/components/layout/page";
+import { Button } from "@/components/ui/button";
+import { Chip, type Tone } from "@/components/ui/chip";
+import { ConfirmDialog } from "@/components/ui/dialog";
+import { Select } from "@/components/ui/field";
+import { Panel } from "@/components/ui/panel";
+import { Sparkline } from "@/components/ui/sparkline";
+import { Table, Td, Th, THead, Tr } from "@/components/ui/table";
+import { EmptyState } from "@/components/shared/empty-state";
+import { ErrorAlert } from "@/components/shared/error-alert";
+import { Skeleton } from "@/components/shared/skeleton";
+import { DepthBar, type DepthTone } from "@/components/infra/depth-bar";
+import { errorText, maskUrlPasswords } from "@/components/infra/error-text";
+import { RefreshButton } from "@/components/infra/refresh-button";
+import { WarnAlert } from "@/components/infra/warn-alert";
+
+const TREND = {
+  rising: { color: "var(--warn)", word: "rising" },
+  falling: { color: "var(--ok)", word: "falling" },
+  steady: { color: "var(--t2)", word: "steady" },
+} as const;
 
 function QueueSparkline({ queueName }: { queueName: string }) {
   const { data } = $api.useQuery(
     "get",
     "/api/v1/metrics/queues",
     { params: { query: { queue: queueName, from_minutes: 60 } } },
-    { staleTime: 60_000 }
+    { staleTime: 60_000 },
   );
 
   const points = data?.data ?? [];
-  if (points.length < 2) return <span className="text-xs text-muted-foreground">—</span>;
+  if (points.length < 2) return <span className="text-t4">—</span>;
 
   const values = points.map((p) => p.enqueued);
-  const maxVal = Math.max(...values, 1);
-  const W = 72;
-  const H = 24;
-  const coords = values
-    .map((v, i) => {
-      const x = (i / (values.length - 1)) * W;
-      const y = H - (v / maxVal) * (H - 2) - 1;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
-
   const recent = values.slice(-5).reduce((a, b) => a + b, 0);
   const earlier = values.slice(0, 5).reduce((a, b) => a + b, 0);
-  const color = recent > earlier * 1.2 ? "#f97316" : recent < earlier * 0.8 ? "#22c55e" : "#6366f1";
+  const trend =
+    TREND[recent > earlier * 1.2 ? "rising" : recent < earlier * 0.8 ? "falling" : "steady"];
 
   return (
-    <svg width={W} height={H} aria-hidden>
-      <polyline
-        points={coords}
-        fill="none"
-        stroke={color}
-        strokeWidth={1.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        opacity={0.85}
+    <div className="w-[88px]">
+      <Sparkline
+        values={values}
+        color={trend.color}
+        height={22}
+        label={`Enqueued per minute over the last hour, ${trend.word}`}
       />
-    </svg>
+    </div>
   );
 }
 
-function depthStatus(depth: number): { label: string; cls: string } {
-  if (depth > 10000) return { label: "Critical", cls: "text-red-400 bg-red-400/10 border-red-400/20" };
-  if (depth > 1000) return { label: "Warning", cls: "text-orange-400 bg-orange-400/10 border-orange-400/20" };
-  if (depth > 0) return { label: "Active", cls: "text-yellow-400 bg-yellow-400/10 border-yellow-400/20" };
-  return { label: "Empty", cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20" };
+type DepthStatus = { label: string; tone: Tone; icon: React.ReactNode; bar: DepthTone };
+
+function depthStatus(depth: number): DepthStatus {
+  if (depth > 10000)
+    return { label: "Critical", tone: "fail", icon: <OctagonAlert />, bar: "fail" };
+  if (depth > 1000) return { label: "Warning", tone: "warn", icon: <TriangleAlert />, bar: "warn" };
+  if (depth > 0) return { label: "Active", tone: "neutral", icon: <CircleDot />, bar: "neutral" };
+  return { label: "Empty", tone: "ok", icon: <Check strokeWidth={2.6} />, bar: "neutral" };
 }
 
 export default function QueuesPage() {
-  const router = useRouter();
   const canManage = useHasPermission("brokers_manage");
-  const { data: brokersData } = $api.useQuery("get", "/api/v1/brokers", {}, { refetchInterval: 30_000 });
+  const { data: brokersData, isLoading: brokersLoading } = $api.useQuery(
+    "get",
+    "/api/v1/brokers",
+    {},
+    { refetchInterval: 30_000 },
+  );
   const brokers = brokersData?.data ?? [];
   const connectedBrokers = brokers.filter((b) => b.status === "connected");
 
@@ -77,6 +90,7 @@ export default function QueuesPage() {
     data: queueData,
     isLoading,
     isError,
+    error,
     refetch,
   } = $api.useQuery(
     "get",
@@ -88,18 +102,19 @@ export default function QueuesPage() {
   const queues = useMemo(() => {
     const raw = queueData?.data ?? [];
     // Filter out malformed queue names (Kombu binding artifacts with control chars)
-    return raw.filter((q) => q.queue_name && !q.queue_name.includes(""));
+    return raw.filter((q) => q.queue_name && !q.queue_name.includes("\u0006"));
   }, [queueData]);
 
-  const totalDepth = useMemo(
-    () => queues.reduce((acc, q) => acc + q.depth, 0),
+  const sorted = useMemo(
+    () => [...queues].sort((a, b) => b.depth - a.depth || a.queue_name.localeCompare(b.queue_name)),
     [queues],
   );
 
-  const nonEmpty = useMemo(
-    () => queues.filter((q) => q.depth > 0).length,
-    [queues],
-  );
+  const totalDepth = useMemo(() => queues.reduce((acc, q) => acc + q.depth, 0), [queues]);
+
+  const nonEmpty = useMemo(() => queues.filter((q) => q.depth > 0).length, [queues]);
+
+  const maxDepth = sorted[0]?.depth ?? 0;
 
   // Purge state
   const [purgeTarget, setPurgeTarget] = useState<string | null>(null);
@@ -112,9 +127,12 @@ export default function QueuesPage() {
     setPurgeError(null);
     try {
       await unwrap(
-        fetchClient.DELETE("/api/v1/brokers/{id}/queues/{queue_name}" as never, {
-          params: { path: { id: activeBroker.id, queue_name: purgeTarget } },
-        } as never)
+        fetchClient.DELETE(
+          "/api/v1/brokers/{id}/queues/{queue_name}" as never,
+          {
+            params: { path: { id: activeBroker.id, queue_name: purgeTarget } },
+          } as never,
+        ),
       );
       setPurgeTarget(null);
       refetch();
@@ -125,203 +143,204 @@ export default function QueuesPage() {
     }
   }
 
+  const meta =
+    activeBroker && queueData
+      ? [
+          `${queues.length} queue${queues.length === 1 ? "" : "s"}`,
+          `${nonEmpty} non-empty`,
+          `${totalDepth.toLocaleString()} waiting`,
+          brokers.length > 1 ? null : activeBroker.name,
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : undefined;
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-foreground">Queues</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Live queue depths from connected broker</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {brokers.length > 1 && (
-            <div className="relative">
-              <select
+    <>
+      <PageHeader
+        title="Queues"
+        meta={meta}
+        actions={
+          <>
+            {brokers.length > 1 && (
+              <Select
                 value={activeBroker?.id ?? ""}
                 onChange={(e) => setSelectedBrokerId(e.target.value)}
-                className="appearance-none pl-3 pr-8 py-2 bg-secondary border border-border text-foreground text-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
                 aria-label="Select broker"
+                className="h-8 w-auto max-w-[320px] min-w-0"
               >
                 {brokers.map((b) => (
                   <option key={b.id} value={b.id}>
-                    {b.broker_type.toUpperCase()} — {b.name || b.id.slice(0, 8)}
-                    {b.status !== "connected" ? ` (${b.status})` : ""}
+                    {b.name || b.id.slice(0, 8)} · {b.broker_type}
+                    {b.status !== "connected" ? ` · ${b.status}` : ""}
                   </option>
                 ))}
-              </select>
-              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-            </div>
-          )}
-          <button
-            onClick={() => refetch()}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary text-muted-foreground text-sm hover:text-foreground hover:bg-secondary/80 transition"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
+              </Select>
+            )}
+            <RefreshButton onRefresh={() => refetch()} label="Refresh queues" />
+          </>
+        }
+      />
+      <PageBody>
+        {isError && (
+          <ErrorAlert>
+            Couldn&apos;t load queue data{activeBroker ? ` from ${activeBroker.name}` : ""}.
+            {errorText(error) && <span className="opacity-80"> {errorText(error)}</span>}
+          </ErrorAlert>
+        )}
 
-      {isError && (
-        <div className="flex items-center gap-2 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
-          <AlertTriangle className="w-4 h-4 shrink-0" />
-          Failed to load queue data.
-        </div>
-      )}
-
-      {!activeBroker && !isLoading && (
-        <EmptyState
-          icon={<Layers className="w-8 h-8" />}
-          title="No broker configured"
-          description="Add a Redis or RabbitMQ broker in Settings to see live queue depths."
-        />
-      )}
-
-      {activeBroker && activeBroker.status !== "connected" && (
-        <div className="flex items-start gap-2 px-4 py-3 bg-yellow-400/10 border border-yellow-400/30 rounded-lg text-sm">
-          <AlertTriangle className="w-4 h-4 shrink-0 text-yellow-400 mt-0.5" />
-          <div className="min-w-0 text-yellow-400">
-            Event consumer for this broker is <span className="font-medium">{activeBroker.status}</span>
+        {activeBroker && activeBroker.status !== "connected" && (
+          <WarnAlert>
+            Event consumer for this broker is{" "}
+            <span className="font-semibold">
+              {activeBroker.status === "error" ? "reporting an error" : activeBroker.status}
+            </span>
             {activeBroker.last_error ? (
-              <span className="text-yellow-400/80"> — {activeBroker.last_error}</span>
+              <span className="opacity-80"> — {maskUrlPasswords(activeBroker.last_error)}</span>
             ) : null}
             . Depths below come from a direct broker connection and stay live; task events may be
             delayed until the consumer reconnects (it retries automatically).
-          </div>
-        </div>
-      )}
+          </WarnAlert>
+        )}
 
-      {activeBroker && !isLoading && queues.length === 0 && (
-        <EmptyState
-          icon={<Layers className="w-8 h-8" />}
-          title="No queues found"
-          description="Queues appear once workers bind them or tasks are published. On RabbitMQ, queue names are discovered from task events — enabling task_send_sent_event in your Celery app helps."
-        />
-      )}
+        {!activeBroker && !isLoading && !brokersLoading && (
+          <Panel>
+            <EmptyState
+              icon={<Layers />}
+              title="No broker configured"
+              description="Add a Redis or RabbitMQ broker in Settings to see live queue depths."
+              action={
+                canManage ? (
+                  <Button asChild>
+                    <Link href="/brokers">Add broker</Link>
+                  </Button>
+                ) : undefined
+              }
+            />
+          </Panel>
+        )}
 
-      {queues.length > 0 && (
-        <>
-          <div className="grid grid-cols-2 xl:grid-cols-3 gap-4">
-            <div className="bg-card border border-border rounded-xl p-5">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Queues</p>
-              <p className="text-2xl font-bold text-foreground tabular-nums">{queues.length}</p>
-            </div>
-            <div className="bg-card border border-border rounded-xl p-5">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Active (non-empty)</p>
-              <p className={`text-2xl font-bold tabular-nums ${nonEmpty > 0 ? "text-yellow-400" : "text-foreground"}`}>
-                {nonEmpty}
-              </p>
-            </div>
-            <div className="bg-card border border-border rounded-xl p-5">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Total Pending</p>
-              <p className={`text-2xl font-bold tabular-nums ${totalDepth > 1000 ? "text-orange-400" : totalDepth > 0 ? "text-yellow-400" : "text-foreground"}`}>
-                {formatNumber(totalDepth)}
-              </p>
-            </div>
-          </div>
+        {(brokersLoading || (activeBroker && isLoading)) && (
+          <Panel className="flex flex-col gap-2 p-4" aria-label="Loading queues">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-9 w-full" />
+            ))}
+          </Panel>
+        )}
 
-          <div className="bg-card border border-border rounded-xl p-5">
-            <h2 className="text-sm font-semibold text-foreground mb-4">Queue Details</h2>
+        {activeBroker && !isLoading && !isError && queues.length === 0 && (
+          <Panel>
+            <EmptyState
+              icon={<Layers />}
+              title="No queues found"
+              description="Queues appear once workers bind them or tasks are published. On RabbitMQ, queue names are discovered from task events — enabling task_send_sent_event in your Celery app helps."
+            />
+          </Panel>
+        )}
+
+        {queues.length > 0 && (
+          <Panel className="overflow-hidden" aria-label="Queue depths">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left text-xs text-muted-foreground font-medium py-2 pr-4 uppercase tracking-wider">Queue</th>
-                    <th className="text-right text-xs text-muted-foreground font-medium py-2 pr-4 uppercase tracking-wider">Depth</th>
-                    <th className="text-left text-xs text-muted-foreground font-medium py-2 pr-4 uppercase tracking-wider">1h Activity</th>
-                    <th className="text-right text-xs text-muted-foreground font-medium py-2 uppercase tracking-wider">Status</th>
-                    {canManage && <th className="text-right text-xs text-muted-foreground font-medium py-2 pl-4 uppercase tracking-wider">Actions</th>}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/50">
-                  {queues
-                    .sort((a, b) => b.depth - a.depth || a.queue_name.localeCompare(b.queue_name))
-                    .map((q) => {
-                      const status = depthStatus(q.depth);
-                      return (
-                        <tr
-                          key={q.queue_name}
-                          className="hover:bg-secondary/30 transition-colors group"
-                        >
-                          <td
-                            className="py-2.5 pr-4 cursor-pointer"
-                            onClick={() => router.push(`/tasks?queue=${encodeURIComponent(q.queue_name)}`)}
+              <Table className="table-fixed">
+                <THead>
+                  <Th>Queue</Th>
+                  <Th align="right" className="w-[76px] sm:w-[38%]">
+                    Depth
+                  </Th>
+                  <Th
+                    className="hidden w-[124px] md:table-cell"
+                    title="Messages enqueued per minute"
+                  >
+                    Last hour
+                  </Th>
+                  <Th className="w-[104px] sm:w-[128px]">Status</Th>
+                  {canManage && (
+                    <Th className="w-[52px] sm:w-[104px]">
+                      <span className="sr-only">Actions</span>
+                    </Th>
+                  )}
+                </THead>
+                <tbody>
+                  {sorted.map((q) => {
+                    const status = depthStatus(q.depth);
+                    return (
+                      <Tr key={q.queue_name} className="group transition-colors hover:bg-hover">
+                        <Td className="min-w-0">
+                          <Link
+                            href={`/tasks?queue=${encodeURIComponent(q.queue_name)}`}
                             title={`View tasks in ${q.queue_name}`}
+                            className="block truncate font-mono text-[12.5px] text-foreground transition-colors hover:text-link"
                           >
-                            <span className="text-foreground font-mono text-xs hover:underline">{q.queue_name}</span>
-                          </td>
-                          <td className="py-2.5 pr-4 text-right text-muted-foreground text-xs tabular-nums">
-                            {formatNumber(q.depth)}
-                          </td>
-                          <td className="py-2.5 pr-4">
-                            <QueueSparkline queueName={q.queue_name} />
-                          </td>
-                          <td className="py-2.5 text-right">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${status.cls}`}>
-                              {status.label}
+                            {q.queue_name}
+                          </Link>
+                        </Td>
+                        <Td align="right">
+                          <div className="flex items-center justify-end gap-3">
+                            <DepthBar
+                              value={q.depth}
+                              max={maxDepth}
+                              tone={status.bar}
+                              className="hidden flex-1 sm:block"
+                            />
+                            <span className="w-[60px] shrink-0 font-semibold text-foreground">
+                              {q.depth.toLocaleString()}
                             </span>
-                          </td>
-                          {canManage && (
-                            <td className="py-2.5 pl-4 text-right">
-                              <button
-                                onClick={() => setPurgeTarget(q.queue_name)}
-                                disabled={q.depth === 0}
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition disabled:cursor-not-allowed disabled:opacity-0"
-                                title={q.depth === 0 ? "Queue is empty" : "Purge all messages"}
-                              >
-                                <Trash2 className="h-3 w-3" />
-                                Purge
-                              </button>
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    })}
+                          </div>
+                        </Td>
+                        <Td className="hidden md:table-cell">
+                          <QueueSparkline queueName={q.queue_name} />
+                        </Td>
+                        <Td>
+                          <Chip tone={status.tone} icon={status.icon}>
+                            {status.label}
+                          </Chip>
+                        </Td>
+                        {canManage && (
+                          <Td align="right" className="py-2">
+                            <div className="flex h-7 items-center justify-end">
+                              {q.depth > 0 && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setPurgeTarget(q.queue_name)}
+                                  title="Purge all messages"
+                                  className="hover:text-fail sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
+                                >
+                                  <Trash2 aria-hidden />
+                                  <span className="max-sm:sr-only">Purge</span>
+                                </Button>
+                              )}
+                            </div>
+                          </Td>
+                        )}
+                      </Tr>
+                    );
+                  })}
                 </tbody>
-              </table>
+              </Table>
             </div>
-          </div>
-        </>
-      )}
+          </Panel>
+        )}
+      </PageBody>
 
-      {/* Purge confirmation modal */}
-      {purgeTarget && (
-        <>
-          <div className="fixed inset-0 bg-black/60 z-40" onClick={() => !purging && setPurgeTarget(null)} />
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="bg-card border border-border rounded-xl p-6 max-w-sm w-full shadow-xl">
-              <h3 className="text-lg font-semibold text-foreground mb-2">Purge Queue</h3>
-              <p className="text-sm text-muted-foreground mb-1">
-                This will permanently delete all pending messages in:
-              </p>
-              <p className="text-xs font-mono text-foreground bg-secondary px-3 py-2 rounded-lg mb-4 truncate">
-                {purgeTarget}
-              </p>
-              <p className="text-xs text-destructive/80 mb-4">
-                Tasks that are already running will not be affected, but any waiting tasks will be lost.
-              </p>
-              {purgeError && (
-                <p className="text-xs text-destructive mb-3">{purgeError}</p>
-              )}
-              <div className="flex justify-end gap-2">
-                <button
-                  onClick={() => { setPurgeTarget(null); setPurgeError(null); }}
-                  disabled={purging}
-                  className="px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-secondary transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handlePurge}
-                  disabled={purging}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-destructive text-destructive-foreground hover:bg-destructive/90 transition disabled:opacity-50"
-                >
-                  {purging ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                  Purge Queue
-                </button>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
-    </div>
+      <ConfirmDialog
+        open={purgeTarget != null}
+        onOpenChange={(open) => {
+          if (!open && !purging) {
+            setPurgeTarget(null);
+            setPurgeError(null);
+          }
+        }}
+        title="Purge this queue?"
+        description="Permanently deletes every message waiting in this queue. Tasks that are already running aren't affected, but any waiting tasks are lost."
+        subject={purgeTarget}
+        confirmLabel="Purge queue"
+        tone="danger"
+        busy={purging}
+        onConfirm={handlePurge}
+      >
+        {purgeError && <p className="text-xs text-fail">{purgeError}</p>}
+      </ConfirmDialog>
+    </>
   );
 }
