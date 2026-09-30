@@ -1,19 +1,21 @@
+// Theme-aware: these resolve through the CSS tokens in globals.css, so they
+// work in inline styles and SVG attributes in both night and day themes.
 export const STATE_COLORS: Record<string, string> = {
-  PENDING: "#3b82f6",
-  RECEIVED: "#8b5cf6",
-  STARTED: "#f59e0b",
-  SUCCESS: "#22c55e",
-  FAILURE: "#ef4444",
-  RETRY: "#f97316",
-  REVOKED: "#6b7280",
-  REJECTED: "#dc2626",
+  PENDING: "var(--t3)",
+  RECEIVED: "var(--t3)",
+  STARTED: "var(--run)",
+  SUCCESS: "var(--ok)",
+  FAILURE: "var(--fail)",
+  RETRY: "var(--warn)",
+  REVOKED: "var(--t3)",
+  REJECTED: "var(--fail)",
 };
 
 export const EDGE_TYPE_COLORS: Record<string, string> = {
-  chain: "#3b82f6",
-  group: "#8b5cf6",
-  chord: "#f59e0b",
-  callback: "#22c55e",
+  chain: "var(--t3)",
+  group: "var(--run)",
+  chord: "var(--t2)",
+  callback: "var(--t3)",
 };
 
 export const DAG_LAYOUT = {
@@ -40,11 +42,16 @@ export const TIME_RANGE_PRESETS: readonly {
 
 export const DEFAULT_TIME_RANGE: TimeRangeId = "24h";
 
-export const AUTH_INPUT_BASE =
-  "w-full px-3 py-2.5 rounded-lg bg-zinc-800/50 border text-zinc-200 placeholder:text-zinc-600 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-colors";
-export const AUTH_INPUT_NORMAL = "border-zinc-800 hover:border-zinc-700";
-export const AUTH_INPUT_ERROR = "border-red-500/50 focus:ring-red-500";
+/// "in the last …" wording for a preset.
+export const TIME_RANGE_PHRASE: Record<TimeRangeId, string> = {
+  "15m": "last 15 minutes",
+  "1h": "last hour",
+  "6h": "last 6 hours",
+  "24h": "last 24 hours",
+  "7d": "last 7 days",
+  "30d": "last 30 days",
+};
 
 export function getStateColor(state: string): string {
-  return STATE_COLORS[state.toUpperCase()] ?? "#6b7280";
+  return STATE_COLORS[state.toUpperCase()] ?? "var(--t3)";
 }

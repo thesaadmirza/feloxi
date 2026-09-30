@@ -3,52 +3,77 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  ArrowLeft,
-  Mail,
-  Globe,
-  Loader2,
-  CheckCircle,
-  AlertTriangle,
-  Send,
-  Plug,
-  Trash2,
-  Copy,
-  Check,
-} from "lucide-react";
+import { Check, Loader2, Plug, Send, Trash2, TriangleAlert } from "lucide-react";
 import { $api, fetchClient, unwrap } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Chip } from "@/components/ui/chip";
+import { ConfirmDialog } from "@/components/ui/dialog";
+import { Field, Input, Select } from "@/components/ui/field";
+import { Panel, PanelHeader } from "@/components/ui/panel";
+import { Switch } from "@/components/ui/switch";
+import { ErrorAlert, Notice } from "@/components/shared/error-alert";
+import { Skeleton } from "@/components/shared/skeleton";
+import { CopyButton } from "@/components/settings/copy-button";
+import { CodeWell, IconTile, SettingsHeader, SettingsRow } from "@/components/settings/section";
+import { UnitInput } from "@/components/settings/unit-input";
 
-const inputClass =
-  "w-full bg-secondary border border-border text-foreground text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring";
-const labelClass = "block text-sm font-medium text-muted-foreground mb-1";
-
-// Visual metadata per integration kind. Adding a new kind here gives it an icon
-// + label everywhere it's listed.
-const PROVIDER_META: Record<string, { label: string; badge: string; color: string }> = {
-  slack: { label: "Slack", badge: "S", color: "#611f69" },
-  discord: { label: "Discord", badge: "D", color: "#5865f2" },
-  pagerduty: { label: "PagerDuty", badge: "PD", color: "#06ac38" },
-  webhook: { label: "Webhook", badge: "W", color: "#64748b" },
+// Label and mark per integration kind. Adding a new kind here gives it a
+// name + tile everywhere it's listed.
+const PROVIDER_META: Record<string, { label: string; badge: string }> = {
+  slack: { label: "Slack", badge: "S" },
+  discord: { label: "Discord", badge: "D" },
+  pagerduty: { label: "PagerDuty", badge: "PD" },
+  webhook: { label: "Webhook", badge: "W" },
 };
 
 // OAuth "Connect" providers. Add an entry (and set its *_CLIENT_ID/SECRET on the
 // server) to surface a new Connect button — no other UI changes needed.
-const CONNECT_PROVIDERS: { key: "slack" | "discord" | "google"; label: string; connectUrl: string }[] =
-  [
-    { key: "slack", label: "Slack", connectUrl: "/api/v1/integrations/slack/connect" },
-    { key: "discord", label: "Discord", connectUrl: "/api/v1/integrations/discord/connect" },
-  ];
+const CONNECT_PROVIDERS: {
+  key: "slack" | "discord" | "google";
+  label: string;
+  description: string;
+  connectUrl: string;
+}[] = [
+  {
+    key: "slack",
+    label: "Slack",
+    description: "Post alerts to channels in a Slack workspace.",
+    connectUrl: "/api/v1/integrations/slack/connect",
+  },
+  {
+    key: "discord",
+    label: "Discord",
+    description: "Post alerts to a channel on a Discord server.",
+    connectUrl: "/api/v1/integrations/discord/connect",
+  },
+];
 
-function ProviderBadge({ kind }: { kind: string }) {
-  const meta = PROVIDER_META[kind] ?? { badge: kind.slice(0, 2).toUpperCase(), color: "#64748b" };
+const WEBHOOK_PAYLOAD_EXAMPLE = {
+  id: "alert-uuid",
+  rule_name: "High failure rate",
+  severity: "critical",
+  summary: "Failure rate exceeded 10% threshold...",
+  fired_at: "2026-03-03T21:00:00Z",
+  details: {
+    failure_rate: 0.15,
+    p95_runtime: 12.5,
+    recent_failures: 42,
+  },
+};
+const PAYLOAD_TEXT = JSON.stringify(WEBHOOK_PAYLOAD_EXAMPLE, null, 2);
+
+const PASSWORD_MASK = "••••••••";
+const RETRY_OPTIONS = [0, 1, 2, 3, 4, 5];
+
+function ProviderMark({ kind }: { kind: string }) {
+  const meta = PROVIDER_META[kind];
   return (
-    <span
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white"
-      style={{ backgroundColor: meta.color }}
-      aria-hidden
-    >
-      {meta.badge}
-    </span>
+    <IconTile>
+      <span className="font-mono text-[12px] font-semibold text-foreground">
+        {meta?.badge ?? kind.slice(0, 2).toUpperCase()}
+      </span>
+    </IconTile>
   );
 }
 
@@ -56,7 +81,7 @@ function ConnectedIntegrationsCard() {
   const queryClient = useQueryClient();
   const { data: providers, isLoading: providersLoading } = $api.useQuery(
     "get",
-    "/api/v1/integrations/providers"
+    "/api/v1/integrations/providers",
   );
   const { data: integrationsData, isLoading } = $api.useQuery("get", "/api/v1/integrations");
   const integrations = integrationsData?.data ?? [];
@@ -66,23 +91,11 @@ function ConnectedIntegrationsCard() {
   const [connecting, setConnecting] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
 
   const slackRedirectUrl = (providers as { slack_redirect_url?: string } | undefined)
     ?.slack_redirect_url;
   const discordRedirectUrl = (providers as { discord_redirect_url?: string } | undefined)
     ?.discord_redirect_url;
-
-  function copyRedirect() {
-    if (!slackRedirectUrl) return;
-    navigator.clipboard?.writeText(slackRedirectUrl).then(
-      () => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      },
-      () => {}
-    );
-  }
 
   // Listen for any OAuth popup's postMessage and refresh the list on success.
   useEffect(() => {
@@ -109,7 +122,7 @@ function ConnectedIntegrationsCard() {
     setConnectSuccess(null);
     const popup = window.open(p.connectUrl, `feloxi-${p.key}-oauth`, "width=600,height=750");
     if (!popup) {
-      setConnectError("Popup blocked — allow popups for this site and try again.");
+      setConnectError("Popup blocked. Allow popups for this site and try again.");
       return;
     }
     setConnecting(p.key);
@@ -137,174 +150,167 @@ function ConnectedIntegrationsCard() {
   }
 
   const available = CONNECT_PROVIDERS.filter(
-    (p) => (providers as Record<string, boolean> | undefined)?.[p.key]
+    (p) => (providers as Record<string, boolean> | undefined)?.[p.key],
   );
+  const deleteTarget = integrations.find((i) => i.id === confirmDeleteId);
 
   return (
-    <div className="rounded-xl border border-border bg-card p-6 space-y-4">
-      <div className="flex items-center gap-2">
-        <Plug className="h-4 w-4 text-primary" />
-        <h2 className="font-semibold text-foreground">Connected Integrations</h2>
-      </div>
-      <p className="text-sm text-muted-foreground">
+    <Panel aria-label="Chat integrations">
+      <PanelHeader title="Chat integrations" />
+      <p className="px-4 pb-3.5 text-[13px] leading-relaxed text-t2">
         Connect a workspace once, then pick channels per alert rule. Webhook and PagerDuty
         destinations can also be pasted directly on a rule without connecting.
       </p>
 
-      {connectError && (
-        <div className="flex items-center gap-2 p-3 rounded-lg border border-destructive/40 bg-destructive/5 text-destructive text-sm">
-          <AlertTriangle className="h-4 w-4 shrink-0" /> {connectError}
-        </div>
-      )}
-      {connectSuccess && (
-        <div className="flex items-center gap-2 p-3 rounded-lg border border-[#22c55e]/40 bg-[#22c55e]/10 text-[#22c55e] text-sm">
-          <CheckCircle className="h-4 w-4 shrink-0" /> {connectSuccess}
+      {(connectError || connectSuccess) && (
+        <div className="flex flex-col gap-2 px-4 pb-3.5">
+          {connectError && (
+            <ErrorAlert onDismiss={() => setConnectError(null)}>{connectError}</ErrorAlert>
+          )}
+          {connectSuccess && (
+            <Notice onDismiss={() => setConnectSuccess(null)}>{connectSuccess}</Notice>
+          )}
         </div>
       )}
 
       {isLoading ? (
-        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        <div className="border-t border-line-soft px-4 py-3.5">
+          <Skeleton className="h-8 w-full" />
+        </div>
       ) : integrations.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center">
-          <p className="text-sm text-muted-foreground">No integrations connected yet.</p>
-          <p className="text-xs text-muted-foreground mt-1">
-            Connect one below to route alerts to a chat channel.
-          </p>
+        <div className="flex items-center gap-3 border-t border-line-soft px-4 py-3 text-[13px] text-t3">
+          <Plug className="size-4 shrink-0" aria-hidden />
+          <span>No integrations connected yet. Connect one to route alerts to a chat channel.</span>
         </div>
       ) : (
-        <ul className="divide-y divide-border rounded-lg border border-border">
-          {integrations.map((i) => {
-            const meta = PROVIDER_META[i.kind];
-            const created = i.created_at ? new Date(i.created_at).toLocaleDateString() : null;
-            return (
-              <li key={i.id} className="flex items-center gap-3 px-4 py-3">
-                <ProviderBadge kind={i.kind} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-foreground truncate">{i.name}</p>
-                    <span
-                      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                        i.status === "active"
-                          ? "bg-[#22c55e]/15 text-[#22c55e]"
-                          : "bg-destructive/15 text-destructive"
-                      }`}
-                    >
-                      {i.status}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {meta?.label ?? i.kind}
-                    {created && ` · connected ${created}`}
-                  </p>
-                </div>
-                {confirmDeleteId === i.id ? (
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={() => remove(i.id)}
-                      disabled={deletingId === i.id}
-                      className="px-2 py-1 rounded bg-destructive/20 text-destructive text-xs font-medium hover:bg-destructive/30 transition"
-                    >
-                      {deletingId === i.id ? "Removing…" : "Confirm"}
-                    </button>
-                    <button
-                      onClick={() => setConfirmDeleteId(null)}
-                      className="px-2 py-1 rounded bg-secondary text-muted-foreground text-xs hover:text-foreground transition"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setConfirmDeleteId(i.id)}
-                    className="p-1.5 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition shrink-0"
-                    aria-label={`Remove ${i.name}`}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+        integrations.map((i) => {
+          const meta = PROVIDER_META[i.kind];
+          const created = i.created_at ? new Date(i.created_at).toLocaleDateString() : null;
+          return (
+            <SettingsRow
+              key={i.id}
+              icon={<ProviderMark kind={i.kind} />}
+              title={
+                <>
+                  <span className="min-w-0 truncate">{i.name}</span>
+                  {i.status === "active" ? (
+                    <Chip tone="ok" icon={<Check strokeWidth={2.6} />}>
+                      Active
+                    </Chip>
+                  ) : (
+                    <Chip tone="fail" icon={<TriangleAlert />}>
+                      {i.status.charAt(0).toUpperCase() + i.status.slice(1)}
+                    </Chip>
+                  )}
+                </>
+              }
+              description={
+                <>
+                  {meta?.label ?? i.kind}
+                  {created && ` · connected ${created}`}
+                </>
+              }
+              action={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setConfirmDeleteId(i.id)}
+                  aria-label={`Remove ${i.name}`}
+                  className="hover:text-fail"
+                >
+                  <Trash2 />
+                </Button>
+              }
+            />
+          );
+        })
       )}
 
-      {/* Add-integration area — one button per configured OAuth provider. */}
-      {available.length > 0 ? (
-        <div className="space-y-2 pt-1">
-          {integrations.length > 0 && (
-            <p className="text-xs font-medium text-muted-foreground">Add another integration</p>
+      {/* One row per configured OAuth provider. */}
+      {available.length > 0
+        ? available.map((p) => (
+            <SettingsRow
+              key={p.key}
+              icon={<ProviderMark kind={p.key} />}
+              title={p.label}
+              description={p.description}
+              action={
+                <Button size="sm" onClick={() => connect(p)} disabled={!!connecting}>
+                  {connecting === p.key && <Loader2 className="animate-spin" />}
+                  {connecting === p.key ? `Waiting for ${p.label}…` : `Connect ${p.label}`}
+                </Button>
+              }
+            />
+          ))
+        : !providersLoading && (
+            <p className="border-t border-line-soft px-4 py-3 text-[12.5px] leading-relaxed text-t3">
+              No OAuth integrations are configured on this server. Set a provider&apos;s{" "}
+              <code className="font-mono text-[11.5px] text-t2">*_CLIENT_ID</code> and{" "}
+              <code className="font-mono text-[11.5px] text-t2">*_CLIENT_SECRET</code> to enable
+              one-click connect, or paste a webhook URL directly on an alert rule.
+            </p>
           )}
-          <div className="flex flex-wrap gap-2">
-            {available.map((p) => (
-              <button
-                key={p.key}
-                onClick={() => connect(p)}
-                disabled={!!connecting}
-                className="inline-flex items-center gap-2 rounded-lg border border-border bg-secondary px-4 py-2 text-sm font-medium text-foreground hover:bg-accent transition disabled:opacity-60"
-              >
-                {connecting === p.key ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <ProviderBadge kind={p.key} />
-                )}
-                {connecting === p.key ? `Waiting for ${p.label}…` : `Connect ${p.label}`}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : (
-        !providersLoading && (
-          <p className="text-xs text-muted-foreground">
-            No OAuth integrations are configured on this server. Set a provider&apos;s
-            <code> *_CLIENT_ID</code> / <code>*_CLIENT_SECRET</code> to enable one-click connect, or
-            paste a webhook URL directly on an alert rule.
-          </p>
-        )
-      )}
 
       {/* Self-hosted setup: the exact redirect URL to register in the provider app. */}
       {slackRedirectUrl && (
-        <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-1.5">
-          <p className="text-xs font-medium text-foreground">Setting up the Slack app?</p>
-          <p className="text-xs text-muted-foreground">
-            Add this <span className="font-medium">Redirect URL</span> in your Slack app under{" "}
-            <span className="font-mono">OAuth &amp; Permissions → Redirect URLs</span> (must match
-            exactly):
-          </p>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 truncate rounded bg-background px-2 py-1.5 text-xs text-foreground">
-              {slackRedirectUrl}
-            </code>
-            <button
-              type="button"
-              onClick={copyRedirect}
-              className="inline-flex items-center gap-1 rounded-lg border border-border bg-secondary px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground transition"
-            >
-              {copied ? <Check className="h-3.5 w-3.5 text-[#22c55e]" /> : <Copy className="h-3.5 w-3.5" />}
-              {copied ? "Copied" : "Copy"}
-            </button>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Bot token scopes: <span className="font-mono">chat:write, chat:write.public,
-            channels:read, groups:read</span>.
-          </p>
-        </div>
+        <SettingsRow
+          title="Setting up the Slack app?"
+          align="start"
+          description={
+            <>
+              Add this redirect URL in your Slack app under{" "}
+              <span className="font-mono text-[12px]">OAuth &amp; Permissions → Redirect URLs</span>
+              . It must match exactly. Bot token scopes:{" "}
+              <span className="font-mono text-[12px]">
+                chat:write, chat:write.public, channels:read, groups:read
+              </span>
+              .
+            </>
+          }
+        >
+          <CodeWell
+            className="mt-2"
+            actions={<CopyButton text={slackRedirectUrl} resetAfter={1500} />}
+          >
+            {slackRedirectUrl}
+          </CodeWell>
+        </SettingsRow>
       )}
       {discordRedirectUrl && (
-        <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-1.5">
-          <p className="text-xs font-medium text-foreground">Setting up the Discord app?</p>
-          <p className="text-xs text-muted-foreground">
-            Add this <span className="font-medium">Redirect URL</span> in your Discord application
-            under <span className="font-mono">OAuth2 → Redirects</span> (must match exactly). The
-            connect flow uses the <span className="font-mono">webhook.incoming</span> scope; you
-            pick the server and channel in Discord&apos;s consent screen.
-          </p>
-          <code className="block truncate rounded bg-background px-2 py-1.5 text-xs text-foreground">
+        <SettingsRow
+          title="Setting up the Discord app?"
+          align="start"
+          description={
+            <>
+              Add this redirect URL in your Discord application under{" "}
+              <span className="font-mono text-[12px]">OAuth2 → Redirects</span>. It must match
+              exactly. The connect flow uses the{" "}
+              <span className="font-mono text-[12px]">webhook.incoming</span> scope; you pick the
+              server and channel on Discord&apos;s consent screen.
+            </>
+          }
+        >
+          <CodeWell
+            className="mt-2"
+            actions={<CopyButton text={discordRedirectUrl} resetAfter={1500} />}
+          >
             {discordRedirectUrl}
-          </code>
-        </div>
+          </CodeWell>
+        </SettingsRow>
       )}
-    </div>
+
+      <ConfirmDialog
+        open={confirmDeleteId != null}
+        onOpenChange={(open) => !open && deletingId == null && setConfirmDeleteId(null)}
+        title="Remove this integration?"
+        description="Alert rules can no longer post to its channels until you connect it again."
+        subject={deleteTarget?.name}
+        confirmLabel="Remove integration"
+        tone="danger"
+        busy={deletingId != null}
+        onConfirm={() => confirmDeleteId && remove(confirmDeleteId)}
+      />
+    </Panel>
   );
 }
 
@@ -312,10 +318,7 @@ export default function NotificationSettingsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
 
-  const { data: settings, isLoading } = $api.useQuery(
-    "get",
-    "/api/v1/settings/notifications"
-  );
+  const { data: settings, isLoading } = $api.useQuery("get", "/api/v1/settings/notifications");
 
   const [smtpHost, setSmtpHost] = useState("");
   const [smtpPort, setSmtpPort] = useState(587);
@@ -352,12 +355,13 @@ export default function NotificationSettingsPage() {
       };
       if (s.smtp) {
         setSmtpHost(s.smtp.host ?? "");
-        setSmtpPort(s.smtp.port ?? 587);
+        // The API reports an unset port as 0; the field then shows the default as a placeholder.
+        setSmtpPort(s.smtp.port ?? 0);
         setSmtpUsername(s.smtp.username ?? "");
         setSmtpFrom(s.smtp.from_address ?? "");
         setSmtpTls(s.smtp.tls ?? true);
         if (s.smtp.has_password) {
-          setSmtpPassword("••••••••");
+          setSmtpPassword(PASSWORD_MASK);
         }
       }
       if (s.webhook_defaults) {
@@ -376,16 +380,16 @@ export default function NotificationSettingsPage() {
               host: smtpHost,
               port: smtpPort,
               username: smtpUsername,
-              password: smtpPassword === "••••••••" ? "" : smtpPassword,
+              password: smtpPassword === PASSWORD_MASK ? "" : smtpPassword,
               from_address: smtpFrom,
               tls: smtpTls,
             },
             webhook_defaults: {
-              timeout_seconds: webhookTimeout,
+              timeout_seconds: webhookTimeout || 10,
               retry_count: webhookRetries,
             },
           } as never,
-        })
+        }),
       ),
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -405,10 +409,10 @@ export default function NotificationSettingsPage() {
       unwrap(
         fetchClient.POST("/api/v1/settings/notifications/test", {
           body: { channel: "email" } as never,
-        })
+        }),
       ),
     onSuccess: () => {
-      setTestResult({ success: true, message: "Test email sent successfully" });
+      setTestResult({ success: true, message: "Test email sent" });
       setTimeout(() => setTestResult(null), 5000);
     },
     onError: (err) => {
@@ -419,243 +423,217 @@ export default function NotificationSettingsPage() {
     },
   });
 
-  if (isLoading) {
-    return (
-      <div className="max-w-2xl space-y-6">
-        <div className="flex items-center gap-3">
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          <span className="text-muted-foreground">Loading settings...</span>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="max-w-2xl space-y-6">
-      <div className="flex items-center gap-3">
-        <button
-          onClick={() => router.push("/settings")}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition"
-        >
-          <ArrowLeft className="h-4 w-4" /> Settings
-        </button>
-        <span className="text-muted-foreground">/</span>
-        <span className="text-sm font-medium text-foreground">
-          Notifications
-        </span>
-      </div>
-
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">
-          Notification Settings
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Configure SMTP and webhook defaults for alert notifications
-        </p>
-      </div>
+    <>
+      <SettingsHeader
+        title="Email & webhooks"
+        description="Where alert notifications go: chat apps, email through your SMTP server, and webhooks."
+      />
 
       <ConnectedIntegrationsCard />
 
-      {saveSuccess && (
-        <div className="flex items-center gap-3 p-4 rounded-xl border border-[#22c55e]/40 bg-[#22c55e]/10 text-[#22c55e] text-sm">
-          <CheckCircle className="h-4 w-4 shrink-0" />
-          Settings saved successfully
-        </div>
-      )}
-      {saveError && (
-        <div className="flex items-center gap-3 p-4 rounded-xl border border-destructive/40 bg-destructive/5 text-destructive text-sm">
-          <AlertTriangle className="h-4 w-4 shrink-0" />
-          {saveError}
-        </div>
-      )}
-
-      <div className="rounded-xl border border-border bg-card p-6 space-y-4">
-        <div className="flex items-center gap-2">
-          <Mail className="h-4 w-4 text-primary" />
-          <h2 className="font-semibold text-foreground">
-            SMTP Configuration
-          </h2>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          Configure SMTP for email alert delivery. Leave blank to disable email
-          notifications.
-        </p>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className={labelClass}>SMTP Host</label>
-            <input
-              type="text"
-              value={smtpHost}
-              onChange={(e) => setSmtpHost(e.target.value)}
-              className={inputClass}
-              placeholder="smtp.gmail.com"
-            />
-          </div>
-          <div>
-            <label className={labelClass}>Port</label>
-            <input
-              type="number"
-              value={smtpPort}
-              onChange={(e) => setSmtpPort(parseInt(e.target.value))}
-              className={inputClass}
-            />
-          </div>
-          <div>
-            <label className={labelClass}>Username</label>
-            <input
-              type="text"
-              value={smtpUsername}
-              onChange={(e) => setSmtpUsername(e.target.value)}
-              className={inputClass}
-              placeholder="alerts@company.com"
-            />
-          </div>
-          <div>
-            <label className={labelClass}>Password</label>
-            <input
-              type="password"
-              value={smtpPassword}
-              onChange={(e) => setSmtpPassword(e.target.value)}
-              onFocus={() => {
-                if (smtpPassword === "••••••••") setSmtpPassword("");
-              }}
-              className={inputClass}
-              placeholder="App password"
-            />
-          </div>
-          <div>
-            <label className={labelClass}>From Address</label>
-            <input
-              type="email"
-              value={smtpFrom}
-              onChange={(e) => setSmtpFrom(e.target.value)}
-              className={inputClass}
-              placeholder="alerts@company.com"
-            />
-          </div>
-          <div className="flex items-end pb-1">
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="checkbox"
+      {isLoading ? (
+        <>
+          <Skeleton className="h-[420px] w-full rounded-xl" />
+          <Skeleton className="h-[200px] w-full rounded-xl" />
+        </>
+      ) : (
+        <>
+          <Panel aria-label="Email delivery">
+            <PanelHeader title="Email delivery" subtitle="SMTP" />
+            <p className="px-4 pb-3.5 text-[13px] leading-relaxed text-t2">
+              Alert emails and member invites go out through this server. Leave the host blank to
+              turn email off.
+            </p>
+            <div className="grid grid-cols-1 gap-4 border-t border-line-soft px-4 py-4 sm:grid-cols-2">
+              <Field label="SMTP host" htmlFor="smtp-host">
+                <Input
+                  id="smtp-host"
+                  type="text"
+                  value={smtpHost}
+                  onChange={(e) => setSmtpHost(e.target.value)}
+                  placeholder="smtp.gmail.com"
+                  className="font-mono text-[12.5px]"
+                />
+              </Field>
+              <Field label="Port" htmlFor="smtp-port">
+                <Input
+                  id="smtp-port"
+                  type="number"
+                  value={smtpPort || ""}
+                  placeholder="587"
+                  onChange={(e) => setSmtpPort(parseInt(e.target.value) || 0)}
+                  className="font-mono text-[12.5px] tabular-nums"
+                />
+              </Field>
+              <Field label="Username" htmlFor="smtp-username">
+                <Input
+                  id="smtp-username"
+                  type="text"
+                  value={smtpUsername}
+                  onChange={(e) => setSmtpUsername(e.target.value)}
+                  placeholder="alerts@company.com"
+                  autoComplete="off"
+                />
+              </Field>
+              <Field label="Password" htmlFor="smtp-password">
+                <Input
+                  id="smtp-password"
+                  type="password"
+                  value={smtpPassword}
+                  onChange={(e) => setSmtpPassword(e.target.value)}
+                  onFocus={() => {
+                    if (smtpPassword === PASSWORD_MASK) setSmtpPassword("");
+                  }}
+                  placeholder="App password"
+                  autoComplete="new-password"
+                />
+              </Field>
+              <Field label="From address" htmlFor="smtp-from">
+                <Input
+                  id="smtp-from"
+                  type="email"
+                  value={smtpFrom}
+                  onChange={(e) => setSmtpFrom(e.target.value)}
+                  placeholder="alerts@company.com"
+                />
+              </Field>
+            </div>
+            <div className="flex items-start gap-3.5 border-t border-line-soft px-4 py-3.5">
+              <Switch
+                id="smtp-tls"
                 checked={smtpTls}
-                onChange={(e) => setSmtpTls(e.target.checked)}
-                className="h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                onCheckedChange={setSmtpTls}
+                aria-describedby="smtp-tls-help"
+                className="mt-px"
               />
-              <span className="text-sm text-foreground">Use TLS</span>
-            </label>
-          </div>
-        </div>
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <label
+                  htmlFor="smtp-tls"
+                  className="cursor-pointer text-[13.5px] font-[550] text-foreground"
+                >
+                  Use TLS
+                </label>
+                <p id="smtp-tls-help" className="text-[13px] text-t2">
+                  Upgrades the connection with STARTTLS, which most providers expect on port 587.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line-soft px-4 py-3">
+              <Button
+                onClick={() => testMutation.mutate()}
+                disabled={testMutation.isPending || !smtpHost}
+              >
+                {testMutation.isPending ? <Loader2 className="animate-spin" /> : <Send />}
+                Send test email
+              </Button>
+              {testResult ? (
+                <span
+                  role="status"
+                  className={cn(
+                    "flex min-w-0 items-center gap-1.5 text-[13px]",
+                    testResult.success ? "text-ok" : "text-fail",
+                  )}
+                >
+                  {testResult.success ? (
+                    <Check className="size-3.5 shrink-0" strokeWidth={2.6} aria-hidden />
+                  ) : (
+                    <TriangleAlert className="size-3.5 shrink-0" aria-hidden />
+                  )}
+                  {testResult.message}
+                </span>
+              ) : (
+                <span className="text-xs text-t3">
+                  Sends to the from address, using the saved settings.
+                </span>
+              )}
+            </div>
+          </Panel>
 
-        <div className="flex items-center gap-3 pt-2">
-          <button
-            onClick={() => testMutation.mutate()}
-            disabled={testMutation.isPending || !smtpHost}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary text-sm text-foreground hover:bg-secondary/80 transition disabled:opacity-50"
-          >
-            {testMutation.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4" />
-            )}
-            Send Test Email
-          </button>
-          {testResult && (
-            <span
-              className={`text-sm ${testResult.success ? "text-[#22c55e]" : "text-destructive"}`}
+          <Panel aria-label="Webhook defaults">
+            <PanelHeader title="Webhook defaults" />
+            <p className="px-4 pb-3.5 text-[13px] leading-relaxed text-t2">
+              Default settings for webhook notification channels. Per-rule webhooks can override
+              these.
+            </p>
+            <div className="grid grid-cols-1 gap-4 border-t border-line-soft px-4 py-4 sm:grid-cols-2">
+              <Field
+                label="Timeout"
+                htmlFor="webhook-timeout"
+                hint="How long to wait for a response."
+              >
+                <UnitInput
+                  id="webhook-timeout"
+                  unit="seconds"
+                  min="1"
+                  max="60"
+                  value={webhookTimeout || ""}
+                  placeholder="10"
+                  onChange={(e) => setWebhookTimeout(parseInt(e.target.value) || 0)}
+                  className="text-left"
+                />
+              </Field>
+              <Field
+                label="Retries"
+                htmlFor="webhook-retries"
+                hint="How many times to retry a failed delivery."
+              >
+                <Select
+                  id="webhook-retries"
+                  value={webhookRetries}
+                  onChange={(e) => setWebhookRetries(parseInt(e.target.value))}
+                  className="tabular-nums"
+                >
+                  {RETRY_OPTIONS.concat(
+                    RETRY_OPTIONS.includes(webhookRetries) ? [] : [webhookRetries],
+                  ).map((n) => (
+                    <option key={n} value={n}>
+                      {n === 0 ? "No retries" : n === 1 ? "1 retry" : `${n} retries`}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
+            <div className="flex flex-col gap-3 border-t border-line-soft px-4 py-4">
+              <div className="flex flex-col gap-0.5">
+                <h3 className="text-[13.5px] font-[550] text-foreground">Payload format</h3>
+                <p className="text-[13px] text-t2">
+                  Every webhook notification is a JSON POST with this structure.
+                </p>
+              </div>
+              {/* A static example: plain text keeps the syntax highlighter off this page. */}
+              <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-code">
+                <div className="flex items-center justify-between border-b border-border py-1 pr-1 pl-3">
+                  <span className="label">Request body</span>
+                  <CopyButton text={PAYLOAD_TEXT} variant="ghost" />
+                </div>
+                <pre className="overflow-x-auto px-3.5 py-2.5 font-mono text-[12px] leading-relaxed text-t1">
+                  {PAYLOAD_TEXT}
+                </pre>
+              </div>
+            </div>
+          </Panel>
+
+          {saveSuccess && (
+            <Notice onDismiss={() => setSaveSuccess(false)}>Notification settings saved.</Notice>
+          )}
+          {saveError && <ErrorAlert onDismiss={() => setSaveError(null)}>{saveError}</ErrorAlert>}
+
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="ghost" onClick={() => router.push("/settings")}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => saveMutation.mutate()}
+              disabled={saveMutation.isPending}
             >
-              {testResult.message}
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-border bg-card p-6 space-y-4">
-        <div className="flex items-center gap-2">
-          <Globe className="h-4 w-4 text-primary" />
-          <h2 className="font-semibold text-foreground">Webhook Defaults</h2>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          Default settings for webhook notification channels. Per-rule webhooks
-          can override these.
-        </p>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className={labelClass}>Timeout (seconds)</label>
-            <input
-              type="number"
-              min="1"
-              max="60"
-              value={webhookTimeout}
-              onChange={(e) => setWebhookTimeout(parseInt(e.target.value))}
-              className={inputClass}
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              Max wait time for webhook response
-            </p>
+              {saveMutation.isPending && <Loader2 className="animate-spin" />}
+              Save changes
+            </Button>
           </div>
-          <div>
-            <label className={labelClass}>Retry Count</label>
-            <input
-              type="number"
-              min="0"
-              max="5"
-              value={webhookRetries}
-              onChange={(e) => setWebhookRetries(parseInt(e.target.value))}
-              className={inputClass}
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              Number of retries on failure
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-border bg-card p-6 space-y-4">
-        <h2 className="font-semibold text-foreground">
-          Webhook Payload Format
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          All webhook notifications send a JSON POST request with the following
-          structure:
-        </p>
-        <div className="rounded-lg bg-secondary/50 p-4">
-          <pre className="text-xs text-foreground font-mono whitespace-pre-wrap">{`{
-  "id": "alert-uuid",
-  "rule_name": "High failure rate",
-  "severity": "critical",
-  "summary": "Failure rate exceeded 10% threshold...",
-  "fired_at": "2026-03-03T21:00:00Z",
-  "details": {
-    "failure_rate": 0.15,
-    "p95_runtime": 12.5,
-    "recent_failures": 42
-  }
-}`}</pre>
-        </div>
-      </div>
-
-      <div className="flex items-center justify-end gap-3">
-        <button
-          onClick={() => router.push("/settings")}
-          className="px-4 py-2 rounded-lg bg-secondary text-sm text-foreground hover:bg-secondary/80 transition"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={() => saveMutation.mutate()}
-          disabled={saveMutation.isPending}
-          className="flex items-center gap-2 px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition disabled:opacity-50"
-        >
-          {saveMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <CheckCircle className="h-4 w-4" />
-          )}
-          Save Settings
-        </button>
-      </div>
-    </div>
+        </>
+      )}
+    </>
   );
 }

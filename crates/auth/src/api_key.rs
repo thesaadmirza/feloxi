@@ -1,5 +1,9 @@
 use uuid::Uuid;
 
+/// Every API key starts with this, which is how the auth middleware tells a
+/// key from a session token.
+pub const KEY_PREFIX: &str = "fp_key_";
+
 /// Generate a new API key with a prefix for identification.
 /// Format: fp_key_{uuid_hex} -> prefix is first 8 chars after fp_key_
 pub fn generate_api_key() -> (String, String) {

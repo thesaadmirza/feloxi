@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 common = { workspace = true }
 db = { workspace = true }
+sqlx = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }

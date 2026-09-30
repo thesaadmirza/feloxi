@@ -20,7 +20,7 @@ pub async fn run_redis_consumer(
     let redis_config = match Config::from_url(&broker_url) {
         Ok(c) => c,
         Err(e) => {
-            let err = format!("Invalid Redis URL: {e}");
+            let err = common::redact::redact_url_credentials(&format!("Invalid Redis URL: {e}"));
             tracing::error!(%config_id, "{}", err);
             let _ = db::postgres::broker_configs::update_broker_config_status(
                 &state.pg,
@@ -52,7 +52,9 @@ pub async fn run_redis_consumer(
     };
 
     if let Err(e) = client.init().await {
-        let err = format!("Failed to connect to Redis broker: {e}");
+        let err = common::redact::redact_url_credentials(&format!(
+            "Failed to connect to Redis broker: {e}"
+        ));
         tracing::error!(%config_id, "{}", err);
         let _ = db::postgres::broker_configs::update_broker_config_status(
             &state.pg,
@@ -93,7 +95,8 @@ pub async fn run_redis_consumer(
     };
 
     if let Err(e) = subscriber.init().await {
-        let err = format!("Failed to connect subscriber: {e}");
+        let err =
+            common::redact::redact_url_credentials(&format!("Failed to connect subscriber: {e}"));
         tracing::error!(%config_id, "{}", err);
         let _ = db::postgres::broker_configs::update_broker_config_status(
             &state.pg,
@@ -447,7 +450,8 @@ async fn discover_celery_queues(client: &Pool) -> Vec<String> {
 }
 
 pub async fn test_redis_connection(url: &str) -> Result<(), String> {
-    let config = Config::from_url(url).map_err(|e| format!("Invalid Redis URL: {e}"))?;
+    let config = Config::from_url(url)
+        .map_err(|e| common::redact::redact_url_credentials(&format!("Invalid Redis URL: {e}")))?;
     let mut builder = Builder::from_config(config);
     builder.set_policy(ReconnectPolicy::new_constant(0, 3000));
     let client = builder.build_pool(1).map_err(|e| format!("Failed to build client: {e}"))?;
@@ -455,7 +459,7 @@ pub async fn test_redis_connection(url: &str) -> Result<(), String> {
     tokio::time::timeout(Duration::from_secs(5), client.init())
         .await
         .map_err(|_| "Connection timed out after 5 seconds".to_string())?
-        .map_err(|e| format!("Failed to connect: {e}"))?;
+        .map_err(|e| common::redact::redact_url_credentials(&format!("Failed to connect: {e}")))?;
 
     let _: String = client.ping::<String>(None).await.map_err(|e| format!("PING failed: {e}"))?;
 

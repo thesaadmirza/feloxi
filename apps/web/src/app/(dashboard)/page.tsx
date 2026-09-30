@@ -1,200 +1,144 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import {
-  CheckCircle2,
-  XCircle,
-  Layers,
-  Clock,
-  AlertTriangle,
-  TrendingDown,
-  RefreshCw,
-  Cable,
-  Users,
-  Bell,
-  ArrowRight,
-  X,
-} from "lucide-react";
+import { ArrowDownRight, ArrowRight, ArrowUpRight, Bell, Cable, Server, X } from "lucide-react";
 import { $api } from "@/lib/api";
-import { formatDuration, formatPercent, formatNumber } from "@/lib/utils";
+import { useCurrentUser } from "@/hooks/use-current-user";
+import { userHasPermission } from "@/lib/auth";
+import { TIME_RANGE_PRESETS, type TimeRangeId } from "@/lib/constants";
+import { bucketize } from "@/lib/series";
+import { formatDuration, formatNumber } from "@/lib/utils";
+import { PageBody, PageHeader } from "@/components/layout/page";
+import { Readout, Readouts } from "@/components/ui/readout";
+import { Segmented } from "@/components/ui/segmented";
+import { Panel } from "@/components/ui/panel";
+import { Button } from "@/components/ui/button";
 import { LiveIndicator } from "@/components/shared/live-indicator";
-import { TopFailingTasks } from "@/components/dashboard/top-failing-tasks";
-import { RecentErrors } from "@/components/dashboard/recent-errors";
-import { SlowestTasks } from "@/components/dashboard/slowest-tasks";
-import { WorkerLeaderboard } from "@/components/dashboard/worker-leaderboard";
-import { RecentTasksSummary } from "@/components/dashboard/recent-tasks-summary";
-import {
-  FailureRateChart,
-  ThroughputChart,
-} from "@/components/dashboard/throughput-chart";
-import {
-  LiveClusterStrip,
-  LiveWorkerCapacity,
-} from "@/components/dashboard/live-cluster";
-
-type TimeRange = { label: string; minutes: number };
-
-const TIME_RANGES: TimeRange[] = [
-  { label: "1h", minutes: 60 },
-  { label: "6h", minutes: 360 },
-  { label: "24h", minutes: 1440 },
-  { label: "7d", minutes: 10080 },
-  { label: "30d", minutes: 43200 },
-];
+import { ErrorAlert } from "@/components/shared/error-alert";
+import { AttentionStrip, useFiringAlerts } from "@/components/overview/attention-strip";
+import { ThroughputPanel } from "@/components/overview/throughput-panel";
+import { FailingNow } from "@/components/overview/failing-now";
+import { QueuesPanel } from "@/components/overview/queues-panel";
+import { SlowestTasks } from "@/components/overview/slowest-tasks";
+import { WorkersPanel } from "@/components/overview/workers-panel";
+import type { TaskMetricsRow } from "@/types/api";
 
 const TIME_RANGE_KEY = "fp_dashboard_time_range";
 const ONBOARDING_DISMISSED_KEY = "fp_onboarding_dismissed";
+const RANGES = TIME_RANGE_PRESETS.map((r) => ({ value: r.id, label: r.label }));
 
 const ONBOARDING_STEPS = [
   {
     icon: Cable,
     title: "Connect a broker",
-    description: "Add your Redis or RabbitMQ broker to start ingesting Celery events.",
+    description: "Add your Redis or RabbitMQ URL. Feloxi reads the events Celery already sends.",
     href: "/brokers",
-    cta: "Add Broker",
+    cta: "Add broker",
   },
   {
-    icon: Users,
-    title: "Workers appear automatically",
-    description: "Once connected, worker heartbeats and task events stream in real-time.",
+    icon: Server,
+    title: "Workers appear on their own",
+    description: "Start workers with --events and their heartbeats and tasks stream in live.",
     href: "/workers",
-    cta: "View Workers",
+    cta: "View workers",
   },
   {
     icon: Bell,
     title: "Set up alerts",
-    description: "Get notified on failure spikes, slow tasks, or workers going offline.",
+    description: "Page on failure spikes, slow tasks or workers going quiet.",
     href: "/alerts",
-    cta: "Create Alert",
+    cta: "Create alert",
   },
 ];
 
 function GettingStarted({ onDismiss }: { onDismiss: () => void }) {
   return (
-    <div className="relative rounded-xl border border-border bg-card/50 p-8">
-      <button
+    <Panel className="relative p-6 sm:p-8">
+      <Button
+        variant="ghost"
+        size="icon-sm"
         onClick={onDismiss}
-        className="absolute top-4 right-4 p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-secondary transition"
         aria-label="Dismiss getting started"
+        className="absolute top-3 right-3"
       >
-        <X className="w-4 h-4" />
-      </button>
-      <div className="text-center mb-8">
-        <h2 className="text-lg font-bold text-foreground">Welcome to Feloxi</h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          Get started by connecting your first Celery broker
-        </p>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <X />
+      </Button>
+      <h2 className="text-lg font-semibold tracking-[-0.01em]">Welcome to Feloxi</h2>
+      <p className="mt-1 text-[13.5px] text-t2">
+        Three steps from an empty dashboard to your first live task graph.
+      </p>
+      <ol className="mt-6 grid grid-cols-1 gap-px overflow-hidden rounded-xl border border-border bg-border md:grid-cols-3">
         {ONBOARDING_STEPS.map((step, i) => (
-          <div
-            key={step.title}
-            className="flex flex-col items-center text-center p-6 rounded-xl border border-border bg-secondary/30"
-          >
-            <div className="w-10 h-10 rounded-xl bg-secondary/50 flex items-center justify-center mb-4">
-              <step.icon className="w-5 h-5 text-foreground" />
-            </div>
-            <div className="text-xs font-medium text-muted-foreground mb-2">Step {i + 1}</div>
-            <h3 className="text-sm font-semibold text-foreground mb-1">{step.title}</h3>
-            <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
-              {step.description}
-            </p>
+          <li key={step.title} className="flex flex-col gap-2 bg-card p-5">
+            <span className="font-mono text-xs text-link">0{i + 1}</span>
+            <h3 className="text-[15px] font-semibold">{step.title}</h3>
+            <p className="text-[13px] leading-relaxed text-t2">{step.description}</p>
             <Link
               href={step.href}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground bg-secondary hover:opacity-90 px-3 py-1.5 rounded-lg transition"
+              className="mt-auto inline-flex items-center gap-1 pt-2 text-[13px] font-[550] text-link hover:underline"
             >
               {step.cta}
-              <ArrowRight className="w-3 h-3" />
+              <ArrowRight className="size-3.5" aria-hidden />
             </Link>
-          </div>
+          </li>
         ))}
-      </div>
-    </div>
+      </ol>
+    </Panel>
   );
 }
 
-type KpiProps = {
-  title: string;
-  value: string;
-  sub?: string;
-  icon: React.ReactNode;
-  accent?: string;
-  loading?: boolean;
-  href?: string;
-};
-
-function Kpi({
-  title,
+function Change({
   value,
-  sub,
-  icon,
-  accent = "text-foreground",
-  loading,
-  href,
-}: KpiProps) {
-  const inner = (
-    <>
-      <div className={`mt-0.5 ${accent}`}>{icon}</div>
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">
-          {title}
-        </p>
-        {loading ? (
-          <div className="h-7 w-20 bg-secondary rounded animate-pulse" />
-        ) : (
-          <p className="text-2xl font-bold text-foreground tabular-nums">{value}</p>
-        )}
-        {sub && !loading && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
-      </div>
-    </>
-  );
-
-  if (href && !loading) {
-    return (
-      <Link href={href} className="bg-card border border-border rounded-xl p-5 flex items-start gap-4 hover:border-border/60 hover:bg-card/80 transition-colors">
-        {inner}
-      </Link>
-    );
-  }
-
+  suffix,
+  tone = "neutral",
+}: {
+  value: number;
+  suffix: string;
+  tone?: "neutral" | "bad-up";
+}) {
+  if (!Number.isFinite(value) || Math.abs(value) < 0.05) return <span>no change</span>;
+  const up = value > 0;
+  const Icon = up ? ArrowUpRight : ArrowDownRight;
+  const color = tone === "bad-up" ? (up ? "text-fail" : "text-ok") : "text-t3";
   return (
-    <div className="bg-card border border-border rounded-xl p-5 flex items-start gap-4">
-      {inner}
-    </div>
+    <span className={`flex items-center gap-0.5 ${color}`}>
+      <Icon aria-hidden />
+      {Math.abs(value).toFixed(value >= 10 || value <= -10 ? 0 : 1)}
+      {suffix}
+      <span className="sr-only">{up ? " up" : " down"} vs previous window</span>
+    </span>
   );
 }
 
-export default function DashboardPage() {
-  const [timeRange, setTimeRange] = useState<TimeRange>(TIME_RANGES[0]);
+/// Keeps a short in-memory trail of a live value so readouts without stored
+/// history still show a trace while the page is open.
+function useTrail(value: number | undefined, at: number, max = 40) {
+  const [trail, setTrail] = useState<number[]>([]);
+  useEffect(() => {
+    if (value == null) return;
+    setTrail((t) => [...t.slice(-(max - 1)), value]);
+  }, [value, at, max]);
+  return trail;
+}
+
+export default function OverviewPage() {
+  const user = useCurrentUser();
+  const [range, setRange] = useState<TimeRangeId>("1h");
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+  const minutes = TIME_RANGE_PRESETS.find((r) => r.id === range)?.minutes ?? 60;
 
-  const {
-    data: overview,
-    isLoading,
-    isError,
-    refetch,
-  } = $api.useQuery(
-    "get",
-    "/api/v1/metrics/overview",
-    { params: { query: { from_minutes: timeRange.minutes } } },
-    { refetchInterval: 30_000 }
-  );
-
-  // Restored after mount rather than in the initial state: reading
-  // localStorage while rendering would not match the server-rendered markup.
+  // Restored after mount: reading localStorage while rendering would not match
+  // the server-rendered markup.
   useEffect(() => {
     const saved = localStorage.getItem(TIME_RANGE_KEY);
-    const match = TIME_RANGES.find((r) => r.label === saved);
-    if (match) setTimeRange(match);
-    if (localStorage.getItem(ONBOARDING_DISMISSED_KEY) === "true") {
-      setOnboardingDismissed(true);
-    }
+    if (saved && TIME_RANGE_PRESETS.some((r) => r.id === saved)) setRange(saved as TimeRangeId);
+    if (localStorage.getItem(ONBOARDING_DISMISSED_KEY) === "true") setOnboardingDismissed(true);
   }, []);
 
-  const handleSelectRange = useCallback((r: TimeRange) => {
-    setTimeRange(r);
-    localStorage.setItem(TIME_RANGE_KEY, r.label);
+  const selectRange = useCallback((r: TimeRangeId) => {
+    setRange(r);
+    localStorage.setItem(TIME_RANGE_KEY, r);
   }, []);
 
   const dismissOnboarding = useCallback(() => {
@@ -202,149 +146,177 @@ export default function DashboardPage() {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
   }, []);
 
-  const taskHref = (state?: string) => {
-    const rangeIdMap: Record<number, string> = { 60: "1h", 360: "6h", 1440: "24h", 10080: "7d", 43200: "30d" };
-    const params = new URLSearchParams();
-    const rangeId = rangeIdMap[timeRange.minutes];
-    if (rangeId) params.set("range", rangeId);
-    if (state) params.set("state", state);
-    return `/tasks?${params.toString()}`;
-  };
+  const overview = $api.useQuery(
+    "get",
+    "/api/v1/metrics/overview",
+    { params: { query: { from_minutes: minutes } } },
+    { refetchInterval: 30_000 },
+  );
+  const overview2 = $api.useQuery(
+    "get",
+    "/api/v1/metrics/overview",
+    { params: { query: { from_minutes: minutes * 2 } } },
+    { refetchInterval: 60_000 },
+  );
+  const throughput = $api.useQuery(
+    "get",
+    "/api/v1/metrics/throughput",
+    { params: { query: { from_minutes: minutes } } },
+    { refetchInterval: 30_000 },
+  );
+  const live = $api.useQuery("get", "/api/v1/dashboard/live", {}, { refetchInterval: 15_000 });
+  const canAlerts = userHasPermission(user, "alerts_read");
+  const firing = useFiringAlerts(canAlerts);
+
+  const buckets = useMemo(
+    () =>
+      bucketize(
+        (throughput.data?.data ?? []) as TaskMetricsRow[],
+        minutes,
+        throughput.dataUpdatedAt || Date.now(),
+      ),
+    [throughput.data, throughput.dataUpdatedAt, minutes],
+  );
+
+  const o = overview.data;
+  const o2 = overview2.data;
+  const prevTotal = o && o2 ? o2.total_tasks - o.total_tasks : 0;
+  const prevRate =
+    o && o2 && prevTotal > 0 ? (o2.failure_count - o.failure_count) / prevTotal : null;
+  const totalChange = o && prevTotal > 0 ? ((o.total_tasks - prevTotal) / prevTotal) * 100 : null;
+  const rateChange = o && prevRate != null ? (o.failure_rate - prevRate) * 100 : null;
+
+  const backlogTrail = useTrail(live.data?.queue_depth_total, live.dataUpdatedAt);
+  const busyTrail = useTrail(live.data?.active_tasks_total, live.dataUpdatedAt);
+
+  const band = useMemo(() => {
+    const start = Date.now() - minutes * 60_000;
+    const inWindow = firing.filter((a) => Date.parse(a.fired_at) >= start);
+    if (inWindow.length === 0) return null;
+    const first = inWindow.reduce((a, b) =>
+      Date.parse(a.fired_at) <= Date.parse(b.fired_at) ? a : b,
+    );
+    return { from: Date.parse(first.fired_at), label: `${first.name} · firing` };
+  }, [firing, minutes]);
+
+  const label = TIME_RANGE_PRESETS.find((r) => r.id === range)?.label ?? range;
+  const updated = overview.dataUpdatedAt
+    ? new Date(overview.dataUpdatedAt).toLocaleTimeString()
+    : null;
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-foreground">Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Throughput, failure clustering, and performance hotspots
-          </p>
+    <>
+      <PageHeader
+        title="Overview"
+        meta={updated ? `updated ${updated}` : undefined}
+        actions={
+          <>
+            <Segmented label="Time range" options={RANGES} value={range} onChange={selectRange} />
+            <LiveIndicator />
+          </>
+        }
+      />
+      <PageBody>
+        {overview.isError && (
+          <ErrorAlert>Couldn&apos;t load metrics. The API may be unreachable.</ErrorAlert>
+        )}
+
+        {!overview.isLoading &&
+          !overview.isError &&
+          o?.total_tasks === 0 &&
+          !onboardingDismissed && <GettingStarted onDismiss={dismissOnboarding} />}
+
+        <AttentionStrip enabled={canAlerts} />
+
+        <Readouts>
+          <Readout
+            label="Throughput"
+            value={o ? formatNumber(o.total_tasks) : "—"}
+            unit={`in ${label}`}
+            delta={totalChange != null ? <Change value={totalChange} suffix="%" /> : undefined}
+            spark={buckets.map((b) => b.total)}
+            loading={overview.isLoading}
+            href={`/tasks?range=${range}`}
+          />
+          <Readout
+            label="Failure rate"
+            value={
+              o ? (
+                <span className={o.failure_rate > 0.05 ? "text-fail" : undefined}>
+                  {(o.failure_rate * 100).toFixed(1)}
+                </span>
+              ) : (
+                "—"
+              )
+            }
+            unit="%"
+            delta={
+              rateChange != null ? (
+                <Change value={rateChange} suffix=" pts" tone="bad-up" />
+              ) : undefined
+            }
+            spark={buckets.map((b) => (b.total > 0 ? b.failed / b.total : 0))}
+            sparkColor="var(--fail)"
+            loading={overview.isLoading}
+            href={`/tasks?state=FAILURE&range=${range}`}
+          />
+          <Readout
+            label="Avg runtime"
+            value={o ? formatDuration(o.avg_runtime) : "—"}
+            delta={o ? <span>p95 {formatDuration(o.p95_runtime)}</span> : undefined}
+            spark={buckets.map((b) =>
+              b.succeeded + b.failed > 0 ? b.runtime / (b.succeeded + b.failed) : 0,
+            )}
+            loading={overview.isLoading}
+            href={`/tasks?range=${range}`}
+          />
+          <Readout
+            label="Backlog"
+            value={live.data ? formatNumber(live.data.queue_depth_total) : "—"}
+            unit="queued"
+            delta={live.data ? <span>{live.data.queues.length} queues</span> : undefined}
+            spark={backlogTrail}
+            sparkColor="var(--warn)"
+            loading={live.isLoading}
+            href="/queues"
+          />
+          <Readout
+            label="Workers"
+            value={live.data ? live.data.online_workers_total : "—"}
+            unit="online"
+            delta={
+              live.data ? (
+                <span>
+                  {live.data.worker_capacity_total > 0
+                    ? `${live.data.active_tasks_total}/${live.data.worker_capacity_total} slots busy`
+                    : `${live.data.active_tasks_total} running`}
+                </span>
+              ) : undefined
+            }
+            spark={busyTrail}
+            loading={live.isLoading}
+            href="/workers"
+            className="col-span-2 lg:col-span-1"
+          />
+        </Readouts>
+
+        <ThroughputPanel
+          buckets={buckets}
+          loading={throughput.isLoading}
+          rangeLabel={label}
+          band={band}
+        />
+
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
+          <FailingNow fromMinutes={minutes} />
+          <QueuesPanel />
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex gap-1 p-1 bg-secondary rounded-lg">
-            {TIME_RANGES.map((r) => (
-              <button
-                key={r.label}
-                onClick={() => handleSelectRange(r)}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${
-                  timeRange.minutes === r.minutes
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {r.label}
-              </button>
-            ))}
-          </div>
-          <button
-            onClick={() => refetch()}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary text-muted-foreground text-sm hover:text-foreground hover:opacity-80 transition"
-            aria-label="Refresh"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-          </button>
-          <LiveIndicator />
+
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
+          <SlowestTasks fromMinutes={minutes} />
+          <WorkersPanel fromMinutes={minutes} />
         </div>
-      </div>
-
-      {isError && (
-        <div className="flex items-center gap-2 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
-          <AlertTriangle className="w-4 h-4 shrink-0" />
-          Failed to load metrics. The API may be unreachable.
-        </div>
-      )}
-
-      {!isLoading && !isError && overview?.total_tasks === 0 && !onboardingDismissed && (
-        <GettingStarted onDismiss={dismissOnboarding} />
-      )}
-
-      {/* Live cluster snapshot — running, queued, online workers */}
-      <LiveClusterStrip />
-
-      {/* KPI strip */}
-      <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
-        <Kpi
-          title="Total tasks"
-          value={overview?.total_tasks != null ? formatNumber(overview.total_tasks) : "—"}
-          sub={`last ${timeRange.label}`}
-          icon={<Layers className="w-5 h-5" />}
-          loading={isLoading}
-          href={taskHref()}
-        />
-        <Kpi
-          title="Successful"
-          value={
-            overview?.success_count != null ? formatNumber(overview.success_count) : "—"
-          }
-          icon={<CheckCircle2 className="w-5 h-5" />}
-          accent="text-emerald-400"
-          loading={isLoading}
-          href={taskHref("SUCCESS")}
-        />
-        <Kpi
-          title="Failed"
-          value={
-            overview?.failure_count != null ? formatNumber(overview.failure_count) : "—"
-          }
-          icon={<XCircle className="w-5 h-5" />}
-          accent="text-red-400"
-          loading={isLoading}
-          href={taskHref("FAILURE")}
-        />
-        <Kpi
-          title="Failure rate"
-          value={
-            overview?.failure_rate != null ? formatPercent(overview.failure_rate) : "—"
-          }
-          icon={<TrendingDown className="w-5 h-5" />}
-          accent={
-            (overview?.failure_rate ?? 0) > 0.1 ? "text-red-400" : "text-emerald-400"
-          }
-          loading={isLoading}
-          href={taskHref("FAILURE")}
-        />
-        <Kpi
-          title="Avg runtime"
-          value={
-            overview?.avg_runtime != null ? formatDuration(overview.avg_runtime) : "—"
-          }
-          sub={
-            overview?.p95_runtime != null
-              ? `p95: ${formatDuration(overview.p95_runtime)}`
-              : undefined
-          }
-          icon={<Clock className="w-5 h-5" />}
-          accent="text-yellow-400"
-          loading={isLoading}
-          href={taskHref()}
-        />
-      </div>
-
-      {/* Trends */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <ThroughputChart fromMinutes={timeRange.minutes} />
-        <FailureRateChart fromMinutes={timeRange.minutes} />
-      </div>
-
-      {/* Problems */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <TopFailingTasks fromMinutes={timeRange.minutes} />
-        <RecentErrors fromMinutes={timeRange.minutes} />
-      </div>
-
-      {/* Performance */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <SlowestTasks fromMinutes={timeRange.minutes} />
-        <WorkerLeaderboard fromMinutes={timeRange.minutes} />
-      </div>
-
-      {/* Live worker capacity */}
-      <div className="grid grid-cols-1 gap-6">
-        <LiveWorkerCapacity />
-      </div>
-
-      {/* Recent activity */}
-      <RecentTasksSummary />
-    </div>
+      </PageBody>
+    </>
   );
 }

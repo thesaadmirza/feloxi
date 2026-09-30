@@ -4,12 +4,15 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
-import { FeloxiLogo } from "@/components/icons/feloxi-logo";
+import { AuthShell, AuthSpinner } from "@/components/auth/auth-shell";
+import { SlugInput } from "@/components/auth/slug-input";
+import { ErrorAlert } from "@/components/shared/error-alert";
 import { PasswordInput } from "@/components/shared/password-input";
+import { Button } from "@/components/ui/button";
+import { Field, Input } from "@/components/ui/field";
 import { fetchClient, unwrap } from "@/lib/api";
 import { saveUser } from "@/lib/auth";
 import { slugify } from "@/lib/utils";
-import { AUTH_INPUT_BASE, AUTH_INPUT_NORMAL, AUTH_INPUT_ERROR } from "@/lib/constants";
 
 type FormValues = {
   tenant_name: string;
@@ -116,15 +119,17 @@ export default function RegisterPage() {
     setLoading(true);
     setErrors({});
     try {
-      const auth = await unwrap(fetchClient.POST("/api/v1/auth/register", {
-        body: {
-          tenant_name: values.tenant_name.trim(),
-          tenant_slug: values.tenant_slug.trim(),
-          email: values.email.trim(),
-          password: values.password,
-          display_name: values.display_name.trim() || undefined,
-        },
-      }));
+      const auth = await unwrap(
+        fetchClient.POST("/api/v1/auth/register", {
+          body: {
+            tenant_name: values.tenant_name.trim(),
+            tenant_slug: values.tenant_slug.trim(),
+            email: values.email.trim(),
+            password: values.password,
+            display_name: values.display_name.trim() || undefined,
+          },
+        }),
+      );
       saveUser(auth.user);
       router.push("/");
     } catch (err) {
@@ -138,181 +143,137 @@ export default function RegisterPage() {
     }
   }
 
-  if (checkingSetup) return null;
-
-  if (signupDisabled) {
+  if (checkingSetup) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-zinc-950 px-4">
-        <div className="w-full max-w-md">
-          <div className="flex items-center justify-center gap-3 mb-8">
-            <FeloxiLogo size={28} className="text-zinc-300" />
-            <span className="text-2xl font-semibold text-zinc-200 tracking-tight">Feloxi</span>
-          </div>
-          <div className="bg-zinc-900 border border-zinc-800/60 rounded-2xl p-8 shadow-xl text-center">
-            <h1 className="text-xl font-semibold text-zinc-100 mb-2">Registration disabled</h1>
-            <p className="text-sm text-zinc-500 mb-6">
-              Public registration is disabled on this instance. Contact your administrator for an
-              invite.
-            </p>
-            <Link
-              href="/auth/login"
-              className="inline-flex px-4 py-2.5 rounded-lg bg-white hover:bg-zinc-200 text-zinc-900 text-sm font-medium transition-colors"
-            >
-              Back to sign in
-            </Link>
-          </div>
-        </div>
-      </div>
+      <AuthShell>
+        <AuthSpinner label="Loading" quiet />
+      </AuthShell>
     );
   }
 
-  const inputBase = AUTH_INPUT_BASE;
-  const inputNormal = AUTH_INPUT_NORMAL;
-  const inputError = AUTH_INPUT_ERROR;
+  if (signupDisabled) {
+    return (
+      <AuthShell
+        title="Registration disabled"
+        subtitle="Public registration is disabled on this instance. Contact your administrator for an invite."
+      >
+        <Button asChild variant="primary" size="lg" className="w-full">
+          <Link href="/auth/login">Back to sign in</Link>
+        </Button>
+      </AuthShell>
+    );
+  }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-950 px-4 py-12">
-      <div className="w-full max-w-md">
-        <div className="flex items-center justify-center gap-3 mb-8">
-          <FeloxiLogo size={28} className="text-zinc-300" />
-          <span className="text-2xl font-semibold text-zinc-200 tracking-tight">Feloxi</span>
-        </div>
+    <AuthShell
+      title="Create your account"
+      subtitle={
+        <>
+          Already have an account?{" "}
+          <Link href="/auth/login" className="font-[550] text-link hover:underline">
+            Sign in
+          </Link>
+        </>
+      }
+    >
+      {errors.form && <ErrorAlert className="mb-5">{errors.form}</ErrorAlert>}
 
-        <div className="bg-zinc-900 border border-zinc-800/60 rounded-2xl p-8 shadow-xl">
-          <h1 className="text-xl font-semibold text-zinc-100 mb-1">Create your account</h1>
-          <p className="text-sm text-zinc-500 mb-6">
-            Already have an account?{" "}
-            <Link href="/auth/login" className="text-zinc-300 hover:text-white transition-colors">
-              Sign in
-            </Link>
-          </p>
+      <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
+        <Field label="Organization name" htmlFor="tenant_name" error={errors.tenant_name}>
+          <Input
+            id="tenant_name"
+            name="tenant_name"
+            type="text"
+            autoComplete="organization"
+            autoFocus
+            value={values.tenant_name}
+            onChange={handleChange}
+            placeholder="Your company name"
+            aria-invalid={errors.tenant_name ? true : undefined}
+            className="h-10"
+          />
+        </Field>
 
-          {errors.form && (
-            <div className="mb-4 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
-              {errors.form}
-            </div>
-          )}
+        <Field
+          label="Organization slug"
+          htmlFor="tenant_slug"
+          hint="Used in URLs"
+          error={errors.tenant_slug}
+        >
+          <SlugInput
+            id="tenant_slug"
+            name="tenant_slug"
+            type="text"
+            autoComplete="off"
+            value={values.tenant_slug}
+            onChange={handleSlugChange}
+            placeholder="your-company"
+            aria-invalid={errors.tenant_slug ? true : undefined}
+          />
+        </Field>
 
-          <form onSubmit={handleSubmit} noValidate className="space-y-4">
-            <div>
-              <label htmlFor="tenant_name" className="block text-sm font-medium text-zinc-400 mb-1.5">
-                Organization name
-              </label>
-              <input
-                id="tenant_name"
-                name="tenant_name"
-                type="text"
-                autoComplete="organization"
-                autoFocus
-                value={values.tenant_name}
-                onChange={handleChange}
-                placeholder="Your company name"
-                className={[inputBase, errors.tenant_name ? inputError : inputNormal].join(" ")}
-              />
-              {errors.tenant_name && (
-                <p className="mt-1.5 text-xs text-red-400">{errors.tenant_name}</p>
-              )}
-            </div>
+        <Field
+          label={
+            <>
+              Your name <span className="ml-1 font-normal text-t3">Optional</span>
+            </>
+          }
+          htmlFor="display_name"
+        >
+          <Input
+            id="display_name"
+            name="display_name"
+            type="text"
+            autoComplete="name"
+            value={values.display_name}
+            onChange={handleChange}
+            placeholder="Your name"
+            className="h-10"
+          />
+        </Field>
 
-            <div>
-              <label htmlFor="tenant_slug" className="block text-sm font-medium text-zinc-400 mb-1.5">
-                Organization slug
-                <span className="ml-1.5 text-xs text-zinc-600 font-normal">Used in URLs</span>
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600 text-sm select-none">
-                  feloxi/
-                </span>
-                <input
-                  id="tenant_slug"
-                  name="tenant_slug"
-                  type="text"
-                  autoComplete="off"
-                  value={values.tenant_slug}
-                  onChange={handleSlugChange}
-                  placeholder="your-company"
-                  className={["pl-[3.75rem] pr-3", inputBase, errors.tenant_slug ? inputError : inputNormal].join(" ")}
-                />
-              </div>
-              {errors.tenant_slug && (
-                <p className="mt-1.5 text-xs text-red-400">{errors.tenant_slug}</p>
-              )}
-            </div>
+        <Field label="Email" htmlFor="email" error={errors.email}>
+          <Input
+            id="email"
+            name="email"
+            type="email"
+            autoComplete="email"
+            value={values.email}
+            onChange={handleChange}
+            placeholder="you@example.com"
+            aria-invalid={errors.email ? true : undefined}
+            className="h-10"
+          />
+        </Field>
 
-            <div>
-              <label htmlFor="display_name" className="block text-sm font-medium text-zinc-400 mb-1.5">
-                Your name
-                <span className="ml-1.5 text-xs text-zinc-600 font-normal">Optional</span>
-              </label>
-              <input
-                id="display_name"
-                name="display_name"
-                type="text"
-                autoComplete="name"
-                value={values.display_name}
-                onChange={handleChange}
-                placeholder="Your name"
-                className={[inputBase, inputNormal].join(" ")}
-              />
-            </div>
+        <Field label="Password" htmlFor="password" error={errors.password}>
+          <PasswordInput
+            value={values.password}
+            onChange={(v) => {
+              setValues((prev) => ({ ...prev, password: v }));
+              if (errors.password) {
+                setErrors((prev) => ({ ...prev, password: undefined, form: undefined }));
+              }
+            }}
+            hasError={!!errors.password}
+          />
+        </Field>
 
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-zinc-400 mb-1.5">
-                Email address
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                value={values.email}
-                onChange={handleChange}
-                placeholder="you@example.com"
-                className={[inputBase, errors.email ? inputError : inputNormal].join(" ")}
-              />
-              {errors.email && (
-                <p className="mt-1.5 text-xs text-red-400">{errors.email}</p>
-              )}
-            </div>
+        <Button
+          type="submit"
+          variant="primary"
+          size="lg"
+          disabled={loading}
+          className="mt-1 w-full"
+        >
+          {loading && <Loader2 className="animate-spin" />}
+          {loading ? "Creating account…" : "Create account"}
+        </Button>
 
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-zinc-400 mb-1.5">
-                Password
-              </label>
-              <PasswordInput
-                value={values.password}
-                onChange={(v) => {
-                  setValues((prev) => ({ ...prev, password: v }));
-                  if (errors.password) {
-                    setErrors((prev) => ({ ...prev, password: undefined, form: undefined }));
-                  }
-                }}
-                hasError={!!errors.password}
-              />
-              {errors.password && (
-                <p className="mt-1.5 text-xs text-red-400">{errors.password}</p>
-              )}
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg
-                bg-white hover:bg-zinc-200 disabled:opacity-60 disabled:cursor-not-allowed
-                text-zinc-900 text-sm font-medium transition-colors"
-            >
-              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-              {loading ? "Creating account…" : "Create account"}
-            </button>
-
-            <p className="text-center text-xs text-zinc-600 pt-1">
-              By creating an account, you agree to our{" "}
-              <span className="text-zinc-500">Terms of Service</span> and{" "}
-              <span className="text-zinc-500">Privacy Policy</span>.
-            </p>
-          </form>
-        </div>
-      </div>
-    </div>
+        <p className="text-center text-xs leading-relaxed text-balance text-t3">
+          By creating an account, you agree to our Terms of Service and Privacy Policy.
+        </p>
+      </form>
+    </AuthShell>
   );
 }

@@ -1,18 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import {
-  ArrowLeft,
-  Database,
-  Save,
-  Loader2,
-  CheckCircle,
-  Info,
-} from "lucide-react";
+import { Bell, ListChecks, Loader2, Server } from "lucide-react";
 import { $api, fetchClient, unwrap } from "@/lib/api";
-import { ErrorAlert } from "@/components/shared/error-alert";
+import { Button } from "@/components/ui/button";
+import { Panel, PanelHeader } from "@/components/ui/panel";
+import { ErrorAlert, Notice } from "@/components/shared/error-alert";
 import { Skeleton } from "@/components/shared/skeleton";
+import { SettingsHeader, SettingsRow } from "@/components/settings/section";
+import { UnitInput } from "@/components/settings/unit-input";
 
 type RetentionSettings = {
   task_events_days: number;
@@ -26,27 +22,33 @@ const DEFAULT_RETENTION: RetentionSettings = {
   alert_history_days: 90,
 };
 
-const FIELDS: { key: keyof RetentionSettings; label: string; description: string }[] = [
+const FIELDS: {
+  key: keyof RetentionSettings;
+  label: string;
+  description: string;
+  icon: React.ReactNode;
+}[] = [
   {
     key: "task_events_days",
-    label: "Task Events",
-    description:
-      "How long to keep task state events, args, kwargs, results, and exceptions",
+    label: "Task events",
+    description: "Task state changes with their args, kwargs, results and exceptions.",
+    icon: <ListChecks strokeWidth={1.7} />,
   },
   {
     key: "worker_events_days",
-    label: "Worker Events",
-    description: "How long to keep worker heartbeat events, CPU, and memory snapshots",
+    label: "Worker events",
+    description: "Worker heartbeats with CPU and memory snapshots.",
+    icon: <Server strokeWidth={1.7} />,
   },
   {
     key: "alert_history_days",
-    label: "Alert History",
-    description: "How long to keep alert firing history and resolution records",
+    label: "Alert history",
+    description: "When each alert fired and how it was resolved.",
+    icon: <Bell strokeWidth={1.7} />,
   },
 ];
 
 export default function RetentionPage() {
-  const router = useRouter();
   const [values, setValues] = useState<RetentionSettings>(DEFAULT_RETENTION);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -80,129 +82,85 @@ export default function RetentionPage() {
     setSaveSuccess(false);
 
     try {
-      await unwrap(
-        fetchClient.PUT("/api/v1/settings/retention", { body: values as never })
-      );
+      await unwrap(fetchClient.PUT("/api/v1/settings/retention", { body: values as never }));
       setSaveSuccess(true);
       setDirty(false);
     } catch (err) {
-      setSaveError(
-        err instanceof Error ? err.message : "Failed to save retention settings"
-      );
+      setSaveError(err instanceof Error ? err.message : "Failed to save retention settings");
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <div className="max-w-2xl space-y-6">
-      <div className="flex items-center gap-3">
-        <button
-          onClick={() => router.push("/settings")}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Settings
-        </button>
-        <span className="text-muted-foreground">/</span>
-        <span className="text-sm font-medium text-foreground">Retention Policies</span>
-      </div>
-
-      <div className="flex items-start gap-3 p-4 rounded-xl border border-primary/30 bg-primary/5 text-sm">
-        <Info className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-        <p className="text-muted-foreground">
-          Retention policies control how long Feloxi stores historical data.
-          Longer retention increases storage usage. Changes take effect on the
-          next cleanup cycle (runs daily).
-        </p>
-      </div>
+    <>
+      <SettingsHeader
+        title="Retention"
+        description="How long Feloxi keeps history. Changes take effect at the next daily cleanup."
+      />
 
       {isError && (
         <ErrorAlert>
-          {(error as Error)?.message ?? "Failed to load retention settings"}
+          {(error as unknown as Error)?.message ?? "Failed to load retention settings"}
         </ErrorAlert>
       )}
 
       {saveSuccess && (
-        <div className="flex items-center gap-3 p-4 rounded-xl border border-[#22c55e]/40 bg-[#22c55e]/10 text-[#22c55e] text-sm">
-          <CheckCircle className="h-4 w-4 shrink-0" />
-          Retention settings saved successfully
-        </div>
+        <Notice onDismiss={() => setSaveSuccess(false)}>Retention settings saved.</Notice>
       )}
 
-      {saveError && (
-        <ErrorAlert>
-          {saveError}
-        </ErrorAlert>
-      )}
+      {saveError && <ErrorAlert onDismiss={() => setSaveError(null)}>{saveError}</ErrorAlert>}
 
-      <form onSubmit={handleSave} className="rounded-xl border border-border bg-card p-6 space-y-6">
-        <div className="flex items-center gap-2">
-          <Database className="h-4 w-4 text-primary" />
-          <h2 className="font-semibold text-foreground">Retention Periods</h2>
-        </div>
+      <Panel aria-label="Retention periods">
+        <form onSubmit={handleSave}>
+          <PanelHeader title="Keep data for" />
 
-        {isLoading ? (
-          <div className="space-y-4">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-20 w-full" />
-            ))}
-          </div>
-        ) : (
-          <div className="space-y-5">
-            {FIELDS.map(({ key, label, description }) => (
-              <div key={key} className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label className="text-sm font-medium text-foreground">
-                      {label}
-                    </label>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {description}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0 ml-4">
-                    <input
-                      type="number"
-                      min="1"
-                      max="3650"
-                      value={values[key]}
-                      onChange={(e) => handleChange(key, e.target.value)}
-                      className="w-20 bg-secondary border border-border text-foreground text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring text-right"
-                    />
-                    <span className="text-sm text-muted-foreground">days</span>
-                  </div>
-                </div>
-
-                <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-primary transition-all"
-                    style={{ width: `${Math.min(100, (values[key] / 365) * 100)}%` }}
+          {isLoading ? (
+            <div className="flex flex-col gap-3 border-t border-line-soft px-4 py-4">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-10 w-full" />
+              ))}
+            </div>
+          ) : (
+            FIELDS.map(({ key, label, description, icon }) => (
+              <SettingsRow
+                key={key}
+                icon={icon}
+                title={<label htmlFor={`retention-${key}`}>{label}</label>}
+                description={<span id={`retention-${key}-help`}>{description}</span>}
+                wrapAction
+                action={
+                  <UnitInput
+                    id={`retention-${key}`}
+                    unit="days"
+                    min="1"
+                    max="3650"
+                    value={values[key]}
+                    onChange={(e) => handleChange(key, e.target.value)}
+                    aria-describedby={`retention-${key}-help`}
+                    wrapperClassName="w-[116px]"
                   />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+                }
+              />
+            ))
+          )}
 
-        <div className="flex items-center justify-between pt-2 border-t border-border">
-          <p className="text-xs text-muted-foreground">
-            Estimated storage usage depends on your task volume and payload sizes.
-          </p>
-          <button
-            type="submit"
-            disabled={saving || !dirty || isLoading}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition disabled:opacity-50"
-          >
-            {saving ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4" />
-            )}
-            Save Changes
-          </button>
-        </div>
-      </form>
-    </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line-soft px-4 py-3">
+            <p className="text-xs text-t3">
+              Each period can be 1 to 3,650 days. Longer periods use more storage.
+            </p>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={saving || !dirty || isLoading}
+              className="ml-auto"
+            >
+              {saving && <Loader2 className="animate-spin" />}
+              Save changes
+            </Button>
+          </div>
+        </form>
+      </Panel>
+    </>
   );
 }

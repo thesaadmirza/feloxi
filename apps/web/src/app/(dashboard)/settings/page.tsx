@@ -1,16 +1,12 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import {
-  Users,
-  Key,
-  Database,
-  Bell,
-  ChevronRight,
-  Building2,
-} from "lucide-react";
+import { format } from "date-fns";
 import { $api } from "@/lib/api";
+import { Panel, PanelHeader } from "@/components/ui/panel";
+import { ErrorAlert } from "@/components/shared/error-alert";
 import { Skeleton } from "@/components/shared/skeleton";
+import { CopyButton } from "@/components/settings/copy-button";
+import { InfoRow, SettingsHeader } from "@/components/settings/section";
 
 type SettingsData = {
   id?: string;
@@ -19,109 +15,58 @@ type SettingsData = {
   created_at?: string;
 };
 
-const SUB_PAGES = [
-  {
-    href: "/settings/team",
-    icon: Users,
-    label: "Team",
-    description: "Manage team members, roles, and invitations",
-  },
-  {
-    href: "/settings/api-keys",
-    icon: Key,
-    label: "API Keys",
-    description: "Create and revoke API keys for programmatic access",
-  },
-  {
-    href: "/settings/retention",
-    icon: Database,
-    label: "Retention",
-    description: "Configure how long task and worker events are stored",
-  },
-  {
-    href: "/settings/notifications",
-    icon: Bell,
-    label: "Notifications",
-    description: "Configure SMTP and webhook defaults for alert delivery",
-  },
-];
-
 export default function SettingsPage() {
-  const router = useRouter();
-
-  const { data, isLoading } = $api.useQuery("get", "/api/v1/settings");
+  const { data, isLoading, isError, error } = $api.useQuery("get", "/api/v1/settings");
 
   const settings = data as SettingsData | null;
 
   return (
-    <div className="max-w-2xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Settings</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Manage your tenant configuration and preferences
-        </p>
-      </div>
+    <>
+      <SettingsHeader
+        title="General"
+        description="The organization you're signed in to. Its name is what invited members see."
+      />
 
-      <div className="rounded-xl border border-border bg-card p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Building2 className="h-4 w-4 text-primary" />
-          <h2 className="font-semibold text-foreground">Tenant Information</h2>
-        </div>
+      {isError && (
+        <ErrorAlert>
+          {(error as unknown as Error)?.message ?? "Couldn't load organization details."}
+        </ErrorAlert>
+      )}
 
+      <Panel aria-label="Organization">
+        <PanelHeader title="Organization" />
         {isLoading ? (
-          <div className="space-y-3">
+          <div className="flex flex-col gap-3 border-t border-line-soft px-4 py-4">
             {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-6 w-full" />
+              <Skeleton key={i} className="h-5 w-full" />
             ))}
           </div>
         ) : (
-          <div className="space-y-0 divide-y divide-border">
-            <InfoRow label="Tenant Name" value={settings?.name ?? "—"} />
-            <InfoRow label="Tenant Slug" value={settings?.slug ?? "—"} />
-            <InfoRow
-              label="Created"
-              value={
-                settings?.created_at
-                  ? new Date(settings.created_at).toLocaleDateString()
-                  : "—"
-              }
-            />
-          </div>
+          <dl>
+            <InfoRow label="Name">
+              <span className="truncate font-[550]">{settings?.name ?? "—"}</span>
+            </InfoRow>
+            <InfoRow label="Slug">
+              <span className="truncate font-mono text-[12.5px]">{settings?.slug ?? "—"}</span>
+            </InfoRow>
+            <InfoRow label="Organization ID">
+              <span className="min-w-0 flex-1 truncate font-mono text-[12.5px]">
+                {settings?.id ?? "—"}
+              </span>
+              {settings?.id && <CopyButton text={settings.id} variant="ghost" />}
+            </InfoRow>
+            <InfoRow label="Created">
+              {settings?.created_at ? (
+                <time dateTime={settings.created_at} className="tabular-nums">
+                  {format(new Date(settings.created_at), "d MMM yyyy")}
+                </time>
+              ) : (
+                "—"
+              )}
+            </InfoRow>
+          </dl>
         )}
-      </div>
-
-      <div className="space-y-2">
-        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-          Configuration
-        </h2>
-        <div className="rounded-xl border border-border bg-card divide-y divide-border overflow-hidden">
-          {SUB_PAGES.map(({ href, icon: Icon, label, description }) => (
-            <button
-              key={href}
-              onClick={() => router.push(href)}
-              className="w-full flex items-center gap-4 px-5 py-4 hover:bg-secondary/40 transition text-left group"
-            >
-              <div className="h-10 w-10 rounded-lg bg-secondary flex items-center justify-center shrink-0">
-                <Icon className="h-5 w-5 text-muted-foreground group-hover:text-primary transition" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-foreground">{label}</p>
-                <p className="text-sm text-muted-foreground">{description}</p>
-              </div>
-              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center gap-4 py-3">
-      <span className="text-sm text-muted-foreground w-36 shrink-0">{label}</span>
-      <span className="text-sm text-foreground">{value}</span>
-    </div>
+      </Panel>
+    </>
   );
 }

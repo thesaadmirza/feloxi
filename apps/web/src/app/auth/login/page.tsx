@@ -3,12 +3,16 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Loader2, Building2, Mail, CheckCircle2 } from "lucide-react";
-import { FeloxiLogo } from "@/components/icons/feloxi-logo";
+import { ArrowLeft, KeyRound, Loader2, Mail } from "lucide-react";
+import { AuthDivider, AuthShell, AuthSpinner } from "@/components/auth/auth-shell";
+import { GoogleIcon } from "@/components/auth/google-icon";
+import { OrgPicker } from "@/components/auth/org-picker";
+import { ErrorAlert, Notice } from "@/components/shared/error-alert";
 import { PasswordInput } from "@/components/shared/password-input";
+import { Button } from "@/components/ui/button";
+import { Field, Input } from "@/components/ui/field";
 import { fetchClient, unwrap } from "@/lib/api";
 import { saveUser } from "@/lib/auth";
-import { AUTH_INPUT_BASE, AUTH_INPUT_NORMAL, AUTH_INPUT_ERROR } from "@/lib/constants";
 import type { OrgSummary, LoginResponse } from "@/types/api";
 
 type FormValues = {
@@ -110,12 +114,14 @@ export default function LoginPage() {
     setLoading(true);
     setErrors({});
     try {
-      const result = await unwrap(fetchClient.POST("/api/v1/auth/login", {
-        body: {
-          email: values.email.trim(),
-          password: values.password,
-        },
-      })) as LoginResponse;
+      const result = (await unwrap(
+        fetchClient.POST("/api/v1/auth/login", {
+          body: {
+            email: values.email.trim(),
+            password: values.password,
+          },
+        }),
+      )) as LoginResponse;
 
       if ("needs_org_selection" in result) {
         // Multiple orgs — show picker
@@ -141,13 +147,15 @@ export default function LoginPage() {
     setPickingOrg(true);
     setErrors({});
     try {
-      const result = await unwrap(fetchClient.POST("/api/v1/auth/login", {
-        body: {
-          email: values.email.trim(),
-          password: values.password,
-          tenant_slug: slug,
-        },
-      })) as LoginResponse;
+      const result = (await unwrap(
+        fetchClient.POST("/api/v1/auth/login", {
+          body: {
+            email: values.email.trim(),
+            password: values.password,
+            tenant_slug: slug,
+          },
+        }),
+      )) as LoginResponse;
 
       if ("needs_org_selection" in result) {
         // Shouldn't happen when slug is provided, but handle gracefully
@@ -198,262 +206,177 @@ export default function LoginPage() {
     }
   }
 
-  if (checkingSetup) return null;
+  if (checkingSetup) {
+    return (
+      <AuthShell>
+        <AuthSpinner label="Loading" quiet />
+      </AuthShell>
+    );
+  }
 
   if (magicSentTo) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-zinc-950 px-4">
-        <div className="w-full max-w-md">
-          <div className="flex items-center justify-center gap-3 mb-8">
-            <FeloxiLogo size={28} className="text-zinc-300" />
-            <span className="text-2xl font-semibold text-zinc-200 tracking-tight">Feloxi</span>
-          </div>
-
-          <div className="bg-zinc-900 border border-zinc-800/60 rounded-2xl p-8 shadow-xl text-center">
-            <div className="w-12 h-12 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mx-auto mb-4">
-              <CheckCircle2 className="w-6 h-6 text-emerald-400" />
-            </div>
-            <h1 className="text-xl font-semibold text-zinc-100 mb-2">Check your inbox</h1>
-            <p className="text-sm text-zinc-500 leading-relaxed">
-              If an account exists for <span className="text-zinc-300">{magicSentTo}</span>, a
-              sign-in link is on its way. The link expires in 15 minutes.
-            </p>
-            <button
-              onClick={() => {
-                setMagicSentTo(null);
-                setErrors({});
-              }}
-              className="mt-6 text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
-            >
-              Back to sign in
-            </button>
-          </div>
-        </div>
-      </div>
+      <AuthShell title="Check your inbox">
+        <Notice>
+          If an account exists for <span className="font-[550]">{magicSentTo}</span>, a sign-in link
+          is on its way.
+        </Notice>
+        <p className="mt-3 text-[13px] text-t3">The link expires in 15 minutes.</p>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="mt-6 -ml-2.5"
+          onClick={() => {
+            setMagicSentTo(null);
+            setErrors({});
+          }}
+        >
+          <ArrowLeft />
+          Back to sign in
+        </Button>
+      </AuthShell>
     );
   }
 
   if (orgs) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-zinc-950 px-4">
-        <div className="w-full max-w-md">
-          <div className="flex items-center justify-center gap-3 mb-8">
-            <FeloxiLogo size={28} className="text-zinc-300" />
-            <span className="text-2xl font-semibold text-zinc-200 tracking-tight">Feloxi</span>
-          </div>
-
-          <div className="bg-zinc-900 border border-zinc-800/60 rounded-2xl p-8 shadow-xl">
-            <h1 className="text-xl font-semibold text-zinc-100 mb-1">Choose an organization</h1>
-            <p className="text-sm text-zinc-500 mb-6">
-              Your email belongs to multiple organizations. Select one to continue.
-            </p>
-
-            {errors.form && (
-              <div className="mb-4 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
-                {errors.form}
-              </div>
-            )}
-
-            <div className="space-y-2">
-              {orgs.map((org) => (
-                <button
-                  key={org.slug}
-                  onClick={() => handleOrgPick(org.slug)}
-                  disabled={pickingOrg}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-lg border border-zinc-800
-                    hover:border-zinc-600 hover:bg-white/[0.03] transition-colors text-left
-                    disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  <div className="w-9 h-9 rounded-lg bg-zinc-800 flex items-center justify-center shrink-0">
-                    <Building2 className="w-4 h-4 text-zinc-500" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-zinc-200 truncate">{org.name}</p>
-                    <p className="text-xs text-zinc-600 truncate">{org.slug}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            <button
-              onClick={handleBackToSignIn}
-              className="mt-4 text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
-            >
-              Back to sign in
-            </button>
-          </div>
-        </div>
-      </div>
+      <AuthShell
+        title="Choose an organization"
+        subtitle="Your email belongs to multiple organizations. Select one to continue."
+      >
+        {errors.form && <ErrorAlert className="mb-4">{errors.form}</ErrorAlert>}
+        <OrgPicker orgs={orgs} onPick={handleOrgPick} busy={pickingOrg} />
+        <Button variant="ghost" size="sm" className="mt-6 -ml-2.5" onClick={handleBackToSignIn}>
+          <ArrowLeft />
+          Back to sign in
+        </Button>
+      </AuthShell>
     );
   }
 
+  const emailField = (
+    <Field label="Email" htmlFor="email" error={errors.email}>
+      <Input
+        id="email"
+        name="email"
+        type="email"
+        autoComplete="email"
+        autoFocus
+        value={values.email}
+        onChange={handleChange}
+        placeholder="you@example.com"
+        aria-invalid={errors.email ? true : undefined}
+        className="h-10"
+      />
+    </Field>
+  );
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-950 px-4">
-      <div className="w-full max-w-md">
-        <div className="flex items-center justify-center gap-3 mb-8">
-          <FeloxiLogo size={28} className="text-zinc-300" />
-          <span className="text-2xl font-semibold text-zinc-200 tracking-tight">Feloxi</span>
-        </div>
+    <AuthShell
+      title="Sign in"
+      subtitle={
+        allowSignup ? (
+          <>
+            Don&apos;t have an account?{" "}
+            <Link href="/auth/register" className="font-[550] text-link hover:underline">
+              Create one
+            </Link>
+          </>
+        ) : undefined
+      }
+    >
+      {errors.form && <ErrorAlert className="mb-5">{errors.form}</ErrorAlert>}
 
-        <div className="bg-zinc-900 border border-zinc-800/60 rounded-2xl p-8 shadow-xl">
-          <h1 className="text-xl font-semibold text-zinc-100 mb-1">Sign in to your account</h1>
-          {allowSignup && (
-            <p className="text-sm text-zinc-500 mb-6">
-              Don&apos;t have an account?{" "}
-              <Link href="/auth/register" className="text-zinc-300 hover:text-white transition-colors">
-                Create one free
-              </Link>
-            </p>
+      {googleSSO && (
+        <>
+          <Button
+            variant="secondary"
+            size="lg"
+            className="w-full"
+            onClick={() => {
+              window.location.href = "/api/v1/auth/google/connect";
+            }}
+          >
+            <GoogleIcon />
+            Continue with Google
+          </Button>
+          <AuthDivider>or with email</AuthDivider>
+        </>
+      )}
+
+      {/* Keyed so switching modes remounts the form. Otherwise React reuses the
+          clicked "instead" button as the other form's submit button, and the
+          same click submits it. */}
+      {mode === "magic" ? (
+        <form key="magic" onSubmit={handleMagicLink} noValidate className="flex flex-col gap-4">
+          {emailField}
+
+          <Button
+            type="submit"
+            variant="primary"
+            size="lg"
+            disabled={magicSending}
+            className="mt-1 w-full"
+          >
+            {magicSending ? <Loader2 className="animate-spin" /> : <Mail />}
+            {magicSending ? "Sending…" : "Email me a sign-in link"}
+          </Button>
+
+          {magicLinkEnabled && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="self-center text-t3"
+              onClick={() => setMode("password")}
+            >
+              <KeyRound />
+              Sign in with password instead
+            </Button>
           )}
-          {!allowSignup && <div className="mb-6" />}
+        </form>
+      ) : (
+        <form key="password" onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
+          {emailField}
 
-          {errors.form && (
-            <div className="mb-4 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
-              {errors.form}
-            </div>
+          <Field label="Password" htmlFor="password" error={errors.password}>
+            <PasswordInput
+              value={values.password}
+              onChange={(v) => {
+                setValues((prev) => ({ ...prev, password: v }));
+                if (errors.password) {
+                  setErrors((prev) => ({ ...prev, password: undefined, form: undefined }));
+                }
+              }}
+              autoComplete="current-password"
+              placeholder="••••••••"
+              hasError={!!errors.password}
+            />
+          </Field>
+
+          <Button
+            type="submit"
+            variant="primary"
+            size="lg"
+            disabled={loading}
+            className="mt-1 w-full"
+          >
+            {loading && <Loader2 className="animate-spin" />}
+            {loading ? "Signing in…" : "Sign in"}
+          </Button>
+
+          {magicLinkEnabled && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="self-center text-t3"
+              onClick={() => setMode("magic")}
+            >
+              <Mail />
+              Email me a sign-in link instead
+            </Button>
           )}
-
-          {mode === "magic" ? (
-            <form onSubmit={handleMagicLink} noValidate className="space-y-4">
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium text-zinc-400 mb-1.5">
-                  Email address
-                </label>
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  autoFocus
-                  value={values.email}
-                  onChange={handleChange}
-                  placeholder="you@example.com"
-                  className={[AUTH_INPUT_BASE, errors.email ? AUTH_INPUT_ERROR : AUTH_INPUT_NORMAL].join(" ")}
-                />
-                {errors.email && (
-                  <p className="mt-1.5 text-xs text-red-400">{errors.email}</p>
-                )}
-              </div>
-
-              <button
-                type="submit"
-                disabled={magicSending}
-                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg
-                  bg-white hover:bg-zinc-200 disabled:opacity-60 disabled:cursor-not-allowed
-                  text-zinc-900 text-sm font-medium transition-colors"
-              >
-                {magicSending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Mail className="w-4 h-4" />
-                )}
-                {magicSending ? "Sending…" : "Email me a sign-in link"}
-              </button>
-
-              {magicLinkEnabled && (
-                <button
-                  type="button"
-                  onClick={() => setMode("password")}
-                  className="w-full text-center text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
-                >
-                  Sign in with password instead
-                </button>
-              )}
-            </form>
-          ) : (
-            <form onSubmit={handleSubmit} noValidate className="space-y-4">
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium text-zinc-400 mb-1.5">
-                  Email address
-                </label>
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  autoFocus
-                  value={values.email}
-                  onChange={handleChange}
-                  placeholder="you@example.com"
-                  className={[AUTH_INPUT_BASE, errors.email ? AUTH_INPUT_ERROR : AUTH_INPUT_NORMAL].join(" ")}
-                />
-                {errors.email && (
-                  <p className="mt-1.5 text-xs text-red-400">{errors.email}</p>
-                )}
-              </div>
-
-              <div>
-                <label htmlFor="password" className="block text-sm font-medium text-zinc-400 mb-1.5">
-                  Password
-                </label>
-                <PasswordInput
-                  value={values.password}
-                  onChange={(v) => {
-                    setValues((prev) => ({ ...prev, password: v }));
-                    if (errors.password) {
-                      setErrors((prev) => ({ ...prev, password: undefined, form: undefined }));
-                    }
-                  }}
-                  autoComplete="current-password"
-                  placeholder="••••••••"
-                  hasError={!!errors.password}
-                />
-                {errors.password && (
-                  <p className="mt-1.5 text-xs text-red-400">{errors.password}</p>
-                )}
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg
-                  bg-white hover:bg-zinc-200 disabled:opacity-60 disabled:cursor-not-allowed
-                  text-zinc-900 text-sm font-medium transition-colors"
-              >
-                {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-                {loading ? "Signing in…" : "Sign in"}
-              </button>
-
-              {magicLinkEnabled && (
-                <button
-                  type="button"
-                  onClick={() => setMode("magic")}
-                  className="w-full text-center text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
-                >
-                  Email me a sign-in link instead
-                </button>
-              )}
-            </form>
-          )}
-
-          {googleSSO && (
-            <>
-              <div className="flex items-center gap-3 my-5">
-                <div className="h-px flex-1 bg-zinc-800" />
-                <span className="text-xs text-zinc-600">or</span>
-                <div className="h-px flex-1 bg-zinc-800" />
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  window.location.href = "/api/v1/auth/google/connect";
-                }}
-                className="w-full flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-lg
-                  border border-zinc-700 hover:border-zinc-500 hover:bg-white/[0.03]
-                  text-zinc-200 text-sm font-medium transition-colors"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden>
-                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1z" />
-                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                  <path fill="#FBBC05" d="M5.84 14.1c-.22-.66-.35-1.36-.35-2.1s.13-1.44.35-2.1V7.06H2.18A10.97 10.97 0 0 0 1 12c0 1.77.43 3.45 1.18 4.94l3.66-2.84z" />
-                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.16-3.16C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                </svg>
-                Continue with Google
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
+        </form>
+      )}
+    </AuthShell>
   );
 }

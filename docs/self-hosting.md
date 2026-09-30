@@ -17,7 +17,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-`.env.example` ships with a throwaway `ENCRYPTION_KEY` so the demo boots. For anything beyond a local trial, generate your own and put it in `.env` before first run — it encrypts integration tokens and the SMTP password at rest, and losing it means re-entering those secrets:
+`.env.example` ships with a throwaway `ENCRYPTION_KEY` so the demo boots. For anything beyond a local trial, generate your own and put it in `.env` before first run — it encrypts broker URLs, integration tokens and the SMTP password at rest, and losing it means re-entering those secrets:
 
 ```bash
 openssl rand -base64 32

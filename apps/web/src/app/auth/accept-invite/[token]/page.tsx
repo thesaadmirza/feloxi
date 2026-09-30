@@ -3,12 +3,14 @@
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Loader2, AlertTriangle } from "lucide-react";
-import { FeloxiLogo } from "@/components/icons/feloxi-logo";
+import { Loader2 } from "lucide-react";
+import { AuthShell, AuthSpinner } from "@/components/auth/auth-shell";
+import { ErrorAlert } from "@/components/shared/error-alert";
 import { PasswordInput } from "@/components/shared/password-input";
+import { Button } from "@/components/ui/button";
+import { Field, Input } from "@/components/ui/field";
 import { $api, fetchClient, unwrap } from "@/lib/api";
 import { saveUser } from "@/lib/auth";
-import { AUTH_INPUT_BASE, AUTH_INPUT_NORMAL } from "@/lib/constants";
 
 export default function AcceptInvitePage() {
   const router = useRouter();
@@ -23,7 +25,7 @@ export default function AcceptInvitePage() {
     "get",
     "/api/v1/auth/invite/{token}",
     { params: { path: { token: token ?? "" } } },
-    { enabled: !!token, retry: false, staleTime: Infinity, refetchOnWindowFocus: false }
+    { enabled: !!token, retry: false, staleTime: Infinity, refetchOnWindowFocus: false },
   );
 
   const [password, setPassword] = useState("");
@@ -48,125 +50,93 @@ export default function AcceptInvitePage() {
             password,
             display_name: displayName.trim() || undefined,
           },
-        })
+        }),
       );
       saveUser(auth.user);
       router.push("/");
     } catch (err) {
       setFormError(
-        err instanceof Error ? err.message : "Failed to accept invitation. Please try again."
+        err instanceof Error ? err.message : "Failed to accept invitation. Please try again.",
       );
     } finally {
       setSubmitting(false);
     }
   }
 
-  const inputBase = AUTH_INPUT_BASE;
-  const inputNormal = AUTH_INPUT_NORMAL;
+  if (loadingPreview) {
+    return (
+      <AuthShell>
+        <AuthSpinner label="Loading invitation" quiet />
+      </AuthShell>
+    );
+  }
+
+  if (previewError || !preview) {
+    return (
+      <AuthShell title="Invitation unavailable">
+        <ErrorAlert>This invitation link is invalid or has expired.</ErrorAlert>
+        <p className="mt-3 text-[13px] leading-relaxed text-t3">
+          Ask your admin to send a new invitation.
+        </p>
+        <Button asChild variant="primary" size="lg" className="mt-6 w-full">
+          <Link href="/auth/login">Go to sign in</Link>
+        </Button>
+      </AuthShell>
+    );
+  }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-950 px-4 py-12">
-      <div className="w-full max-w-md">
-        <div className="flex items-center justify-center gap-3 mb-8">
-          <FeloxiLogo size={28} className="text-zinc-300" />
-          <span className="text-2xl font-semibold text-zinc-200 tracking-tight">Feloxi</span>
-        </div>
+    <AuthShell
+      title={`Join ${preview.tenant_name}`}
+      subtitle={
+        <>
+          You&apos;ve been invited as{" "}
+          <span className="font-[550] text-foreground">{preview.role}</span>. Set a password to
+          activate your account.
+        </>
+      }
+    >
+      {formError && <ErrorAlert className="mb-5">{formError}</ErrorAlert>}
 
-        <div className="bg-zinc-900 border border-zinc-800/60 rounded-2xl p-8 shadow-xl">
-          {loadingPreview ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-5 h-5 animate-spin text-zinc-500" />
-            </div>
-          ) : previewError || !preview ? (
-            <div className="text-center">
-              <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-red-500/10 mb-4">
-                <AlertTriangle className="w-5 h-5 text-red-400" />
-              </div>
-              <h1 className="text-xl font-semibold text-zinc-100 mb-2">
-                Invitation unavailable
-              </h1>
-              <p className="text-sm text-zinc-500 mb-6">
-                This invitation link is invalid or has expired.
-              </p>
-              <Link
-                href="/auth/login"
-                className="inline-flex px-4 py-2.5 rounded-lg bg-white hover:bg-zinc-200 text-zinc-900 text-sm font-medium transition-colors"
-              >
-                Go to sign in
-              </Link>
-            </div>
-          ) : (
+      <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
+        <Field label="Email" htmlFor="email">
+          <Input id="email" type="email" value={preview.email} disabled className="h-10" />
+        </Field>
+
+        <Field
+          label={
             <>
-              <h1 className="text-xl font-semibold text-zinc-100 mb-1">
-                Join {preview.tenant_name}
-              </h1>
-              <p className="text-sm text-zinc-500 mb-6">
-                You&apos;ve been invited as{" "}
-                <span className="text-zinc-300">{preview.role}</span>. Set a password to activate
-                your account.
-              </p>
-
-              {formError && (
-                <div className="mb-4 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
-                  {formError}
-                </div>
-              )}
-
-              <form onSubmit={handleSubmit} noValidate className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-zinc-400 mb-1.5">
-                    Email address
-                  </label>
-                  <input
-                    type="email"
-                    value={preview.email}
-                    disabled
-                    className={`${inputBase} ${inputNormal} opacity-70 cursor-not-allowed`}
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="display_name"
-                    className="block text-sm font-medium text-zinc-400 mb-1.5"
-                  >
-                    Your name
-                    <span className="ml-1.5 text-xs text-zinc-600 font-normal">Optional</span>
-                  </label>
-                  <input
-                    id="display_name"
-                    type="text"
-                    autoComplete="name"
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="Your name"
-                    className={`${inputBase} ${inputNormal}`}
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="password"
-                    className="block text-sm font-medium text-zinc-400 mb-1.5"
-                  >
-                    Password
-                  </label>
-                  <PasswordInput value={password} onChange={setPassword} required />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-white hover:bg-zinc-200 disabled:opacity-60 disabled:cursor-not-allowed text-zinc-900 text-sm font-medium transition-colors"
-                >
-                  {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {submitting ? "Activating account…" : "Activate account"}
-                </button>
-              </form>
+              Your name <span className="ml-1 font-normal text-t3">Optional</span>
             </>
-          )}
-        </div>
-      </div>
-    </div>
+          }
+          htmlFor="display_name"
+        >
+          <Input
+            id="display_name"
+            type="text"
+            autoComplete="name"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="Your name"
+            className="h-10"
+          />
+        </Field>
+
+        <Field label="Password" htmlFor="password">
+          <PasswordInput value={password} onChange={setPassword} required />
+        </Field>
+
+        <Button
+          type="submit"
+          variant="primary"
+          size="lg"
+          disabled={submitting}
+          className="mt-1 w-full"
+        >
+          {submitting && <Loader2 className="animate-spin" />}
+          {submitting ? "Activating account…" : "Activate account"}
+        </Button>
+      </form>
+    </AuthShell>
   );
 }

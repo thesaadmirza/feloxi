@@ -8,6 +8,13 @@ use uuid::Uuid;
 
 use crate::jwt::{verify_access_token, Claims, JwtKeys};
 
+/// What the auth middleware needs: JWT keys for sessions, Postgres for API keys.
+#[derive(Clone)]
+pub struct AuthState {
+    pub jwt_keys: JwtKeys,
+    pub pg: sqlx::PgPool,
+}
+
 /// Authenticated user extracted from JWT.
 #[derive(Debug, Clone)]
 pub struct CurrentUser {
@@ -60,27 +67,78 @@ fn extract_cookie_token(req: &Request) -> Option<String> {
         .map(|s| s.trim_start_matches("fp_access=").to_string())
 }
 
-/// JWT authentication middleware.
-/// Checks Authorization header first, then falls back to fp_access cookie.
+/// Authentication middleware.
+///
+/// Accepts a session JWT (Authorization header, then the fp_access cookie) or
+/// an API key (`Authorization: Bearer fp_key_...`).
 pub async fn auth_middleware(
-    State(jwt_keys): State<JwtKeys>,
+    State(auth): State<AuthState>,
     mut req: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let token: String = if let Some(bearer) = extract_bearer_token(&req) {
-        bearer.to_string()
-    } else if let Some(cookie_token) = extract_cookie_token(&req) {
-        cookie_token
-    } else {
-        return Err(StatusCode::UNAUTHORIZED);
+    let user = match extract_bearer_token(&req) {
+        Some(bearer) if bearer.starts_with(crate::api_key::KEY_PREFIX) => {
+            authenticate_api_key(&auth.pg, bearer).await?
+        }
+        Some(bearer) => session_user(&auth.jwt_keys, bearer)?,
+        None => {
+            let token = extract_cookie_token(&req).ok_or(StatusCode::UNAUTHORIZED)?;
+            session_user(&auth.jwt_keys, &token)?
+        }
     };
-
-    let claims = verify_access_token(&jwt_keys, &token).map_err(|_| StatusCode::UNAUTHORIZED)?;
-
-    let user = CurrentUser::from(claims);
     req.extensions_mut().insert(user);
 
     Ok(next.run(req).await)
+}
+
+fn session_user(jwt_keys: &JwtKeys, token: &str) -> Result<CurrentUser, StatusCode> {
+    let claims = verify_access_token(jwt_keys, token).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    Ok(CurrentUser::from(claims))
+}
+
+/// Resolve an API key to the user who created it, limited to the key's scopes.
+/// Revoked or expired keys, and keys whose creator was deactivated, are refused.
+async fn authenticate_api_key(pg: &sqlx::PgPool, raw: &str) -> Result<CurrentUser, StatusCode> {
+    let prefix = crate::api_key::extract_prefix(raw).ok_or(StatusCode::UNAUTHORIZED)?;
+    let key = db::postgres::api_keys::get_api_key_by_prefix(pg, prefix)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+    if !crate::api_key::verify_api_key(raw, &key.key_hash) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    if key.expires_at.is_some_and(|at| at <= chrono::Utc::now()) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let creator = db::postgres::users::get_user_by_id(pg, key.created_by)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+    if creator.tenant_id != key.tenant_id {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let roles = db::postgres::rbac::get_user_roles(pg, creator.id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let creator_is_admin = roles.iter().any(|r| r.name == "admin");
+    let creator_permissions: Vec<String> =
+        roles.iter().flat_map(|r| r.permissions.0.iter().cloned()).collect();
+
+    let pool = pg.clone();
+    tokio::spawn(async move {
+        let _ = db::postgres::api_keys::update_last_used(&pool, key.id).await;
+    });
+
+    Ok(CurrentUser {
+        user_id: creator.id,
+        tenant_id: key.tenant_id,
+        email: creator.email,
+        // Never the admin role: a key is exactly its scopes.
+        roles: Vec::new(),
+        permissions: crate::rbac::api_key_permissions(
+            &key.permissions.0,
+            &creator_permissions,
+            creator_is_admin,
+        ),
+    })
 }
 
 /// Require admin role middleware (must be applied after auth_middleware).

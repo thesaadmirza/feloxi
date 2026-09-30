@@ -1,6 +1,47 @@
 use crate::middleware::CurrentUser;
 use common::AppError;
 
+/// Every permission the API checks. API keys may be granted any of these, or
+/// `*` for everything their creator holds.
+pub const PERMISSIONS: &[&str] = &[
+    "tasks_read",
+    "tasks_retry",
+    "tasks_revoke",
+    "workers_read",
+    "workers_shutdown",
+    "alerts_read",
+    "alerts_write",
+    "beat_read",
+    "metrics_read",
+    "settings_read",
+    "settings_write",
+    "team_manage",
+    "api_keys_manage",
+    "brokers_manage",
+];
+
+/// Wildcard scope for an API key: whatever its creator can do.
+pub const ALL: &str = "*";
+
+/// What an API key may do: its granted scopes, capped by what its creator can
+/// do right now. `creator_is_admin` means the creator holds every permission.
+pub fn api_key_permissions(
+    granted: &[String],
+    creator_permissions: &[String],
+    creator_is_admin: bool,
+) -> Vec<String> {
+    let creator_has = |p: &str| creator_is_admin || creator_permissions.iter().any(|c| c == p);
+    let wildcard = granted.iter().any(|g| g == ALL);
+    PERMISSIONS
+        .iter()
+        .filter(|p| {
+            // Keys made before the names were fixed stored `tasks:read`.
+            (wildcard || granted.iter().any(|g| g.replace(':', "_") == **p)) && creator_has(p)
+        })
+        .map(|p| p.to_string())
+        .collect()
+}
+
 /// Check if a user has the required permission.
 pub fn check_permission(user: &CurrentUser, required: &str) -> Result<(), AppError> {
     if user.has_permission(required) || user.is_admin() {
@@ -28,6 +69,29 @@ pub fn check_any_permission(user: &CurrentUser, required: &[&str]) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn strings(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn api_key_scopes_are_capped_by_creator() {
+        let creator = strings(&["tasks_read", "workers_read"]);
+        assert_eq!(
+            api_key_permissions(&strings(&["tasks_read", "team_manage"]), &creator, false),
+            strings(&["tasks_read"])
+        );
+        assert_eq!(api_key_permissions(&strings(&["*"]), &creator, false), creator);
+        assert_eq!(api_key_permissions(&strings(&["*"]), &[], true).len(), PERMISSIONS.len());
+    }
+
+    #[test]
+    fn api_key_scopes_accept_legacy_names_and_drop_unknown() {
+        assert_eq!(
+            api_key_permissions(&strings(&["tasks:read", "tasks:write", "bogus"]), &[], true),
+            strings(&["tasks_read"])
+        );
+    }
     use uuid::Uuid;
 
     fn make_user(roles: Vec<&str>, permissions: Vec<&str>) -> CurrentUser {

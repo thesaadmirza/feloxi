@@ -1,20 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { useWsStore } from "@/stores/ws-store";
 import { Sidebar, MobileSidebar } from "@/components/layout/sidebar";
-import { Header } from "@/components/layout/header";
+import { CommandPalette } from "@/components/layout/command-palette";
+import { PulseGlyph } from "@/components/ui/pulse";
 
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { user, loading } = useAuth();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { user, loading, logout } = useAuth();
 
   const wsConnect = useWsStore((s) => s.connect);
   const wsDisconnect = useWsStore((s) => s.disconnect);
@@ -39,10 +35,10 @@ export default function DashboardLayout({
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-zinc-950">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-zinc-500 border-t-transparent rounded-full animate-spin" />
-          <span className="text-sm text-zinc-400">Loading...</span>
+      <div className="flex min-h-screen items-center justify-center bg-background" role="status">
+        <div className="flex flex-col items-center gap-3 text-t3">
+          <PulseGlyph live className="h-6 w-11 text-mark" />
+          <span className="text-sm">Loading…</span>
         </div>
       </div>
     );
@@ -53,17 +49,11 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 flex">
-      <Sidebar />
-      <MobileSidebar open={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} />
-
-      <div className="flex flex-col flex-1 min-w-0">
-        <Header user={user} onMenuToggle={() => setMobileMenuOpen((v) => !v)} />
-
-        <main className="flex-1 overflow-auto p-4 sm:p-6">
-          {children}
-        </main>
-      </div>
+    <div className="flex min-h-screen bg-background">
+      <Sidebar user={user} onLogout={logout} />
+      <MobileSidebar user={user} onLogout={logout} />
+      <CommandPalette user={user} onLogout={logout} />
+      <main className="flex min-w-0 flex-1 flex-col">{children}</main>
     </div>
   );
 }

@@ -3,6 +3,8 @@
 //! Publishes Celery tasks (retry) and broadcasts control commands (revoke, shutdown)
 //! directly to the broker.
 
+use base64::Engine;
+
 use fred::prelude::*;
 use serde::Serialize;
 use utoipa::ToSchema;
@@ -37,7 +39,10 @@ pub async fn redis_publish_task(
         kwargs,
         {"callbacks": null, "errbacks": null, "chain": null, "chord": null}
     ]);
-    let body_str = serde_json::to_string(&body).map_err(|e| e.to_string())?;
+    let body_json = serde_json::to_string(&body).map_err(|e| e.to_string())?;
+    // Kombu's Redis transport decodes the body per `properties.body_encoding`,
+    // so the body has to actually be base64 when we say it is.
+    let body_str = base64::engine::general_purpose::STANDARD.encode(body_json.as_bytes());
 
     let envelope = serde_json::json!({
         "body": body_str,
@@ -476,15 +481,16 @@ async fn amqp_purge_queue(connection_url: &str, queue_name: &str) -> Result<u64,
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async fn connect_redis(url: &str) -> Result<Client, String> {
-    let config = Config::from_url(url).map_err(|e| format!("Invalid Redis URL: {e}"))?;
+    let config = Config::from_url(url).map_err(|e| redact(format!("Invalid Redis URL: {e}")))?;
     let mut builder = Builder::from_config(config);
     builder.set_policy(ReconnectPolicy::new_constant(0, 3000));
-    let client = builder.build().map_err(|e| format!("Failed to build Redis client: {e}"))?;
+    let client =
+        builder.build().map_err(|e| redact(format!("Failed to build Redis client: {e}")))?;
 
     tokio::time::timeout(std::time::Duration::from_secs(5), client.init())
         .await
         .map_err(|_| "Redis connection timed out".to_string())?
-        .map_err(|e| format!("Failed to connect to Redis: {e}"))?;
+        .map_err(|e| redact(format!("Failed to connect to Redis: {e}")))?;
 
     Ok(client)
 }
@@ -496,7 +502,11 @@ async fn connect_amqp(url: &str) -> Result<lapin::Connection, String> {
     )
     .await
     .map_err(|_| "AMQP connection timed out".to_string())?
-    .map_err(|e| format!("Failed to connect to AMQP: {e}"))
+    .map_err(|e| redact(format!("Failed to connect to AMQP: {e}")))
+}
+
+fn redact(message: String) -> String {
+    common::redact::redact_url_credentials(&message)
 }
 
 pub(crate) fn parse_redis_db(url: &str) -> u32 {
