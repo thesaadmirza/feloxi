@@ -52,11 +52,6 @@ export const TIME_RANGE_PHRASE: Record<TimeRangeId, string> = {
   "30d": "last 30 days",
 };
 
-export const AUTH_INPUT_BASE =
-  "w-full h-10 px-3 rounded-lg bg-card border text-foreground placeholder:text-t3 text-sm focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-amber transition-colors";
-export const AUTH_INPUT_NORMAL = "border-line-strong hover:border-t4";
-export const AUTH_INPUT_ERROR = "border-fail/60 focus:ring-fail/30 focus:border-fail";
-
 export function getStateColor(state: string): string {
   return STATE_COLORS[state.toUpperCase()] ?? "var(--t3)";
 }

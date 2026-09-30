@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
-import { AUTH_INPUT_BASE, AUTH_INPUT_ERROR, AUTH_INPUT_NORMAL } from "@/lib/constants";
+import { CONTROL } from "@/components/ui/field";
+import { cn } from "@/lib/utils";
 
 type Props = {
   id?: string;
@@ -13,6 +14,9 @@ type Props = {
   placeholder?: string;
   hasError?: boolean;
   required?: boolean;
+  /// Height and other overrides; auth forms use the default 40px field.
+  className?: string;
+  "aria-describedby"?: string;
 };
 
 export function PasswordInput({
@@ -24,6 +28,8 @@ export function PasswordInput({
   placeholder = "Min. 8 characters",
   hasError = false,
   required = false,
+  className,
+  "aria-describedby": describedBy,
 }: Props) {
   const [visible, setVisible] = useState(false);
 
@@ -38,12 +44,14 @@ export function PasswordInput({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         required={required}
-        className={`${AUTH_INPUT_BASE} pr-10 ${hasError ? AUTH_INPUT_ERROR : AUTH_INPUT_NORMAL}`}
+        aria-invalid={hasError || undefined}
+        aria-describedby={describedBy}
+        className={cn(CONTROL, "h-10 pr-10", className)}
       />
       <button
         type="button"
         onClick={() => setVisible((v) => !v)}
-        className="absolute top-1/2 right-2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-t3 transition-colors hover:bg-hover hover:text-foreground"
+        className="absolute top-1/2 right-1.5 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-t3 transition-colors hover:bg-hover hover:text-foreground"
         aria-label={visible ? "Hide password" : "Show password"}
       >
         {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
