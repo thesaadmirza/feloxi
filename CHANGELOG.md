@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] — 2026-09-30
+
+### Changed
+
+- The dashboard has a new design. It keeps the amber and the heartbeat logo, and drops the terminal styling that got in the way of dense data. There are Night and Day themes, a grouped sidebar with live counts, an org switcher, and a command palette (Ctrl/⌘ K). Every page moved to shared components: overview, tasks, task detail, workers, alerts, queues, brokers, beat, system, settings, sign-in and setup. The Failures view groups exceptions by fingerprint, and library frames in its tracebacks are folded the same way as on the task page. Layouts work on phones.
+
+### Fixed
+
+- Retrying a task published a message no worker could run, so the retried task stayed Queued. The Redis envelope declared a base64 body but carried raw JSON, and args and kwargs were forwarded as the Python reprs Celery puts in events. The body is now base64-encoded and the reprs are parsed back into lists and dicts. A repr Celery truncated, or one holding values JSON can't express, is refused with a 400 instead of retrying a different call.
+- Magic-link sign-in failed for anyone in more than one organization. The link was used up before the organization picker was shown, so picking one always answered "Invalid or expired link". The token is now consumed only when the session is issued.
+- API keys never worked. The UI issued them, but the API only accepted session tokens, and the scopes the UI offered (`tasks:read`) weren't names any endpoint checks. Keys are now accepted as `Authorization: Bearer fp_key_…`, limited to their scopes and to what their creator can currently do, and refused once revoked, expired, or their creator is deactivated. A key never gets the admin role, and a key can't be created with permissions its creator doesn't hold.
+- The Queues page filtered out every queue.
+
+### Security
+
+- Broker connection URLs, which usually contain the broker password, are encrypted at rest with `ENCRYPTION_KEY`. Existing plaintext rows are encrypted when the API starts. Losing or changing `ENCRYPTION_KEY` now also means re-entering broker URLs.
+- Broker connection errors no longer echo credentials. Passwords in URLs are masked before errors are stored, logged or returned by the API, and errors already stored are scrubbed at startup.
+
 ## [2.0.7] — 2026-09-25
 
 ### Security
