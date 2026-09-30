@@ -48,7 +48,7 @@ export function QueryBar({
 
   return (
     <div
-      className="flex min-h-10 min-w-0 flex-1 cursor-text flex-wrap items-center gap-1.5 rounded-lg border border-line-strong bg-card py-1.5 pr-2 pl-3 transition-colors focus-within:border-amber focus-within:ring-2 focus-within:ring-ring/30 hover:border-t4"
+      className="flex min-h-10 w-full min-w-0 shrink-0 cursor-text flex-wrap items-center gap-1.5 rounded-lg border border-line-strong bg-card py-1.5 pr-2 pl-3 transition-colors focus-within:border-amber focus-within:ring-2 focus-within:ring-ring/30 hover:border-t4"
       onClick={() => inputRef.current?.focus()}
     >
       <Search className="size-4 shrink-0 text-t3" aria-hidden />
