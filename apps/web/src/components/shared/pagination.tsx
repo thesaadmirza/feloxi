@@ -2,6 +2,7 @@
 
 import { useCallback } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 type PaginationProps = {
@@ -45,39 +46,28 @@ export function Pagination({
   return (
     <div
       className={cn(
-        "flex items-center justify-between px-4 py-3 border-t border-border text-sm text-muted-foreground",
-        className
+        "flex items-center justify-between gap-3 border-t border-border px-4 py-2.5 text-xs text-t3",
+        className,
       )}
     >
-      <span>
+      <span className="tabular-nums">
         {total != null
-          ? `Showing ${startItem}–${endItem} of ${total}`
-          : `Showing ${currentCount} result${currentCount !== 1 ? "s" : ""}`}
+          ? `${startItem.toLocaleString()}–${endItem.toLocaleString()} of ${total.toLocaleString()}`
+          : `${currentCount} result${currentCount !== 1 ? "s" : ""}`}
       </span>
 
       <div className="flex items-center gap-2">
         {totalPages != null && (
-          <span className="text-xs">
+          <span className="tabular-nums">
             Page {page} of {totalPages}
           </span>
         )}
-
-        <button
-          onClick={handlePrev}
-          disabled={!canPrev}
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-secondary text-sm text-foreground hover:bg-secondary/80 transition disabled:opacity-40 disabled:pointer-events-none"
-        >
-          <ChevronLeft className="h-4 w-4" />
-          Prev
-        </button>
-        <button
-          onClick={handleNext}
-          disabled={!canNext}
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-secondary text-sm text-foreground hover:bg-secondary/80 transition disabled:opacity-40 disabled:pointer-events-none"
-        >
-          Next
-          <ChevronRight className="h-4 w-4" />
-        </button>
+        <Button size="icon-sm" onClick={handlePrev} disabled={!canPrev} aria-label="Previous page">
+          <ChevronLeft />
+        </Button>
+        <Button size="icon-sm" onClick={handleNext} disabled={!canNext} aria-label="Next page">
+          <ChevronRight />
+        </Button>
       </div>
     </div>
   );

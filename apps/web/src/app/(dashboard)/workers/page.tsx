@@ -1,34 +1,29 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  Cpu,
-  MemoryStick,
-  Activity,
-  Users,
-  PowerOff,
-  Loader2,
-  RefreshCw,
-  ChevronDown,
-  ChevronRight,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  Play,
-  Layers,
-  HeartPulse,
-  Search,
-  ChevronsUpDown,
-} from "lucide-react";
+import { ChevronDown, PowerOff, Search, Server } from "lucide-react";
 import { $api, fetchClient, unwrap } from "@/lib/api";
-import { timeAgo, truncateId } from "@/lib/utils";
-import { ErrorAlert } from "@/components/shared/error-alert";
-import { Pagination } from "@/components/shared/pagination";
+import { cn, formatDuration, timeAgo } from "@/lib/utils";
 import { useHasPermission } from "@/hooks/use-current-user";
-import type { WorkerEvent, WorkerTaskStats, WorkerHealthRow } from "@/types/api";
+import { PageBody, PageHeader } from "@/components/layout/page";
+import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/dialog";
+import { Input, Select } from "@/components/ui/field";
+import { LiveToggle } from "@/components/ui/live-toggle";
+import { Panel } from "@/components/ui/panel";
+import { Segmented } from "@/components/ui/segmented";
+import { EmptyState } from "@/components/shared/empty-state";
+import { ErrorAlert, Notice } from "@/components/shared/error-alert";
+import { Skeleton } from "@/components/shared/skeleton";
+import { SlotMeter } from "@/components/overview/workers-panel";
+import type { WorkerEvent, WorkerHealthRow, WorkerTaskStats } from "@/types/api";
 
-const WORKERS_PER_PAGE = 20;
+/// Workers shown per group before "Show all".
+const GROUP_PREVIEW = 20;
+
+type Status = "online" | "degraded" | "offline";
 
 type ParsedWorker = {
   worker_id: string;
@@ -38,7 +33,9 @@ type ParsedWorker = {
   memory_mb: number;
   pool_size: number;
   pool_type: string;
-  status: string;
+  load_avg: number[];
+  online: boolean;
+  status: Status;
   health?: WorkerHealthRow;
   taskStats?: WorkerTaskStats;
 };
@@ -47,706 +44,624 @@ type WorkerGroup = {
   name: string;
   workers: ParsedWorker[];
   online: number;
-  offline: number;
-  healthSummary: { healthy: number; degraded: number; offline: number };
-  stats: {
-    pending: number;
-    started: number;
-    succeeded: number;
-    failed: number;
-    retried: number;
-    total: number;
-    avg_runtime: number;
-  };
+  running: number;
+  slots: number;
+  done: number;
+  failed: number;
 };
+
+/// Workers of one deployment share a node name up to a numeric or hash
+/// suffix. For Celery's default "celery@host" names the host is what varies:
+/// celery@worker-alpha-1 and -2 → worker-alpha; worker-payments@box → worker-payments.
+function stripSuffix(name: string): string {
+  const match = name.match(/^(.+?)(?:-[a-f0-9]{6,}.*|-\d+)$/i);
+  return match ? match[1] : name;
+}
 
 function deriveGroupName(hostname: string): string {
-  const clean = hostname.replace(/^celery@/, "");
-  const match = clean.match(/^(.+?)(?:-[a-f0-9]{6,}.*|-\d+)$/i);
-  if (match) return match[1];
-  const parts = clean.split("-");
-  if (parts.length > 2) return parts.slice(0, -1).join("-");
-  return clean;
+  const at = hostname.indexOf("@");
+  if (at > 0) {
+    const node = hostname.slice(0, at);
+    return node === "celery" ? stripSuffix(hostname.slice(at + 1)) : stripSuffix(node);
+  }
+  const clean = stripSuffix(hostname);
+  if (clean !== hostname) return clean;
+  const parts = hostname.split("-");
+  return parts.length > 2 ? parts.slice(0, -1).join("-") : hostname;
 }
 
-function StatusBadge({ online }: { online: boolean }) {
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${
-        online
-          ? "bg-[#22c55e]/20 text-[#22c55e]"
-          : "bg-secondary text-muted-foreground"
-      }`}
-    >
-      <span
-        className={`w-1.5 h-1.5 rounded-full ${online ? "bg-[#22c55e] live-dot" : "bg-muted-foreground"}`}
-      />
-      {online ? "Online" : "Offline"}
-    </span>
-  );
-}
-
-const HEALTH_STYLES: Record<string, { bg: string; text: string; dot: string; label: string }> = {
-  healthy: { bg: "bg-[#22c55e]/20", text: "text-[#22c55e]", dot: "bg-[#22c55e]", label: "Healthy" },
-  degraded: { bg: "bg-[#eab308]/20", text: "text-[#eab308]", dot: "bg-[#eab308]", label: "Degraded" },
-  offline: { bg: "bg-secondary", text: "text-muted-foreground", dot: "bg-muted-foreground", label: "Offline" },
+const STATUS: Record<Status, { label: string; dot: string; text: string }> = {
+  online: { label: "Online", dot: "bg-ok", text: "text-foreground" },
+  degraded: { label: "Degraded", dot: "bg-warn", text: "text-warn" },
+  offline: { label: "Offline", dot: "bg-fail", text: "text-fail" },
 };
 
-function HealthBadge({ status, maxGap }: { status: string; maxGap?: number }) {
-  const style = HEALTH_STYLES[status] ?? HEALTH_STYLES.offline;
+function StatusCell({ worker }: { worker: ParsedWorker }) {
+  const s = STATUS[worker.status];
+  const gap = worker.health?.max_gap_secs;
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${style.bg} ${style.text}`}>
-      <HeartPulse className="h-3 w-3" />
-      {style.label}
-      {status === "degraded" && maxGap != null && maxGap > 0 && (
-        <span className="opacity-75">({Math.round(maxGap)}s gap)</span>
-      )}
+    <span
+      className={cn("inline-flex items-center gap-2 text-[12.5px] font-[550]", s.text)}
+      title={
+        worker.status === "degraded" && gap
+          ? `Heartbeats up to ${Math.round(gap)}s apart in the last hour`
+          : undefined
+      }
+    >
+      <span className={cn("size-[7px] shrink-0 rounded-full", s.dot)} aria-hidden />
+      {s.label}
     </span>
   );
 }
 
-function StatPill({
-  icon: Icon,
-  label,
-  value,
-  color,
-}: {
-  icon: typeof Activity;
-  label: string;
-  value: number;
-  color?: string;
-}) {
-  return (
-    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-secondary/50 text-xs">
-      <Icon className={`h-3 w-3 ${color ?? "text-muted-foreground"}`} />
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-semibold text-foreground">{value.toLocaleString()}</span>
-    </div>
-  );
-}
-
-function GroupCard({
-  group,
-  expanded,
-  onToggle,
-  onWorkerClick,
-  shutdownConfirm,
-  shuttingDown,
-  onConfirmShutdown,
-  onCancelShutdown,
-  onShutdown,
-  canShutdown,
-}: {
-  group: WorkerGroup;
-  expanded: boolean;
-  onToggle: () => void;
-  onWorkerClick: (id: string) => void;
-  shutdownConfirm: string | null;
-  shuttingDown: string | null;
-  onConfirmShutdown: (id: string) => void;
-  onCancelShutdown: () => void;
-  onShutdown: (id: string) => void;
-  canShutdown: boolean;
-}) {
-  const [workerPage, setWorkerPage] = useState(1);
-  const totalWorkers = group.workers.length;
-  const totalPages = Math.ceil(totalWorkers / WORKERS_PER_PAGE);
-  const paginatedWorkers = group.workers.slice(
-    (workerPage - 1) * WORKERS_PER_PAGE,
-    workerPage * WORKERS_PER_PAGE
-  );
-
-  return (
-    <div className="rounded-xl border border-border bg-card overflow-hidden">
-      <button
-        onClick={onToggle}
-        className="w-full flex items-center justify-between px-5 py-4 hover:bg-secondary/30 transition text-left"
-      >
-        <div className="flex items-center gap-3 min-w-0">
-          {expanded ? (
-            <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
-          ) : (
-            <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-          )}
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <Layers className="h-4 w-4 text-primary shrink-0" />
-              <h3 className="font-semibold text-foreground truncate">{group.name}</h3>
-              <span className="text-xs text-muted-foreground shrink-0">
-                {group.workers.length} worker{group.workers.length !== 1 ? "s" : ""}
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5 mt-1.5">
-              <span className="text-xs text-[#22c55e]">{group.online} online</span>
-              {group.offline > 0 && (
-                <span className="text-xs text-muted-foreground">· {group.offline} offline</span>
-              )}
-              {group.healthSummary.degraded > 0 && (
-                <span className="text-xs text-[#eab308]">
-                  · {group.healthSummary.degraded} degraded
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-          <StatPill icon={Clock} label="Pending" value={group.stats.pending} color="text-[#eab308]" />
-          <StatPill icon={Play} label="Running" value={group.stats.started} color="text-[#3b82f6]" />
-          <StatPill icon={CheckCircle2} label="Done" value={group.stats.succeeded} color="text-[#22c55e]" />
-          <StatPill icon={XCircle} label="Failed" value={group.stats.failed} color="text-destructive" />
-        </div>
-      </button>
-
-      {expanded && (
-        <div className="border-t border-border">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-xs text-muted-foreground">
-                  <th className="text-left px-5 py-2.5 font-medium">Worker</th>
-                  <th className="text-left px-3 py-2.5 font-medium">Status</th>
-                  <th className="text-left px-3 py-2.5 font-medium">Health</th>
-                  <th className="text-right px-3 py-2.5 font-medium">Last Seen</th>
-                  <th className="text-right px-3 py-2.5 font-medium">Active</th>
-                  <th className="text-right px-3 py-2.5 font-medium">Pool</th>
-                  <th className="text-right px-3 py-2.5 font-medium">CPU</th>
-                  <th className="text-right px-3 py-2.5 font-medium">Memory</th>
-                  <th className="text-right px-3 py-2.5 font-medium">Pending</th>
-                  <th className="text-right px-3 py-2.5 font-medium">Running</th>
-                  <th className="text-right px-3 py-2.5 font-medium">Done</th>
-                  <th className="text-right px-3 py-2.5 font-medium">Failed</th>
-                  <th className="text-right px-5 py-2.5 font-medium" />
-                </tr>
-              </thead>
-              <tbody>
-                {paginatedWorkers.map((worker) => {
-                  const isOnline = worker.status === "online";
-                  const cpuPct = Math.round(worker.cpu_percent ?? 0);
-                  const memMb = Math.round(worker.memory_mb ?? 0);
-                  const ws = worker.taskStats;
-
-                  return (
-                    <tr
-                      key={worker.worker_id}
-                      onClick={() => onWorkerClick(worker.worker_id)}
-                      className={`border-b border-border/50 cursor-pointer transition hover:bg-secondary/30 ${
-                        !isOnline ? "opacity-60" : ""
-                      }`}
-                    >
-                      <td className="px-5 py-3">
-                        <p className="font-medium text-foreground truncate max-w-[200px]">
-                          {worker.hostname}
-                        </p>
-                        <p className="text-xs text-muted-foreground font-mono mt-0.5 truncate max-w-[200px]">
-                          {truncateId(worker.worker_id, 30)}
-                        </p>
-                      </td>
-                      <td className="px-3 py-3">
-                        <StatusBadge online={isOnline} />
-                      </td>
-                      <td className="px-3 py-3">
-                        {worker.health ? (
-                          <HealthBadge status={worker.health.status} maxGap={worker.health.max_gap_secs} />
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-3 text-right text-xs text-muted-foreground">
-                        {worker.health?.last_heartbeat ? timeAgo(worker.health.last_heartbeat) : "—"}
-                      </td>
-                      <td className="px-3 py-3 text-right font-semibold">
-                        {worker.active_tasks ?? 0}
-                      </td>
-                      <td className="px-3 py-3 text-right text-muted-foreground">
-                        {worker.pool_size ?? "—"}
-                      </td>
-                      <td className="px-3 py-3 text-right">
-                        <span
-                          className={
-                            cpuPct > 80
-                              ? "text-destructive font-semibold"
-                              : cpuPct > 60
-                                ? "text-[#eab308] font-semibold"
-                                : "text-muted-foreground"
-                          }
-                        >
-                          {cpuPct}%
-                        </span>
-                      </td>
-                      <td className="px-3 py-3 text-right text-muted-foreground">
-                        {memMb > 0 ? `${memMb} MB` : "—"}
-                      </td>
-                      <td className="px-3 py-3 text-right text-[#eab308]">
-                        {ws?.pending ?? "—"}
-                      </td>
-                      <td className="px-3 py-3 text-right text-[#3b82f6]">
-                        {ws?.started ?? "—"}
-                      </td>
-                      <td className="px-3 py-3 text-right text-[#22c55e]">
-                        {ws?.succeeded ?? "—"}
-                      </td>
-                      <td className="px-3 py-3 text-right text-destructive">
-                        {ws?.failed ?? "—"}
-                      </td>
-                      <td className="px-5 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                        {canShutdown && shutdownConfirm === worker.worker_id ? (
-                          <div className="flex items-center gap-1.5 justify-end">
-                            <button
-                              onClick={() => onShutdown(worker.worker_id)}
-                              disabled={!!shuttingDown}
-                              className="px-2 py-1 rounded bg-destructive text-white text-xs hover:bg-destructive/80 transition disabled:opacity-50"
-                            >
-                              {shuttingDown === worker.worker_id ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : (
-                                "Yes"
-                              )}
-                            </button>
-                            <button
-                              onClick={onCancelShutdown}
-                              className="px-2 py-1 rounded bg-secondary text-foreground text-xs hover:bg-secondary/70 transition"
-                            >
-                              No
-                            </button>
-                          </div>
-                        ) : canShutdown ? (
-                          <button
-                            onClick={() => onConfirmShutdown(worker.worker_id)}
-                            disabled={!isOnline}
-                            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-secondary text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            <PowerOff className="h-3 w-3" />
-                            Stop
-                          </button>
-                        ) : null}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          {totalPages > 1 && (
-            <Pagination
-              total={totalWorkers}
-              limit={WORKERS_PER_PAGE}
-              hasMore={workerPage < totalPages}
-              currentCount={paginatedWorkers.length}
-              page={workerPage}
-              onNext={() => setWorkerPage((p) => Math.min(p + 1, totalPages))}
-              onPrev={() => setWorkerPage((p) => Math.max(p - 1, 1))}
-            />
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function GroupsSkeleton() {
-  return (
-    <div className="space-y-4">
-      {Array.from({ length: 3 }).map((_, i) => (
-        <div
-          key={i}
-          className="rounded-xl border border-border bg-card p-5 animate-pulse"
-        >
-          <div className="flex items-center justify-between">
-            <div className="space-y-2">
-              <div className="h-5 bg-secondary rounded w-48" />
-              <div className="h-3 bg-secondary rounded w-24" />
-            </div>
-            <div className="flex gap-2">
-              {Array.from({ length: 4 }).map((_, j) => (
-                <div key={j} className="h-7 bg-secondary rounded w-24" />
-              ))}
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
+function loadText(load: number[]): string {
+  return load.length
+    ? load
+        .slice(0, 3)
+        .map((n) => n.toFixed(1))
+        .join("  ")
+    : "—";
 }
 
 export default function WorkersPage() {
   const router = useRouter();
   const canShutdown = useHasPermission("workers_shutdown");
-  const [shutdownConfirm, setShutdownConfirm] = useState<string | null>(null);
-  const [shuttingDown, setShuttingDown] = useState<string | null>(null);
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [searchInput, setSearchInput] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [sortBy, setSortBy] = useState<"total" | "online" | "name" | "failed">("total");
+  const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "online" | "offline">("all");
+  const [sortBy, setSortBy] = useState<"total" | "online" | "name" | "failed">("total");
+  const [grouped, setGrouped] = useState(true);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [showAll, setShowAll] = useState<Set<string>>(new Set());
+  const [live, setLive] = useState(true);
+  const [shutdownTarget, setShutdownTarget] = useState<ParsedWorker | null>(null);
+  const [shuttingDown, setShuttingDown] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    const id = setTimeout(() => setDebouncedSearch(searchInput), 300);
+    const id = setTimeout(() => setSearch(searchInput), 250);
     return () => clearTimeout(id);
   }, [searchInput]);
 
+  const refetchInterval = live ? 15_000 : (false as const);
   const { data, isLoading, isError, error, refetch } = $api.useQuery(
     "get",
     "/api/v1/workers",
     { params: { query: { limit: 500 } } },
-    { refetchInterval: 15_000 }
+    { refetchInterval },
   );
-
   const { data: statsData } = $api.useQuery(
     "get",
     "/api/v1/workers/stats",
     {},
-    { refetchInterval: 15_000 }
+    { refetchInterval },
   );
-
   const { data: healthData } = $api.useQuery(
     "get",
     "/api/v1/workers/health",
     { params: { query: { hours: 1 } } },
-    { refetchInterval: 15_000 }
+    { refetchInterval },
   );
 
-  const statsMap = useMemo(() => {
-    const map = new Map<string, WorkerTaskStats>();
-    for (const row of statsData?.data ?? []) {
-      map.set(row.worker_id, row);
-    }
-    return map;
-  }, [statsData]);
-
-  const healthMap = useMemo(() => {
-    const map = new Map<string, WorkerHealthRow>();
-    for (const row of healthData?.data ?? []) {
-      map.set(row.worker_id, row);
-    }
-    return map;
-  }, [healthData]);
-
-  const onlineWorkerIds = useMemo(
+  const statsMap = useMemo(
+    () => new Map((statsData?.data ?? []).map((r) => [r.worker_id, r])),
+    [statsData],
+  );
+  const healthMap = useMemo(
+    () => new Map((healthData?.data ?? []).map((r) => [r.worker_id, r])),
+    [healthData],
+  );
+  const onlineIds = useMemo(
     () => new Set<string>(data?.online_workers ?? []),
     [data?.online_workers],
   );
 
-  const mergedWorkers = useMemo(() => {
-    const apiWorkerMap = new Map<string, ParsedWorker>();
-    const rawEvents = (data?.worker_events ?? []) as WorkerEvent[];
-    for (const ev of rawEvents) {
-      if (!apiWorkerMap.has(ev.worker_id)) {
-        apiWorkerMap.set(ev.worker_id, {
-          worker_id: ev.worker_id,
-          hostname: ev.hostname,
-          active_tasks: ev.active_tasks,
-          cpu_percent: ev.cpu_percent,
-          memory_mb: ev.memory_mb,
-          pool_size: ev.pool_size,
-          pool_type: ev.pool_type,
-          status: onlineWorkerIds.has(ev.worker_id) ? "online" : "offline",
-        });
-      }
+  const workers = useMemo(() => {
+    const byId = new Map<string, Omit<ParsedWorker, "status">>();
+    // Newest event first per worker: the list is ordered by time, descending.
+    for (const ev of (data?.worker_events ?? []) as WorkerEvent[]) {
+      if (byId.has(ev.worker_id)) continue;
+      byId.set(ev.worker_id, {
+        worker_id: ev.worker_id,
+        hostname: ev.hostname,
+        active_tasks: ev.active_tasks,
+        cpu_percent: ev.cpu_percent,
+        memory_mb: ev.memory_mb,
+        pool_size: ev.pool_size,
+        pool_type: ev.pool_type,
+        load_avg: ev.load_avg ?? [],
+        online: onlineIds.has(ev.worker_id),
+      });
     }
-
-    const workerStates = (data as Record<string, unknown>)?.worker_states ?? [];
-    for (const ws of workerStates as Record<string, unknown>[]) {
-      const wid = ws.worker_id as string;
-      if (wid && !apiWorkerMap.has(wid)) {
-        apiWorkerMap.set(wid, {
-          worker_id: wid,
-          hostname: (ws.hostname as string) ?? wid.replace("celery@", ""),
-          active_tasks: (ws.active_tasks as number) ?? 0,
-          cpu_percent: (ws.cpu_percent as number) ?? 0,
-          memory_mb: (ws.memory_mb as number) ?? 0,
-          pool_size: (ws.pool_size as number) ?? 0,
-          pool_type: (ws.pool_type as string) ?? "",
-          status: "online",
-        });
-      }
+    for (const ws of data?.worker_states ?? []) {
+      if (!ws.worker_id || byId.has(ws.worker_id)) continue;
+      byId.set(ws.worker_id, {
+        worker_id: ws.worker_id,
+        hostname: ws.hostname ?? ws.worker_id.replace("celery@", ""),
+        active_tasks: ws.active_tasks ?? 0,
+        cpu_percent: ws.cpu_percent ?? 0,
+        memory_mb: ws.memory_mb ?? 0,
+        pool_size: ws.pool_size ?? 0,
+        pool_type: ws.pool_type ?? "",
+        load_avg: ws.load_avg ?? [],
+        online: true,
+      });
     }
-
-    const result: ParsedWorker[] = Array.from(apiWorkerMap.values());
-    const seen = new Set<string>(apiWorkerMap.keys());
-
-    for (const wid of onlineWorkerIds) {
-      if (!seen.has(wid)) {
-        result.push({
-          worker_id: wid,
-          hostname: wid.replace("celery@", ""),
-          active_tasks: 0,
-          cpu_percent: 0,
-          memory_mb: 0,
-          pool_size: 0,
-          pool_type: "",
-          status: "online",
-        });
-      }
+    for (const wid of onlineIds) {
+      if (byId.has(wid)) continue;
+      byId.set(wid, {
+        worker_id: wid,
+        hostname: wid.replace("celery@", ""),
+        active_tasks: 0,
+        cpu_percent: 0,
+        memory_mb: 0,
+        pool_size: 0,
+        pool_type: "",
+        load_avg: [],
+        online: true,
+      });
     }
+    return [...byId.values()].map((w): ParsedWorker => {
+      const health = healthMap.get(w.worker_id);
+      const status: Status = !w.online
+        ? "offline"
+        : health?.status === "degraded"
+          ? "degraded"
+          : "online";
+      return { ...w, status, health, taskStats: statsMap.get(w.worker_id) };
+    });
+  }, [data, onlineIds, statsMap, healthMap]);
 
-    return result;
-  }, [data, onlineWorkerIds]);
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return workers.filter(
+      (w) =>
+        (statusFilter === "all" || (statusFilter === "online" ? w.online : !w.online)) &&
+        (!q ||
+          w.hostname.toLowerCase().includes(q) ||
+          w.worker_id.toLowerCase().includes(q) ||
+          deriveGroupName(w.hostname).toLowerCase().includes(q)),
+    );
+  }, [workers, search, statusFilter]);
 
   const groups = useMemo(() => {
-    const groupMap = new Map<string, ParsedWorker[]>();
-
-    // Enrich workers with stats/health (new objects, no mutation of mergedWorkers)
-    const enriched: ParsedWorker[] = mergedWorkers.map((w) => ({
-      ...w,
-      taskStats: statsMap.get(w.worker_id),
-      health: healthMap.get(w.worker_id),
-    }));
-
-    for (const w of enriched) {
-      const gName = deriveGroupName(w.hostname);
-      const list = groupMap.get(gName);
-      if (list) {
-        list.push(w);
-      } else {
-        groupMap.set(gName, [w]);
-      }
+    const map = new Map<string, ParsedWorker[]>();
+    for (const w of visible) {
+      const name = grouped ? deriveGroupName(w.hostname) : "";
+      map.set(name, [...(map.get(name) ?? []), w]);
     }
-
-    const result: WorkerGroup[] = [];
-    for (const [name, workers] of groupMap) {
-      workers.sort((a, b) => {
-        if (a.status === "online" && b.status !== "online") return -1;
-        if (a.status !== "online" && b.status === "online") return 1;
-        return a.hostname.localeCompare(b.hostname);
-      });
-
-      const online = workers.filter((w) => w.status === "online").length;
-      const stats = { pending: 0, started: 0, succeeded: 0, failed: 0, retried: 0, total: 0, avg_runtime: 0 };
-      const healthSummary = { healthy: 0, degraded: 0, offline: 0 };
-      let runtimeCount = 0;
-
-      for (const w of workers) {
-        const s = w.taskStats;
-        if (s) {
-          stats.pending += s.pending;
-          stats.started += s.started;
-          stats.succeeded += s.succeeded;
-          stats.failed += s.failed;
-          stats.retried += s.retried;
-          stats.total += s.total;
-          if (s.avg_runtime > 0) {
-            stats.avg_runtime += s.avg_runtime;
-            runtimeCount++;
-          }
-        }
-
-        if (w.health) {
-          if (w.health.status === "degraded") healthSummary.degraded++;
-          else if (w.health.status === "offline") healthSummary.offline++;
-          else healthSummary.healthy++;
-        }
-      }
-      if (runtimeCount > 0) stats.avg_runtime /= runtimeCount;
-
-      result.push({
+    const result: WorkerGroup[] = [...map].map(([name, list]) => {
+      list.sort(
+        (a, b) => Number(b.online) - Number(a.online) || a.hostname.localeCompare(b.hostname),
+      );
+      return {
         name,
-        workers,
-        online,
-        offline: workers.length - online,
-        healthSummary,
-        stats,
-      });
-    }
-
-    result.sort((a, b) => b.stats.total - a.stats.total || b.online - a.online);
-    return result;
-  }, [mergedWorkers, statsMap, healthMap]);
-
-  const totalOnline = useMemo(
-    () => mergedWorkers.filter((w) => w.status === "online").length,
-    [mergedWorkers],
-  );
-
-  const filteredAndSortedGroups = useMemo(() => {
-    const q = debouncedSearch.trim().toLowerCase();
-    let result = groups;
-    if (statusFilter !== "all") {
-      result = result
-        .map((g) => {
-          const workers = g.workers.filter((w) => w.status === statusFilter);
-          const online = workers.filter((w) => w.status === "online").length;
-          // Recompute the badge counts so the header matches what's shown.
-          return { ...g, workers, online, offline: workers.length - online };
-        })
-        .filter((g) => g.workers.length > 0);
-    }
-    if (q) {
-      result = result
-        .map((g) => {
-          const groupMatches = g.name.toLowerCase().includes(q);
-          const filteredWorkers = groupMatches
-            ? g.workers
-            : g.workers.filter((w) => w.hostname.toLowerCase().includes(q));
-          return { ...g, workers: filteredWorkers };
-        })
-        .filter((g) => g.workers.length > 0);
-    }
-    return [...result].sort((a, b) => {
+        workers: list,
+        online: list.filter((w) => w.online).length,
+        running: list.reduce((n, w) => n + (w.online ? w.active_tasks : 0), 0),
+        slots: list.reduce((n, w) => n + (w.online ? w.pool_size : 0), 0),
+        done: list.reduce((n, w) => n + (w.taskStats?.succeeded ?? 0), 0),
+        failed: list.reduce((n, w) => n + (w.taskStats?.failed ?? 0), 0),
+      };
+    });
+    return result.sort((a, b) => {
       switch (sortBy) {
-        case "online": return b.online - a.online || b.stats.total - a.stats.total;
-        case "name": return a.name.localeCompare(b.name);
-        case "failed": return b.stats.failed - a.stats.failed;
-        default: return b.stats.total - a.stats.total || b.online - a.online;
+        case "online":
+          return b.online - a.online || b.done - a.done;
+        case "name":
+          return a.name.localeCompare(b.name);
+        case "failed":
+          return b.failed - a.failed;
+        default:
+          return b.done + b.failed - (a.done + a.failed) || b.online - a.online;
       }
     });
-  }, [groups, debouncedSearch, sortBy, statusFilter]);
+  }, [visible, grouped, sortBy]);
 
-  const allExpanded = groups.length > 0 && groups.every((g) => expandedGroups.has(g.name));
-
-  function toggleExpandAll() {
-    setExpandedGroups(allExpanded ? new Set() : new Set(groups.map((g) => g.name)));
-  }
-
-  function toggleGroup(name: string) {
-    setExpandedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) {
-        next.delete(name);
-      } else {
-        next.add(name);
+  // Flat view sorts the workers themselves.
+  const flat = useMemo(() => {
+    if (grouped) return [];
+    const list = [...visible];
+    const total = (w: ParsedWorker) => (w.taskStats?.succeeded ?? 0) + (w.taskStats?.failed ?? 0);
+    return list.sort((a, b) => {
+      switch (sortBy) {
+        case "online":
+          return Number(b.online) - Number(a.online) || total(b) - total(a);
+        case "name":
+          return a.hostname.localeCompare(b.hostname);
+        case "failed":
+          return (b.taskStats?.failed ?? 0) - (a.taskStats?.failed ?? 0);
+        default:
+          return total(b) - total(a);
       }
-      return next;
     });
-  }
+  }, [grouped, visible, sortBy]);
 
-  function handleWorkerClick(workerId: string) {
-    router.push(`/workers/${encodeURIComponent(workerId)}`);
-  }
+  const totalOnline = workers.filter((w) => w.online).length;
+  const totalRunning = workers.reduce((n, w) => n + (w.online ? w.active_tasks : 0), 0);
+  const totalSlots = workers.reduce((n, w) => n + (w.online ? w.pool_size : 0), 0);
+  const deployments = new Set(workers.map((w) => deriveGroupName(w.hostname))).size;
+  const showResources = workers.some((w) => w.cpu_percent > 0 || w.memory_mb > 0);
+  const showPool = workers.some((w) => w.pool_type || w.pool_size > 0);
 
-  async function handleShutdown(workerId: string) {
-    if (shuttingDown) return;
-    setShuttingDown(workerId);
-    setShutdownConfirm(null);
+  const meta =
+    workers.length > 0
+      ? [
+          `${totalOnline} of ${workers.length} online`,
+          `${deployments} deployment${deployments === 1 ? "" : "s"}`,
+          totalSlots > 0 ? `${totalRunning}/${totalSlots} slots busy` : `${totalRunning} running`,
+        ].join(" · ")
+      : undefined;
+
+  async function shutdown() {
+    if (!shutdownTarget) return;
+    setShuttingDown(true);
+    setActionError(null);
     try {
       await unwrap(
         fetchClient.POST("/api/v1/workers/{worker_id}/shutdown", {
-          params: { path: { worker_id: workerId } },
-        })
+          params: { path: { worker_id: shutdownTarget.worker_id } },
+        }),
       );
+      setNotice(`Shutdown sent to ${shutdownTarget.hostname}.`);
       refetch();
     } catch (err) {
-      console.error("Shutdown failed:", err);
+      setActionError(err instanceof Error ? err.message : "Couldn't send the shutdown command.");
     } finally {
-      setShuttingDown(null);
+      setShuttingDown(false);
+      setShutdownTarget(null);
     }
   }
 
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Workers</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Monitor worker health, resource usage, and task distribution
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap justify-end">
-          {mergedWorkers.length > 0 && (
-            <span className="text-sm text-muted-foreground hidden sm:block">
-              {totalOnline} online / {mergedWorkers.length} total · {groups.length} group{groups.length !== 1 ? "s" : ""}
-            </span>
+  const columns = 8 + (showPool ? 1 : 0) + (showResources ? 2 : 0) + (canShutdown ? 1 : 0);
+
+  const row = (w: ParsedWorker) => {
+    const s = w.taskStats;
+    return (
+      <tr
+        key={w.worker_id}
+        onClick={() => router.push(`/workers/${encodeURIComponent(w.worker_id)}`)}
+        className={cn(
+          "group cursor-pointer border-t border-line-soft transition-colors hover:bg-hover",
+          !w.online && "bg-fail-wash/30",
+        )}
+      >
+        <td className="py-2.5 pr-3 pl-4">
+          <StatusCell worker={w} />
+        </td>
+        <td className="px-3 py-2.5">
+          <Link
+            href={`/workers/${encodeURIComponent(w.worker_id)}`}
+            onClick={(e) => e.stopPropagation()}
+            className={cn(
+              "block truncate font-mono text-[12.5px] hover:text-link",
+              w.online ? "text-foreground" : "text-t3",
+            )}
+            title={w.worker_id}
+          >
+            {w.hostname}
+          </Link>
+        </td>
+        {showPool && (
+          <td className="hidden px-3 py-2.5 text-[12.5px] whitespace-nowrap text-t2 lg:table-cell">
+            {w.pool_type || w.pool_size ? (
+              [w.pool_type, w.pool_size || null].filter(Boolean).join(" · ")
+            ) : (
+              <span className="text-t4">—</span>
+            )}
+          </td>
+        )}
+        <td className="px-3 py-2.5">
+          {w.online ? (
+            w.pool_size > 0 ? (
+              <span className="flex items-center gap-2">
+                <SlotMeter busy={w.active_tasks} slots={w.pool_size} />
+                <span className="sr-only">
+                  {w.active_tasks} of {w.pool_size} slots busy
+                </span>
+              </span>
+            ) : (
+              <span className="text-[12.5px] whitespace-nowrap text-t2 tabular-nums">
+                {w.active_tasks} running
+              </span>
+            )
+          ) : (
+            <span className="text-t4">—</span>
           )}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-            <input
-              type="text"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search hostname…"
-              className="pl-9 pr-3 py-2 bg-secondary border border-border text-foreground text-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-ring w-44"
-            />
-          </div>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-            className="px-3 py-2 bg-secondary border border-border text-foreground text-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
-            aria-label="Filter workers by status"
-          >
-            <option value="all">All statuses</option>
-            <option value="online">Online only</option>
-            <option value="offline">Offline only</option>
-          </select>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-            className="px-3 py-2 bg-secondary border border-border text-foreground text-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
-            aria-label="Sort workers by"
-          >
-            <option value="total">Sort: Total tasks</option>
-            <option value="online">Sort: Online count</option>
-            <option value="failed">Sort: Failed tasks</option>
-            <option value="name">Sort: Name</option>
-          </select>
-          <button
-            onClick={toggleExpandAll}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-secondary text-secondary-foreground text-sm hover:bg-secondary/80 transition"
-            title={allExpanded ? "Collapse all groups" : "Expand all groups"}
-          >
-            <ChevronsUpDown className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">{allExpanded ? "Collapse all" : "Expand all"}</span>
-          </button>
-          <button
-            onClick={() => refetch()}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary text-secondary-foreground text-sm hover:bg-secondary/80 transition"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-
-      {isError && (
-        <ErrorAlert>
-          Failed to load workers: {(error as Error)?.message ?? "Unknown error"}
-        </ErrorAlert>
-      )}
-
-      {isLoading && <GroupsSkeleton />}
-
-      {!isLoading && groups.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground">
-          <Users className="h-12 w-12 opacity-30" />
-          <p className="font-medium">No workers found</p>
-          <p className="text-sm">Workers will appear here once they connect to the broker</p>
-        </div>
-      )}
-
-      {!isLoading && groups.length > 0 && filteredAndSortedGroups.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
-          <Search className="h-8 w-8 opacity-30" />
-          <p className="font-medium">
-            {debouncedSearch.trim()
-              ? `No workers match "${debouncedSearch}"`
-              : `No ${statusFilter} workers`}
-          </p>
-          {statusFilter !== "all" && (
-            <button
-              onClick={() => setStatusFilter("all")}
-              className="text-sm text-primary hover:underline"
+        </td>
+        <td className="px-3 py-2.5 text-right tabular-nums">
+          {s ? s.succeeded.toLocaleString() : <span className="text-t4">—</span>}
+        </td>
+        <td
+          className={cn(
+            "px-3 py-2.5 text-right tabular-nums",
+            s && s.failed > 0 ? "text-foreground" : "text-t3",
+          )}
+        >
+          {s ? s.failed.toLocaleString() : <span className="text-t4">—</span>}
+        </td>
+        <td className="hidden px-3 py-2.5 text-right text-t2 tabular-nums md:table-cell">
+          {s && s.avg_runtime > 0 ? (
+            formatDuration(s.avg_runtime)
+          ) : (
+            <span className="text-t4">—</span>
+          )}
+        </td>
+        {showResources && (
+          <>
+            <td className="hidden px-3 py-2.5 text-right tabular-nums xl:table-cell">
+              <span
+                className={
+                  w.cpu_percent > 80 ? "text-fail" : w.cpu_percent > 60 ? "text-warn" : "text-t2"
+                }
+              >
+                {w.online ? `${Math.round(w.cpu_percent)}%` : "—"}
+              </span>
+            </td>
+            <td className="hidden px-3 py-2.5 text-right text-t2 tabular-nums xl:table-cell">
+              {w.memory_mb > 0 ? `${Math.round(w.memory_mb)} MB` : "—"}
+            </td>
+          </>
+        )}
+        <td className="hidden px-3 py-2.5 text-right font-mono text-[12px] whitespace-pre text-t2 xl:table-cell">
+          {w.online ? loadText(w.load_avg) : <span className="text-t4">—</span>}
+        </td>
+        <td
+          className={cn(
+            "px-3 py-2.5 text-right whitespace-nowrap tabular-nums",
+            w.online ? "text-t3" : "text-fail",
+          )}
+        >
+          {w.health?.last_heartbeat ? (
+            timeAgo(w.health.last_heartbeat)
+          ) : (
+            <span className="text-t4">—</span>
+          )}
+        </td>
+        {canShutdown && (
+          <td className="w-12 py-2.5 pr-3 pl-1 text-right" onClick={(e) => e.stopPropagation()}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              disabled={!w.online}
+              onClick={() => setShutdownTarget(w)}
+              aria-label={`Shut down ${w.hostname}`}
+              title="Shut down"
+              className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 hover:text-fail disabled:opacity-0"
             >
-              Show all statuses
-            </button>
-          )}
-        </div>
-      )}
+              <PowerOff />
+            </Button>
+          </td>
+        )}
+      </tr>
+    );
+  };
 
-      <div className="space-y-3">
-        {filteredAndSortedGroups.map((group) => (
-          <GroupCard
-            key={group.name}
-            group={group}
-            expanded={expandedGroups.has(group.name)}
-            onToggle={() => toggleGroup(group.name)}
-            onWorkerClick={handleWorkerClick}
-            shutdownConfirm={shutdownConfirm}
-            shuttingDown={shuttingDown}
-            onConfirmShutdown={(id) => setShutdownConfirm(id)}
-            onCancelShutdown={() => setShutdownConfirm(null)}
-            onShutdown={handleShutdown}
-            canShutdown={canShutdown}
-          />
-        ))}
-      </div>
-    </div>
+  return (
+    <>
+      <PageHeader
+        title="Workers"
+        meta={meta}
+        actions={
+          <>
+            <div className="relative w-56 shrink-0 max-sm:w-44">
+              <Search
+                className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-t3"
+                aria-hidden
+              />
+              <Input
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="Filter by name"
+                aria-label="Filter workers by name"
+                className="h-8 pl-8"
+              />
+            </div>
+            <Segmented
+              label="Status"
+              options={[
+                { value: "all", label: "All" },
+                { value: "online", label: "Online" },
+                { value: "offline", label: "Offline" },
+              ]}
+              value={statusFilter}
+              onChange={setStatusFilter}
+            />
+            <Select
+              value={grouped ? "group" : "flat"}
+              onChange={(e) => setGrouped(e.target.value === "group")}
+              aria-label="Grouping"
+              className="h-8 w-auto"
+            >
+              <option value="group">Group by deployment</option>
+              <option value="flat">No grouping</option>
+            </Select>
+            <Select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+              aria-label="Sort workers by"
+              className="h-8 w-auto"
+            >
+              <option value="total">Most tasks</option>
+              <option value="failed">Most failures</option>
+              <option value="online">Most online</option>
+              <option value="name">Name</option>
+            </Select>
+            <LiveToggle on={live} onChange={setLive} every="15s" />
+          </>
+        }
+      />
+      <PageBody>
+        {isError && (
+          <ErrorAlert>
+            Couldn&apos;t load workers: {(error as Error)?.message ?? "unknown error"}
+          </ErrorAlert>
+        )}
+        {actionError && (
+          <ErrorAlert onDismiss={() => setActionError(null)}>{actionError}</ErrorAlert>
+        )}
+        {notice && <Notice onDismiss={() => setNotice(null)}>{notice}</Notice>}
+
+        {isLoading ? (
+          <Panel className="flex flex-col gap-2 p-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <Skeleton key={i} className="h-9 w-full" />
+            ))}
+          </Panel>
+        ) : workers.length === 0 ? (
+          <Panel>
+            <EmptyState
+              icon={<Server />}
+              title="No workers yet"
+              description="Workers appear once they connect to the broker. Start them with the -E flag (or worker_send_task_events = True) so they publish events."
+            />
+          </Panel>
+        ) : visible.length === 0 ? (
+          <Panel>
+            <EmptyState
+              icon={<Search />}
+              title={
+                search.trim() ? `No workers match “${search.trim()}”` : `No ${statusFilter} workers`
+              }
+              action={
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setSearchInput("");
+                    setStatusFilter("all");
+                  }}
+                >
+                  Clear filters
+                </Button>
+              }
+            />
+          </Panel>
+        ) : (
+          <Panel className="overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] text-[13px]">
+                <thead>
+                  <tr className="border-b border-border [&>th]:whitespace-nowrap">
+                    <th className="label w-[112px] py-2.5 pr-3 pl-4 text-left font-medium">
+                      Status
+                    </th>
+                    <th className="label px-3 py-2.5 text-left font-medium">Worker</th>
+                    {showPool && (
+                      <th className="label hidden w-[120px] px-3 py-2.5 text-left font-medium lg:table-cell">
+                        Pool
+                      </th>
+                    )}
+                    <th className="label w-[150px] px-3 py-2.5 text-left font-medium">
+                      Slots in use
+                    </th>
+                    <th className="label w-[104px] px-3 py-2.5 text-right font-medium">Done 24h</th>
+                    <th className="label w-[104px] px-3 py-2.5 text-right font-medium">
+                      Failed 24h
+                    </th>
+                    <th className="label hidden w-[120px] px-3 py-2.5 text-right font-medium md:table-cell">
+                      Avg runtime
+                    </th>
+                    {showResources && (
+                      <>
+                        <th className="label hidden w-[64px] px-3 py-2.5 text-right font-medium xl:table-cell">
+                          CPU
+                        </th>
+                        <th className="label hidden w-[88px] px-3 py-2.5 text-right font-medium xl:table-cell">
+                          Memory
+                        </th>
+                      </>
+                    )}
+                    <th className="label hidden w-[120px] px-3 py-2.5 text-right font-medium xl:table-cell">
+                      Load 1/5/15
+                    </th>
+                    <th className="label w-[104px] px-3 py-2.5 text-right font-medium">
+                      Heartbeat
+                    </th>
+                    {canShutdown && <th className="w-12" aria-label="Actions" />}
+                  </tr>
+                </thead>
+                {grouped ? (
+                  groups.map((g) => {
+                    const isCollapsed = collapsed.has(g.name);
+                    const shown = showAll.has(g.name)
+                      ? g.workers
+                      : g.workers.slice(0, GROUP_PREVIEW);
+                    return (
+                      <tbody key={g.name}>
+                        <tr className="border-t border-border bg-background/40">
+                          <td colSpan={columns} className="px-2 py-1.5">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setCollapsed((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(g.name)) next.delete(g.name);
+                                  else next.add(g.name);
+                                  return next;
+                                })
+                              }
+                              aria-expanded={!isCollapsed}
+                              className="flex w-full min-w-0 items-center gap-2.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-hover"
+                            >
+                              <ChevronDown
+                                className={cn(
+                                  "size-3.5 shrink-0 text-t3 transition-transform",
+                                  isCollapsed && "-rotate-90",
+                                )}
+                                aria-hidden
+                              />
+                              <span className="truncate font-mono text-[13px] font-semibold text-foreground">
+                                {g.name}
+                              </span>
+                              <span className="truncate text-xs text-t3">
+                                {g.workers.length} worker{g.workers.length === 1 ? "" : "s"} ·{" "}
+                                {g.online} online ·{" "}
+                                {g.slots > 0
+                                  ? `${g.running}/${g.slots} slots busy`
+                                  : `${g.running} running`}
+                                {g.failed > 0 && ` · ${g.failed.toLocaleString()} failed`}
+                              </span>
+                            </button>
+                          </td>
+                        </tr>
+                        {!isCollapsed && shown.map(row)}
+                        {!isCollapsed && g.workers.length > shown.length && (
+                          <tr className="border-t border-line-soft">
+                            <td colSpan={columns} className="px-4 py-2">
+                              <button
+                                type="button"
+                                onClick={() => setShowAll((prev) => new Set(prev).add(g.name))}
+                                className="text-xs text-t3 transition-colors hover:text-foreground"
+                              >
+                                Show all {g.workers.length} workers
+                              </button>
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    );
+                  })
+                ) : (
+                  <tbody>{flat.map(row)}</tbody>
+                )}
+              </table>
+            </div>
+          </Panel>
+        )}
+      </PageBody>
+
+      <ConfirmDialog
+        open={shutdownTarget != null}
+        onOpenChange={(open) => !open && !shuttingDown && setShutdownTarget(null)}
+        title="Shut down this worker?"
+        description="The worker finishes the tasks it is running, then exits. It won't come back unless your process manager restarts it."
+        subject={shutdownTarget?.worker_id}
+        confirmLabel="Shut down"
+        tone="danger"
+        busy={shuttingDown}
+        onConfirm={shutdown}
+      />
+    </>
   );
 }

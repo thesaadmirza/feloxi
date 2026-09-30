@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { DagNode, DagEdge } from "@/types/api";
 import { getStateColor, EDGE_TYPE_COLORS, DAG_LAYOUT } from "@/lib/constants";
 import { formatDuration, truncateId, displayTaskName } from "@/lib/utils";
+import { stateLabel } from "@/components/shared/state-badge";
 
 type LayoutNode = DagNode & {
   x: number;
@@ -40,11 +41,7 @@ function buildAdjacency(nodes: DagNode[], edges: DagEdge[]) {
   return { nodeMap, children, parents };
 }
 
-function computeLayout(
-  nodes: DagNode[],
-  edges: DagEdge[],
-  rootId: string
-): LayoutNode[] {
+function computeLayout(nodes: DagNode[], edges: DagEdge[], rootId: string): LayoutNode[] {
   const { nodeMap, children, parents } = buildAdjacency(nodes, edges);
   const { nodeWidth, nodeHeight, horizontalGap, verticalGap } = DAG_LAYOUT;
 
@@ -52,9 +49,7 @@ function computeLayout(
   const depthMap = new Map<string, number>();
   const depthBuckets = new Map<number, string[]>();
 
-  const roots = nodes.filter(
-    (n) => !parents.get(n.task_id)?.length || n.task_id === rootId
-  );
+  const roots = nodes.filter((n) => !parents.get(n.task_id)?.length || n.task_id === rootId);
 
   if (roots.length === 0 && nodes.length > 0) {
     roots.push(nodes[0]);
@@ -101,13 +96,7 @@ function computeLayout(
   return result;
 }
 
-function DagNodeCard({
-  node,
-  isCurrent,
-}: {
-  node: LayoutNode;
-  isCurrent: boolean;
-}) {
+function DagNodeCard({ node, isCurrent }: { node: LayoutNode; isCurrent: boolean }) {
   const color = getStateColor(node.state);
   const { nodeWidth, nodeHeight } = DAG_LAYOUT;
 
@@ -116,29 +105,22 @@ function DagNodeCard({
       <rect
         width={nodeWidth}
         height={nodeHeight}
-        rx={10}
-        ry={10}
-        fill="var(--color-card)"
-        stroke={isCurrent ? "var(--color-primary)" : color}
+        rx={8}
+        ry={8}
+        fill="var(--panel)"
+        stroke={isCurrent ? "var(--amber)" : color}
         strokeWidth={isCurrent ? 2.5 : 1.5}
         strokeDasharray={isCurrent ? "6 3" : "none"}
       />
-      <rect
-        x={0}
-        y={0}
-        width={6}
-        height={nodeHeight}
-        rx={3}
-        ry={3}
-        fill={color}
-      />
+      <rect x={0} y={0} width={6} height={nodeHeight} rx={3} ry={3} fill={color} />
       <Link href={`/tasks/${node.task_id}`}>
         <text
           x={16}
           y={22}
-          fill="var(--color-foreground)"
+          fill="var(--t1)"
           fontSize={12}
           fontWeight={600}
+          fontFamily="var(--font-mono)"
           className="cursor-pointer hover:underline"
         >
           <title>{displayTaskName(node.task_name)}</title>
@@ -148,34 +130,19 @@ function DagNodeCard({
           })()}
         </text>
       </Link>
-      <text
-        x={16}
-        y={40}
-        fill="var(--color-muted-foreground)"
-        fontSize={10}
-        fontFamily="monospace"
-      >
+      <text x={16} y={40} fill="var(--t3)" fontSize={10.5} fontFamily="var(--font-mono)">
         <title>{node.task_id}</title>
         {truncateId(node.task_id, 24)}
       </text>
       <text x={16} y={58} fontSize={10}>
         <tspan fill={color} fontWeight={600}>
-          {node.state}
+          {stateLabel(node.state)}
         </tspan>
         {node.runtime != null && node.runtime > 0 && (
-          <tspan fill="var(--color-muted-foreground)">
-            {" "}
-            · {formatDuration(node.runtime)}
-          </tspan>
+          <tspan fill="var(--t3)"> · {formatDuration(node.runtime)}</tspan>
         )}
       </text>
-      <text
-        x={nodeWidth - 8}
-        y={58}
-        fill="var(--color-muted-foreground)"
-        fontSize={9}
-        textAnchor="end"
-      >
+      <text x={nodeWidth - 8} y={58} fill="var(--t3)" fontSize={9} textAnchor="end">
         <title>Queue: {node.queue || "—"}</title>
         {node.queue}
       </text>
@@ -193,7 +160,7 @@ function DagEdgeLine({
   edge: DagEdge;
 }) {
   const { nodeWidth, nodeHeight } = DAG_LAYOUT;
-  const color = EDGE_TYPE_COLORS[edge.edge_type] ?? "#6b7280";
+  const color = EDGE_TYPE_COLORS[edge.edge_type] ?? "var(--t3)";
 
   const x1 = sourceNode.x + nodeWidth;
   const y1 = sourceNode.y + nodeHeight / 2;
@@ -219,10 +186,7 @@ function DagEdgeLine({
 export default function WorkflowDag({ nodes, edges, rootId, currentTaskId }: Props) {
   const [hoveredEdgeType, setHoveredEdgeType] = useState<string | null>(null);
 
-  const layoutNodes = useMemo(
-    () => computeLayout(nodes, edges, rootId),
-    [nodes, edges, rootId]
-  );
+  const layoutNodes = useMemo(() => computeLayout(nodes, edges, rootId), [nodes, edges, rootId]);
 
   const nodeMap = useMemo(() => {
     const map = new Map<string, LayoutNode>();
@@ -254,7 +218,7 @@ export default function WorkflowDag({ nodes, edges, rootId, currentTaskId }: Pro
 
   if (nodes.length === 0) {
     return (
-      <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+      <div className="flex items-center justify-center py-12 text-[13px] text-t3">
         No workflow data available
       </div>
     );
@@ -267,23 +231,23 @@ export default function WorkflowDag({ nodes, edges, rootId, currentTaskId }: Pro
           <button
             key={et}
             type="button"
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition"
+            className="flex items-center gap-1.5 text-xs text-t3 transition hover:text-foreground"
             onMouseEnter={() => handleLegendHover(et)}
             onMouseLeave={() => handleLegendHover(null)}
           >
             <span
               className="block w-3 h-0.5 rounded"
-              style={{ backgroundColor: EDGE_TYPE_COLORS[et] ?? "#6b7280" }}
+              style={{ backgroundColor: EDGE_TYPE_COLORS[et] ?? "var(--t3)" }}
             />
             {et}
           </button>
         ))}
-        <span className="text-xs text-muted-foreground">
+        <span className="text-xs text-t3">
           {nodes.length} task{nodes.length !== 1 ? "s" : ""}
         </span>
       </div>
 
-      <div className="overflow-auto rounded-lg border border-border bg-background/50 p-4">
+      <div className="overflow-auto rounded-lg border border-border bg-code p-4">
         <svg
           width={svgWidth}
           height={svgHeight}
@@ -312,16 +276,11 @@ export default function WorkflowDag({ nodes, edges, rootId, currentTaskId }: Pro
             const tgt = nodeMap.get(edge.target);
             if (!src || !tgt) return null;
 
-            const dimmed =
-              hoveredEdgeType !== null && hoveredEdgeType !== edge.edge_type;
+            const dimmed = hoveredEdgeType !== null && hoveredEdgeType !== edge.edge_type;
 
             return (
               <g key={`edge-${i}`} opacity={dimmed ? 0.15 : 1}>
-                <DagEdgeLine
-                  sourceNode={src}
-                  targetNode={tgt}
-                  edge={edge}
-                />
+                <DagEdgeLine sourceNode={src} targetNode={tgt} edge={edge} />
               </g>
             );
           })}

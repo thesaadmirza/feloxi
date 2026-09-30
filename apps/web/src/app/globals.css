@@ -1,143 +1,242 @@
 @import "tailwindcss";
 
-@theme {
-  --color-background: #0a0a0b;
-  --color-foreground: #e4e4e7;
-  --color-card: #0a0a0b;
-  --color-card-foreground: #e4e4e7;
-  --color-popover: #111113;
-  --color-popover-foreground: #e4e4e7;
-  --color-primary: #fafafa;
-  --color-primary-foreground: #09090b;
-  --color-secondary: #1a1a1e;
-  --color-secondary-foreground: #e4e4e7;
-  --color-muted: #1a1a1e;
-  --color-muted-foreground: #71717a;
-  --color-accent: #1a1a1e;
-  --color-accent-foreground: #e4e4e7;
-  --color-destructive: #ef4444;
-  --color-destructive-foreground: #fafafa;
-  --color-border: #1e1e22;
-  --color-input: #1e1e22;
-  --color-ring: #52525b;
-  --color-success: #22c55e;
-  --color-warning: #eab308;
-  --radius-sm: 0.25rem;
-  --radius-md: 0.375rem;
-  --radius-lg: 0.5rem;
+/* ─── Theme tokens ─────────────────────────────────────────────────────────
+   Night is the default; `html.light` (set by next-themes) switches to Day.
+   Warm ink/bone neutrals, one signal colour (amber), and four status colours
+   that only ever mean task state. Every text/background pair meets WCAG AA. */
+
+:root {
+  color-scheme: dark;
+
+  --bg: #0e0d0b;
+  --panel: #151411;
+  --raised: #1c1a17;
+  --hover: #211f1b;
+  --line: #2a2723;
+  --line-soft: #221f1c;
+  --line-strong: #3a3631;
+
+  --t1: #ede9e1; /* 15:1 on panel */
+  --t2: #b3aea4; /* 8.3:1 */
+  --t3: #8e897f; /* 5.3:1 */
+  --t4: #5e5a53; /* decoration and disabled only */
+
+  --amber: #ffb000;
+  --amber-hi: #ffc23d;
+  --amber-ink: #1a1204;
+  --amber-text: #ffb000;
+  --amber-wash: #2b2210;
+  --amber-line: #5c4513;
+  --mark-pulse: #ffb000;
+
+  --ok: #59d38c;
+  --fail: #f75d59;
+  --warn: #f99549;
+  --run: #65b2f1;
+  --ok-wash: #1b2a1f;
+  --fail-wash: #2e1a18;
+  --warn-wash: #2e2218;
+  --run-wash: #1b2630;
+  --fail-ink: #1f0a09;
+
+  --bar: #4a463f;
+  --bar-hi: #6b665d;
+  --grid: #23211d;
+  --code-bg: #12110f;
+  --scrim: rgb(8 7 6 / 0.62);
+  --shadow-float: 0 16px 48px -12px rgb(0 0 0 / 0.6), 0 0 0 1px var(--line);
+}
+
+html.light {
+  color-scheme: light;
+
+  --bg: #f7f5f0;
+  --panel: #ffffff;
+  --raised: #efece6;
+  --hover: #f3f1ec;
+  --line: #e4e0d8;
+  --line-soft: #ece9e3;
+  --line-strong: #d3cec4;
+
+  --t1: #1b1916;
+  --t2: #57524a;
+  --t3: #6b665d;
+  --t4: #a39e94;
+
+  --amber: #ffb000;
+  --amber-hi: #ffbd24;
+  --amber-ink: #1a1204;
+  --amber-text: #945a00;
+  --amber-wash: #fff3d4;
+  --amber-line: #e8c77a;
+  --mark-pulse: #b37700;
+
+  --ok: #0b7643;
+  --fail: #c22826;
+  --warn: #a75000;
+  --run: #1b69ad;
+  --ok-wash: #e6f2ec;
+  --fail-wash: #fbeae9;
+  --warn-wash: #fbeee2;
+  --run-wash: #e8f0f8;
+  --fail-ink: #ffffff;
+
+  --bar: #cfc9bf;
+  --bar-hi: #a39e94;
+  --grid: #eeebe5;
+  --code-bg: #faf8f4;
+  --scrim: rgb(40 30 10 / 0.28);
+  --shadow-float: 0 16px 48px -16px rgb(40 30 10 / 0.18), 0 0 0 1px var(--line);
+}
+
+@theme inline {
+  --font-sans: "Archivo Variable", "Archivo", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  /* Semantic names the app already uses, now backed by the tokens above. */
+  --color-background: var(--bg);
+  --color-foreground: var(--t1);
+  --color-card: var(--panel);
+  --color-card-foreground: var(--t1);
+  --color-popover: var(--raised);
+  --color-popover-foreground: var(--t1);
+  --color-primary: var(--amber);
+  --color-primary-foreground: var(--amber-ink);
+  --color-secondary: var(--raised);
+  --color-secondary-foreground: var(--t1);
+  --color-muted: var(--raised);
+  --color-muted-foreground: var(--t3);
+  --color-accent: var(--hover);
+  --color-accent-foreground: var(--t1);
+  --color-destructive: var(--fail);
+  --color-destructive-foreground: var(--fail-ink);
+  --color-border: var(--line);
+  --color-input: var(--line-strong);
+  --color-ring: var(--amber);
+  --color-success: var(--ok);
+  --color-warning: var(--warn);
+
+  /* Design-system names. */
+  --color-panel: var(--panel);
+  --color-raised: var(--raised);
+  --color-hover: var(--hover);
+  --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+  --color-line-strong: var(--line-strong);
+  --color-t1: var(--t1);
+  --color-t2: var(--t2);
+  --color-t3: var(--t3);
+  --color-t4: var(--t4);
+  --color-amber: var(--amber);
+  --color-amber-hi: var(--amber-hi);
+  --color-amber-ink: var(--amber-ink);
+  --color-amber-wash: var(--amber-wash);
+  --color-amber-line: var(--amber-line);
+  --color-link: var(--amber-text);
+  --color-mark: var(--mark-pulse);
+  --color-ok: var(--ok);
+  --color-fail: var(--fail);
+  --color-warn: var(--warn);
+  --color-run: var(--run);
+  --color-ok-wash: var(--ok-wash);
+  --color-fail-wash: var(--fail-wash);
+  --color-warn-wash: var(--warn-wash);
+  --color-run-wash: var(--run-wash);
+  --color-fail-ink: var(--fail-ink);
+  --color-bar: var(--bar);
+  --color-bar-hi: var(--bar-hi);
+  --color-grid: var(--grid);
+  --color-code: var(--code-bg);
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 7px;
+  --radius-xl: 10px;
+  --radius-2xl: 14px;
+
+  --shadow-float: var(--shadow-float);
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--t1);
 }
 
 body {
-  background: var(--color-background);
-  color: var(--color-foreground);
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-/* ─── Light theme overrides ─────────────────────────────────────────────────── */
-
-html.light {
-  --color-background: #fafafa;
-  --color-foreground: #18181b;
-  --color-card: #ffffff;
-  --color-card-foreground: #18181b;
-  --color-popover: #ffffff;
-  --color-popover-foreground: #18181b;
-  --color-primary: #18181b;
-  --color-primary-foreground: #fafafa;
-  --color-secondary: #f4f4f5;
-  --color-secondary-foreground: #18181b;
-  --color-muted: #f4f4f5;
-  --color-muted-foreground: #71717a;
-  --color-accent: #f4f4f5;
-  --color-accent-foreground: #18181b;
-  --color-destructive: #dc2626;
-  --color-destructive-foreground: #fafafa;
-  --color-border: #e4e4e7;
-  --color-input: #e4e4e7;
-  --color-ring: #a1a1aa;
-  --color-success: #16a34a;
-  --color-warning: #ca8a04;
+::selection {
+  background: color-mix(in srgb, var(--amber) 30%, transparent);
+  color: var(--t1);
 }
 
-/* Light overrides for zinc-* hardcoded colors */
-html.light .bg-zinc-900 { background-color: #ffffff; }
-html.light .bg-zinc-950 { background-color: #fafafa; }
-html.light .bg-zinc-800 { background-color: #f4f4f5; }
-html.light .bg-zinc-800\/60 { background-color: rgb(244 244 245 / 0.6); }
-html.light .bg-zinc-800\/50 { background-color: rgb(244 244 245 / 0.5); }
-html.light .bg-zinc-800\/30 { background-color: rgb(244 244 245 / 0.3); }
-html.light .border-zinc-800 { border-color: #e4e4e7; }
-html.light .border-zinc-700 { border-color: #d4d4d8; }
-html.light .border-zinc-700\/50 { border-color: rgb(212 212 216 / 0.5); }
-html.light .text-white { color: #18181b; }
-html.light .text-zinc-400 { color: #71717a; }
-html.light .text-zinc-500 { color: #a1a1aa; }
-html.light .text-zinc-600 { color: #52525b; }
-html.light .bg-zinc-900\/80 { background-color: rgb(255 255 255 / 0.8); }
-html.light .bg-zinc-700 { background-color: #e4e4e7; }
-html.light .bg-zinc-700\/50 { background-color: rgb(228 228 231 / 0.5); }
-html.light .bg-zinc-900\/50 { background-color: rgb(255 255 255 / 0.5); }
-html.light .text-zinc-200 { color: #27272a; }
-html.light .text-zinc-300 { color: #3f3f46; }
-html.light .text-zinc-700 { color: #a1a1aa; }
-html.light .border-zinc-800\/60 { border-color: rgb(228 228 231 / 0.6); }
-html.light .divide-zinc-800\/50 > :not(:last-child) { border-color: rgb(228 228 231 / 0.5); }
-html.light .hover\:bg-zinc-600:hover { background-color: #e4e4e7; }
-html.light .hover\:bg-zinc-700:hover { background-color: #e4e4e7; }
-html.light .hover\:bg-zinc-700\/50:hover { background-color: rgb(228 228 231 / 0.5); }
-html.light .hover\:bg-zinc-800:hover { background-color: #f4f4f5; }
-html.light .hover\:text-zinc-200:hover { color: #27272a; }
-html.light .hover\:text-zinc-300:hover { color: #3f3f46; }
-html.light .hover\:text-white:hover { color: #18181b; }
-html.light .text-zinc-100 { color: #18181b; }
-html.light .bg-white { background-color: #18181b; color: #fafafa; }
-html.light .text-zinc-900 { color: #fafafa; }
-html.light .hover\:bg-zinc-200:hover { background-color: #27272a; }
-html.light .hover\:bg-white\/\[0\.03\]:hover { background-color: rgb(0 0 0 / 0.03); }
-html.light .hover\:bg-white\/\[0\.04\]:hover { background-color: rgb(0 0 0 / 0.04); }
-html.light .hover\:bg-white\/\[0\.06\]:hover { background-color: rgb(0 0 0 / 0.06); }
-html.light .bg-white\/\[0\.07\] { background-color: rgb(0 0 0 / 0.07); }
-html.light .bg-white\/5 { background-color: rgb(0 0 0 / 0.05); }
-html.light .bg-white\/10 { background-color: rgb(0 0 0 / 0.1); }
-html.light .hover\:bg-white\/\[0\.02\]:hover { background-color: rgb(0 0 0 / 0.02); }
-html.light .hover\:border-zinc-700:hover { border-color: #d4d4d8; }
-html.light .hover\:border-zinc-600:hover { border-color: #a1a1aa; }
-html.light .hover\:text-zinc-400:hover { color: #52525b; }
-html.light .placeholder\:text-zinc-600::placeholder { color: #a1a1aa; }
+* {
+  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-width: thin;
+}
 
-/* Chart tooltip + grid CSS variables */
+/* One focus treatment for everything keyboard-reachable. */
+:where(a, button, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+/* Mono labels: readouts, nav groups, table headers. */
+.label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  line-height: 1.2;
+  color: var(--t3);
+}
+
+/* Chart tooltip + grid, read by recharts through inline styles. */
 :root {
-  --chart-tooltip-bg: #18181b;
-  --chart-tooltip-border: #27272a;
-  --chart-tooltip-color: #fafafa;
-  --chart-tooltip-label: #a1a1aa;
-  --chart-grid: #27272a;
-  --chart-axis: #71717a;
-}
-html.light {
-  --chart-tooltip-bg: #ffffff;
-  --chart-tooltip-border: #e4e4e7;
-  --chart-tooltip-color: #18181b;
-  --chart-tooltip-label: #71717a;
-  --chart-grid: #e4e4e7;
-  --chart-axis: #71717a;
+  --chart-tooltip-bg: var(--raised);
+  --chart-tooltip-border: var(--line-strong);
+  --chart-tooltip-color: var(--t1);
+  --chart-tooltip-label: var(--t3);
+  --chart-grid: var(--grid);
+  --chart-axis: var(--t3);
 }
 
-/* Task state badge colors — muted palette */
-.badge-pending { background: #3b82f6; color: white; }
-.badge-received { background: #8b5cf6; color: white; }
-.badge-started { background: #f59e0b; color: black; }
-.badge-success { background: #22c55e; color: white; }
-.badge-failure { background: #ef4444; color: white; }
-.badge-retry { background: #f97316; color: white; }
-.badge-revoked { background: #52525b; color: white; }
-.badge-rejected { background: #dc2626; color: white; }
+/* The Live toggle's trace: a slow, quiet sweep while events stream. */
+@keyframes pulse-sweep {
+  0% {
+    stroke-dashoffset: 44;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+.pulse-sweep {
+  stroke-dasharray: 44;
+  animation: pulse-sweep 2.4s linear infinite;
+}
 
-/* Live indicator */
 @keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 .live-dot {
   animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-sweep,
+  .live-dot {
+    animation: none;
+  }
 }

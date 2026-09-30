@@ -1,47 +1,43 @@
 "use client";
 
 import { useWsStore } from "@/stores/ws-store";
+import { PulseGlyph } from "@/components/ui/pulse";
+import { cn } from "@/lib/utils";
 
 type LiveIndicatorProps = {
   compact?: boolean;
 };
 
+/// Streaming status for the WebSocket. Amber means events are flowing, not
+/// that the system is healthy; health lives in the sidebar footer.
 export function LiveIndicator({ compact = false }: LiveIndicatorProps) {
-  const connected = useWsStore((s) => s.connectionState === "connected");
-
-  const dotColor = connected ? "bg-emerald-400" : "bg-zinc-500";
-  const label = connected ? "Live" : "Offline";
+  const state = useWsStore((s) => s.connectionState);
+  const live = state === "connected";
+  const label = live ? "Live" : state === "connecting" ? "Connecting" : "Offline";
 
   if (compact) {
     return (
-      <span className="relative flex h-1.5 w-1.5" aria-label={label}>
-        {connected && (
-          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${dotColor} opacity-75`} />
-        )}
-        <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${dotColor}`} />
+      <span
+        className={cn("inline-flex", live ? "text-mark" : "text-t4")}
+        aria-label={label}
+        title={label}
+      >
+        <PulseGlyph live={live} />
       </span>
     );
   }
 
-  const borderColor = connected
-    ? "bg-emerald-500/10 border-emerald-500/20"
-    : "bg-zinc-500/10 border-zinc-500/20";
-  const textColor = connected ? "text-emerald-400" : "text-zinc-500";
-
   return (
-    <div
-      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border ${borderColor}`}
-      aria-label={label}
+    <span
+      role="status"
+      aria-label={`Event stream: ${label}`}
+      className={cn(
+        "inline-flex h-8 shrink-0 items-center gap-2 rounded-lg border pr-3 pl-2.5 text-[12.5px] font-semibold",
+        live ? "border-amber-line bg-amber-wash text-link" : "border-line-strong bg-card text-t3",
+      )}
     >
-      <span className="relative flex h-1.5 w-1.5">
-        {connected && (
-          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${dotColor} opacity-75`} />
-        )}
-        <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${dotColor}`} />
-      </span>
-      <span className={`text-xs font-semibold ${textColor} tracking-wider uppercase leading-none`}>
-        {label}
-      </span>
-    </div>
+      <PulseGlyph live={live} className={live ? "text-mark" : undefined} />
+      {label}
+    </span>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
+import { AUTH_INPUT_BASE, AUTH_INPUT_ERROR, AUTH_INPUT_NORMAL } from "@/lib/constants";
 
 type Props = {
   id?: string;
@@ -13,14 +14,6 @@ type Props = {
   hasError?: boolean;
   required?: boolean;
 };
-
-const BASE_CLASS =
-  "w-full px-3 py-2.5 pr-10 rounded-lg bg-zinc-800/50 border text-zinc-200 " +
-  "placeholder:text-zinc-600 text-sm focus:outline-none focus:ring-1 " +
-  "focus:ring-zinc-500 transition-colors";
-
-const NORMAL_BORDER = "border-zinc-800 hover:border-zinc-700";
-const ERROR_BORDER = "border-red-500/50 focus:ring-red-500";
 
 export function PasswordInput({
   id = "password",
@@ -45,15 +38,15 @@ export function PasswordInput({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         required={required}
-        className={`${BASE_CLASS} ${hasError ? ERROR_BORDER : NORMAL_BORDER}`}
+        className={`${AUTH_INPUT_BASE} pr-10 ${hasError ? AUTH_INPUT_ERROR : AUTH_INPUT_NORMAL}`}
       />
       <button
         type="button"
         onClick={() => setVisible((v) => !v)}
-        className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-400 transition-colors"
+        className="absolute top-1/2 right-2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-t3 transition-colors hover:bg-hover hover:text-foreground"
         aria-label={visible ? "Hide password" : "Show password"}
       >
-        {visible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+        {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
       </button>
     </div>
   );
