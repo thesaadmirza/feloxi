@@ -37,7 +37,10 @@ pub fn create_router(state: AppState) -> Router {
         .merge(routes::workflows::router())
         .merge(routes::system::protected_router())
         .layer(axum_mw::from_fn_with_state(
-            state.jwt_keys.as_ref().clone(),
+            auth::middleware::AuthState {
+                jwt_keys: state.jwt_keys.as_ref().clone(),
+                pg: state.pg.clone(),
+            },
             auth::middleware::auth_middleware,
         ));
 

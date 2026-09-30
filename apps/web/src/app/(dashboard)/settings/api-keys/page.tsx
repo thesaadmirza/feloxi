@@ -17,20 +17,24 @@ import { CopyButton } from "@/components/settings/copy-button";
 import { CodeWell, IconTile, SettingsHeader } from "@/components/settings/section";
 import type { ApiKey } from "@/types/api";
 
+// Must match the names the API checks (auth::rbac::PERMISSIONS).
 const PERMISSION_OPTIONS = [
-  { value: "tasks:read", label: "Tasks (read)" },
-  { value: "tasks:write", label: "Tasks (write)" },
-  { value: "workers:read", label: "Workers (read)" },
-  { value: "workers:write", label: "Workers (write)" },
-  { value: "metrics:read", label: "Metrics (read)" },
-  { value: "alerts:read", label: "Alerts (read)" },
-  { value: "alerts:write", label: "Alerts (write)" },
-  { value: "settings:read", label: "Settings (read)" },
-  { value: "settings:write", label: "Settings (write)" },
-  { value: "*", label: "All permissions (admin)" },
+  { value: "tasks_read", label: "Read tasks" },
+  { value: "tasks_retry", label: "Retry tasks" },
+  { value: "tasks_revoke", label: "Revoke tasks" },
+  { value: "workers_read", label: "Read workers" },
+  { value: "workers_shutdown", label: "Shut down workers" },
+  { value: "metrics_read", label: "Read metrics" },
+  { value: "beat_read", label: "Read beat schedules" },
+  { value: "alerts_read", label: "Read alerts" },
+  { value: "alerts_write", label: "Manage alerts" },
+  { value: "settings_read", label: "Read settings" },
+  { value: "settings_write", label: "Change settings" },
+  { value: "brokers_manage", label: "Manage brokers" },
+  { value: "*", label: "Everything you can do" },
 ];
 
-const DEFAULT_PERMS = ["tasks:read", "workers:read", "metrics:read"];
+const DEFAULT_PERMS = ["tasks_read", "workers_read", "metrics_read"];
 
 function keyCount(keys: ApiKey[]) {
   const active = keys.filter((k) => k.is_active).length;
@@ -168,7 +172,8 @@ export default function ApiKeysPage() {
             <div className="min-w-0 flex-1">
               <p className="text-[13.5px] font-semibold text-foreground">Copy your new key now</p>
               <p className="mt-0.5 text-[13px] text-t2">
-                It won&apos;t be shown again. If you lose it, revoke it and create another.
+                It won&apos;t be shown again. Send it as{" "}
+                <code className="font-mono text-[12px]">Authorization: Bearer &lt;key&gt;</code>.
               </p>
             </div>
             <Button variant="ghost" size="sm" onClick={() => setCreatedKey(null)} className="-my-1">

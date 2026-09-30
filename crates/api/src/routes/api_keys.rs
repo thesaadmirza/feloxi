@@ -34,6 +34,27 @@ pub async fn list_keys(
     Ok(Json(ApiKeyListResponse { data: keys }))
 }
 
+/// A key may carry known permissions the creator holds, or `*`.
+fn validate_scopes(user: &CurrentUser, scopes: &[String]) -> Result<(), AppError> {
+    if scopes.is_empty() {
+        return Err(AppError::BadRequest("Pick at least one permission".into()));
+    }
+    for scope in scopes {
+        if scope == auth::rbac::ALL {
+            continue;
+        }
+        if !auth::rbac::PERMISSIONS.contains(&scope.as_str()) {
+            return Err(AppError::BadRequest(format!("Unknown permission: {scope}")));
+        }
+        if !user.is_admin() && !user.has_permission(scope) {
+            return Err(AppError::Forbidden(format!(
+                "You can't grant a permission you don't have: {scope}"
+            )));
+        }
+    }
+    Ok(())
+}
+
 #[utoipa::path(
     post,
     path = "/api/v1/api-keys",
@@ -47,6 +68,10 @@ pub async fn create_key(
     Json(req): Json<CreateKeyRequest>,
 ) -> Result<Json<CreateApiKeyResponse>, AppError> {
     auth::rbac::check_permission(&user, "api_keys_manage")?;
+    validate_scopes(&user, &req.permissions)?;
+    if req.expires_at.is_some_and(|at| at <= chrono::Utc::now()) {
+        return Err(AppError::BadRequest("Expiry must be in the future".into()));
+    }
 
     let (raw_key, prefix) = auth::api_key::generate_api_key();
     let key_hash = auth::api_key::hash_api_key(&raw_key);
