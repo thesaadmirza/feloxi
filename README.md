@@ -28,7 +28,7 @@
 </p>
 
 <p align="center">
-  <img src=".github/screenshots/dashboard.png" width="900" alt="Feloxi dashboard showing task throughput and failure-rate charts, metric cards, task breakdown by name, and recent task list" />
+  <img src=".github/screenshots/dashboard.png" width="900" alt="Feloxi overview: throughput, failure rate, runtime, backlog and worker counts, a per-minute outcome chart, failures grouped by fingerprint, and queue depths" />
 </p>
 
 Feloxi is a self-hosted Celery monitoring platform. It connects to your broker (Redis or RabbitMQ), reads the events Celery already emits, and stores them in ClickHouse so they outlive a restart. The dashboard runs on WebSocket for live updates. There's no agent to install and no SDK to integrate.
@@ -40,7 +40,11 @@ Feloxi is a self-hosted Celery monitoring platform. It connects to your broker (
 Full-text search across task ID, name, args, kwargs, result, and exception. Filter by state, queue, worker, and time range. Click any task for the state timeline, traceback, runtime, retries, and retry/revoke actions sent through the broker. Switch to the failures view to see exceptions grouped by type — one row per unique exception with occurrence counts, affected task names, and an expandable traceback.
 
 <p align="center">
-  <img src=".github/screenshots/tasks.png" width="900" alt="Task explorer with state filter, queue filter, colored state badges, worker assignment, and per-task runtime" />
+  <img src=".github/screenshots/tasks.png" width="900" alt="Task explorer with a failure histogram, state and queue facets, and a dense task table showing state, name, exception, queue, runtime and age" />
+</p>
+
+<p align="center">
+  <img src=".github/screenshots/tasks-failures.png" width="900" alt="Failures view: exceptions grouped by fingerprint with counts, affected tasks, first and last seen, and an expanded traceback" />
 </p>
 
 ### Watch worker health
@@ -48,7 +52,7 @@ Full-text search across task ID, name, args, kwargs, result, and exception. Filt
 CPU, memory, pool size, active task counts, and heartbeat gaps. Load averages over 1m/5m/15m. Remote shutdown from the UI. Color-coded health indicators at a glance.
 
 <p align="center">
-  <img src=".github/screenshots/workers.png" width="900" alt="Worker monitoring grouped by hostname showing online status, pending, running, done, and failed task counts per group" />
+  <img src=".github/screenshots/workers.png" width="900" alt="Workers grouped by deployment with online status, running, done and failed counts, average runtime and load" />
 </p>
 
 ### Visualize workflows
@@ -56,7 +60,7 @@ CPU, memory, pool size, active task counts, and heartbeat gaps. Load averages ov
 Celery chains, groups, and chords rendered as interactive DAGs. When a multi-stage pipeline fails, you can see which step broke without reading logs or correlating task IDs.
 
 <p align="center">
-  <img src=".github/screenshots/workflow-chain.png" width="900" alt="Workflow chain DAG showing three linked tasks with state badges, queue labels, and runtime — created from a Celery chain" />
+  <img src=".github/screenshots/workflow-chain.png" width="900" alt="Workflow graph for a Celery chain: linked task cards with state, runtime and queue, opened from the task detail page" />
 </p>
 
 ### Track periodic tasks
@@ -72,7 +76,7 @@ Alerts are incidents: one notification when a condition starts firing, a green r
 Route to Slack, Discord, email, webhook, or PagerDuty. Slack and Discord connect once with OAuth — pick a channel and done — or paste a webhook URL if you'd rather not register an app (see [docs/integrations.md](docs/integrations.md)).
 
 <p align="center">
-  <img src=".github/screenshots/alerts.png" width="900" alt="Alert rules list showing Worker Down, Slow Task, and High Failure Rate rules with active status, conditions, and last-fired timestamps" />
+  <img src=".github/screenshots/alerts.png" width="900" alt="Alert rules: Worker Down, Slow Task and High Failure Rate, each with its condition, channels and last-fired time" />
 </p>
 
 ### Manage brokers in one place
@@ -80,8 +84,37 @@ Route to Slack, Discord, email, webhook, or PagerDuty. Slack and Discord connect
 Add Redis or RabbitMQ brokers through a 3-step wizard with connection testing. Start, stop, and monitor each broker independently. Per-broker stats include total events, hourly throughput, success rate, queue depths, and top tasks. Monitor staging and production from the same dashboard.
 
 <p align="center">
-  <img src=".github/screenshots/brokers.png" width="900" alt="Broker management page showing a connected Redis broker with type badge, live status, and stop/delete actions" />
+  <img src=".github/screenshots/broker-detail.png" width="900" alt="Broker detail for a connected Redis broker: event totals, success rate, tasks per minute, queue depths and top tasks" />
 </p>
+
+### More screens
+
+<table>
+  <tr>
+    <td width="50%"><img src=".github/screenshots/task-detail.png" alt="Task detail for a failed task: lifecycle bar, exception with traceback, arguments, details and 24-hour stats" /><br/><sub>Task detail</sub></td>
+    <td width="50%"><img src=".github/screenshots/alerts-history.png" alt="Alert incidents with firing duration, resolution and delivery status" /><br/><sub>Alert incidents</sub></td>
+  </tr>
+  <tr>
+    <td><img src=".github/screenshots/queues.png" alt="Queue depths with sparklines and status per queue" /><br/><sub>Queues</sub></td>
+    <td><img src=".github/screenshots/system.png" alt="System health: dependencies, event pipeline and storage" /><br/><sub>System health</sub></td>
+  </tr>
+  <tr>
+    <td><img src=".github/screenshots/command-palette.png" alt="Command palette over the overview page" /><br/><sub>Command palette (Ctrl/⌘ K)</sub></td>
+    <td><img src=".github/screenshots/dashboard-day.png" alt="Overview page in the light Day theme" /><br/><sub>Day theme</sub></td>
+  </tr>
+  <tr>
+    <td><img src=".github/screenshots/api-keys.png" alt="API keys settings with scoped permissions" /><br/><sub>API keys</sub></td>
+    <td><img src=".github/screenshots/sign-in.png" alt="Sign-in page" /><br/><sub>Sign in</sub></td>
+  </tr>
+</table>
+
+### Script against the API
+
+Create a key under **Settings → API keys**, pick its permissions, and send it as a bearer token. A key can only do what its creator can, and stops working when it's revoked or expires.
+
+```bash
+curl -H "Authorization: Bearer fp_key_..." "https://feloxi.example.com/api/v1/tasks?state=FAILURE"
+```
 
 ### Export to Prometheus
 
