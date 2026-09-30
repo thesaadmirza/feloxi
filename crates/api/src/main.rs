@@ -101,6 +101,11 @@ async fn main() -> Result<()> {
         http,
     };
 
+    // Encrypt broker URLs saved before they were sealed at rest.
+    if let Err(e) = broker_conn::secret::seal_legacy_rows(&state).await {
+        tracing::warn!(error = %e, "Failed to seal stored broker credentials");
+    }
+
     // Auto-start active broker connections
     state.broker_manager.auto_start_active(&state).await;
 
@@ -208,10 +213,17 @@ async fn poll_queue_depths(state: &AppState) {
         }
     };
     for config in configs {
+        let url = match broker_conn::secret::connection_url(state, &config) {
+            Ok(url) => url,
+            Err(e) => {
+                tracing::debug!(broker_id = %config.id, error = %e, "queue_stats poll skipped");
+                continue;
+            }
+        };
         let candidates = candidate_queue_names(state, config.tenant_id).await;
         let queues = match broker_conn::commands::queue_stats(
             &config.broker_type,
-            &config.connection_enc,
+            &url,
             &candidates,
         )
         .await

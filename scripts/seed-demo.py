@@ -231,10 +231,11 @@ ON CONFLICT (slug) DO NOTHING;
 """)
 
     # Roles
+    # Same permission names as init_system_roles in crates/db/src/postgres/rbac.rs.
     roles = {
-        "admin": '["tasks:read","tasks:write","tasks:retry","tasks:revoke","workers:read","workers:write","workers:shutdown","alerts:read","alerts:write","metrics:read","settings:read","settings:write","team:read","team:manage"]',
-        "editor": '["tasks:read","tasks:write","tasks:retry","tasks:revoke","workers:read","workers:write","alerts:read","alerts:write","metrics:read","settings:read"]',
-        "viewer": '["tasks:read","workers:read","alerts:read","metrics:read","settings:read"]',
+        "admin": '["tasks_read","tasks_retry","tasks_revoke","workers_read","workers_shutdown","alerts_read","alerts_write","beat_read","metrics_read","settings_read","settings_write","team_manage","api_keys_manage","brokers_manage"]',
+        "editor": '["tasks_read","tasks_retry","workers_read","alerts_read","alerts_write","beat_read","metrics_read","settings_read","api_keys_manage","brokers_manage"]',
+        "viewer": '["tasks_read","workers_read","alerts_read","beat_read","metrics_read"]',
     }
     role_ids = {}
     for rname, perms in roles.items():
@@ -243,7 +244,7 @@ ON CONFLICT (slug) DO NOTHING;
         pg_exec(f"""
 INSERT INTO roles (id, tenant_id, name, permissions, is_system)
 VALUES ('{rid}', '{tid}', '{rname}', '{perms}', true)
-ON CONFLICT (tenant_id, name) DO NOTHING;
+ON CONFLICT (tenant_id, name) DO UPDATE SET permissions = EXCLUDED.permissions;
 """)
         # Get actual ID in case it already existed
         actual = pg_exec(
@@ -289,11 +290,12 @@ VALUES ('{viewer_uid}', '{role_ids["viewer"]}')
 ON CONFLICT DO NOTHING;
 """)
 
-    # Broker configs
+    # Broker configs. The URL goes in as plain text; the API encrypts it at
+    # rest when it next starts.
     for btype, url in [("redis", "redis://redis:6379/0"), ("rabbitmq", "amqp://guest:guest@rabbitmq:5672")]:
         pg_exec(f"""
 INSERT INTO broker_configs (tenant_id, name, broker_type, connection_enc)
-SELECT '{tid}', '{btype}-primary', '{btype}', 'encrypted:{url}'
+SELECT '{tid}', '{btype}-primary', '{btype}', '{url}'
 WHERE NOT EXISTS (
     SELECT 1 FROM broker_configs WHERE tenant_id = '{tid}' AND name = '{btype}-primary'
 );

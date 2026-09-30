@@ -3,6 +3,7 @@ pub mod errors;
 pub mod events;
 pub mod html;
 pub mod pagination;
+pub mod redact;
 pub mod time;
 pub mod types;
 

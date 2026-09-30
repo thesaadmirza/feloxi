@@ -65,7 +65,7 @@ pub async fn create_broker(
         tenant_id: user.tenant_id,
         name: req.name,
         broker_type: req.broker_type,
-        connection_enc: req.connection_url,
+        connection_enc: crate::broker_conn::secret::seal(&state.encryptor, &req.connection_url)?,
     };
 
     let config = db::postgres::broker_configs::create_broker_config(&state.pg, &input).await?;
@@ -184,7 +184,10 @@ pub async fn test_connection(
 
     match BrokerConnectionManager::test_connection(&req.broker_type, &req.connection_url).await {
         Ok(()) => Ok(Json(TestConnectionResponse { success: true, error: None })),
-        Err(err) => Ok(Json(TestConnectionResponse { success: false, error: Some(err) })),
+        Err(err) => Ok(Json(TestConnectionResponse {
+            success: false,
+            error: Some(common::redact::redact_url_credentials(&err)),
+        })),
     }
 }
 
@@ -237,13 +240,10 @@ pub async fn get_broker_queues(
     candidates.sort();
     candidates.dedup();
 
-    let queues = crate::broker_conn::commands::queue_stats(
-        &config.broker_type,
-        &config.connection_enc,
-        &candidates,
-    )
-    .await
-    .map_err(AppError::BadRequest)?;
+    let url = crate::broker_conn::secret::connection_url(&state, &config)?;
+    let queues = crate::broker_conn::commands::queue_stats(&config.broker_type, &url, &candidates)
+        .await
+        .map_err(AppError::BadRequest)?;
 
     Ok(Json(QueueListResponse { data: queues }))
 }
@@ -290,13 +290,10 @@ pub async fn purge_queue(
     let config =
         db::postgres::broker_configs::get_broker_config(&state.pg, id, user.tenant_id).await?;
 
-    let purged = crate::broker_conn::commands::purge_queue(
-        &config.broker_type,
-        &config.connection_enc,
-        &queue_name,
-    )
-    .await
-    .map_err(AppError::BadRequest)?;
+    let url = crate::broker_conn::secret::connection_url(&state, &config)?;
+    let purged = crate::broker_conn::commands::purge_queue(&config.broker_type, &url, &queue_name)
+        .await
+        .map_err(AppError::BadRequest)?;
 
     Ok(Json(PurgeQueueResponse { purged }))
 }

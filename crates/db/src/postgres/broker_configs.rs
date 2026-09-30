@@ -63,7 +63,7 @@ pub async fn update_broker_config_status(
     )
     .bind(id)
     .bind(status)
-    .bind(last_error)
+    .bind(last_error.map(common::redact::redact_url_credentials))
     .execute(pool)
     .await?;
     Ok(())
@@ -105,4 +105,27 @@ pub async fn list_active_broker_configs(pool: &PgPool) -> Result<Vec<BrokerConfi
             .fetch_all(pool)
             .await?;
     Ok(configs)
+}
+
+/// Every broker config across tenants, for startup maintenance.
+pub async fn list_all_broker_configs(pool: &PgPool) -> Result<Vec<BrokerConfig>, AppError> {
+    let configs =
+        sqlx::query_as::<_, BrokerConfig>("SELECT * FROM broker_configs").fetch_all(pool).await?;
+    Ok(configs)
+}
+
+/// Replace the stored connection string and saved error without touching `updated_at`.
+pub async fn rewrite_broker_secrets(
+    pool: &PgPool,
+    id: Uuid,
+    connection_enc: &str,
+    last_error: Option<&str>,
+) -> Result<(), AppError> {
+    sqlx::query("UPDATE broker_configs SET connection_enc = $2, last_error = $3 WHERE id = $1")
+        .bind(id)
+        .bind(connection_enc)
+        .bind(last_error)
+        .execute(pool)
+        .await?;
+    Ok(())
 }

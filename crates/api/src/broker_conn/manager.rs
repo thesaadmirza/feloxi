@@ -38,7 +38,23 @@ impl BrokerConnectionManager {
         let tenant_id = config.tenant_id;
         let config_id = config.id;
         let broker_type = config.broker_type.clone();
-        let connection_url = config.connection_enc.clone();
+        let connection_url = match super::secret::connection_url(&state, config) {
+            Ok(url) => url,
+            Err(e) => {
+                tracing::error!(%config_id, error = %e, "Can't read broker connection URL");
+                let pg = state.pg.clone();
+                tokio::spawn(async move {
+                    let _ = db::postgres::broker_configs::update_broker_config_status(
+                        &pg,
+                        config_id,
+                        "error",
+                        Some(&e.to_string()),
+                    )
+                    .await;
+                });
+                return;
+            }
+        };
 
         let cancel_clone = cancel.clone();
 

@@ -24,7 +24,9 @@ pub async fn run_amqp_consumer(
     let conn = match connect_with_retry(&broker_url, 3).await {
         Ok(c) => c,
         Err(e) => {
-            let err = format!("Failed to connect to AMQP broker: {e}");
+            let err = common::redact::redact_url_credentials(&format!(
+                "Failed to connect to AMQP broker: {e}"
+            ));
             tracing::error!(%config_id, "{}", err);
             let _ = db::postgres::broker_configs::update_broker_config_status(
                 &state.pg,
@@ -272,7 +274,7 @@ pub async fn test_amqp_connection(url: &str) -> Result<(), String> {
     )
     .await
     .map_err(|_| "Connection timed out after 5 seconds".to_string())?
-    .map_err(|e| format!("Failed to connect: {e}"))?;
+    .map_err(|e| common::redact::redact_url_credentials(&format!("Failed to connect: {e}")))?;
 
     let _ = conn.close(200, "test complete").await;
     Ok(())

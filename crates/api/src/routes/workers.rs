@@ -115,9 +115,10 @@ pub async fn shutdown_worker(
     {
         for config in &configs {
             if config.is_active && config.status == "connected" {
+                let url = crate::broker_conn::secret::connection_url(&state, config)?;
                 match crate::broker_conn::commands::shutdown_worker(
                     &config.broker_type,
-                    &config.connection_enc,
+                    &url,
                     &worker_id,
                 )
                 .await

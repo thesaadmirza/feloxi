@@ -265,9 +265,10 @@ pub async fn retry_task(
     };
 
     if let Some(config) = find_active_broker(&state, user.tenant_id).await {
+        let url = crate::broker_conn::secret::connection_url(&state, &config)?;
         match crate::broker_conn::commands::publish_task(
             &config.broker_type,
-            &config.connection_enc,
+            &url,
             &req.task_name,
             &new_task_id,
             &req.args,
@@ -334,13 +335,9 @@ pub async fn revoke_task(
     auth::rbac::check_permission(&user, "tasks_revoke")?;
 
     if let Some(config) = find_active_broker(&state, user.tenant_id).await {
-        match crate::broker_conn::commands::revoke_task(
-            &config.broker_type,
-            &config.connection_enc,
-            &task_id,
-            false,
-        )
-        .await
+        let url = crate::broker_conn::secret::connection_url(&state, &config)?;
+        match crate::broker_conn::commands::revoke_task(&config.broker_type, &url, &task_id, false)
+            .await
         {
             Ok(()) => {
                 return Ok(Json(CommandResponse {
