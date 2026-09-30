@@ -1038,8 +1038,8 @@ export default function TasksPage() {
               ? `Publishes a new copy to the ${pending.rows[0].queue || "default"} queue with the same arguments.`
               : "Each task is published again to its queue with its original arguments."
             : pending && pending.rows.length < selected.size
-              ? `Only the ${pending.rows.length} still queued or running can be revoked. Workers skip them if they haven't started and stop them if they have.`
-              : "Workers skip a revoked task if it hasn't started, and stop it if it's running."
+              ? `Only the ${pending.rows.length} still queued or running can be revoked. Workers skip them if they haven't started; tasks already running finish.`
+              : "Workers skip a revoked task if it hasn't started. A task that's already running finishes."
         }
         subject={
           pending

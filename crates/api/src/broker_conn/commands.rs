@@ -3,6 +3,8 @@
 //! Publishes Celery tasks (retry) and broadcasts control commands (revoke, shutdown)
 //! directly to the broker.
 
+use base64::Engine;
+
 use fred::prelude::*;
 use serde::Serialize;
 use utoipa::ToSchema;
@@ -37,7 +39,10 @@ pub async fn redis_publish_task(
         kwargs,
         {"callbacks": null, "errbacks": null, "chain": null, "chord": null}
     ]);
-    let body_str = serde_json::to_string(&body).map_err(|e| e.to_string())?;
+    let body_json = serde_json::to_string(&body).map_err(|e| e.to_string())?;
+    // Kombu's Redis transport decodes the body per `properties.body_encoding`,
+    // so the body has to actually be base64 when we say it is.
+    let body_str = base64::engine::general_purpose::STANDARD.encode(body_json.as_bytes());
 
     let envelope = serde_json::json!({
         "body": body_str,

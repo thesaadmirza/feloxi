@@ -173,6 +173,68 @@ pub struct RetryRequest {
     pub queue: String,
 }
 
+#[derive(Clone, Copy)]
+enum CallPart {
+    Args,
+    Kwargs,
+}
+
+/// Celery's `saferepr` stops at this many characters and marks the cut with `...`.
+const REPR_MAX: usize = 1024;
+
+/// Turns the stored args/kwargs into the JSON a Celery message needs.
+///
+/// Task events carry Python reprs (`"('a', 1)"`, `"{'k': 'v'}"`), which the
+/// UI sends through as strings; real JSON arrays and objects pass unchanged.
+/// A repr that can't be read exactly, or that Celery truncated, is refused
+/// rather than retried with different arguments.
+fn normalize_call_value(
+    value: &serde_json::Value,
+    part: CallPart,
+) -> Result<serde_json::Value, AppError> {
+    use serde_json::Value;
+    let name = match part {
+        CallPart::Args => "args",
+        CallPart::Kwargs => "kwargs",
+    };
+    let parsed = match value {
+        Value::Null => {
+            return Ok(match part {
+                CallPart::Args => Value::Array(vec![]),
+                CallPart::Kwargs => Value::Object(Default::default()),
+            })
+        }
+        Value::String(repr) => {
+            let trimmed = repr.trim();
+            if trimmed.is_empty() {
+                return normalize_call_value(&Value::Null, part);
+            }
+            if trimmed.len() >= REPR_MAX - 4 && trimmed.contains("...") {
+                return Err(AppError::BadRequest(format!(
+                    "Can't retry: the task's {name} were cut short when recorded, so the original call can't be rebuilt"
+                )));
+            }
+            crate::broker_conn::pyrepr::parse(trimmed).map_err(|e| {
+                AppError::BadRequest(format!(
+                    "Can't retry: couldn't read the task's recorded {name} ({e})"
+                ))
+            })?
+        }
+        other => other.clone(),
+    };
+    match (part, parsed) {
+        (CallPart::Args, Value::Array(a)) => Ok(Value::Array(a)),
+        (CallPart::Kwargs, Value::Object(o)) => Ok(Value::Object(o)),
+        _ => Err(AppError::BadRequest(format!(
+            "Can't retry: the task's recorded {name} aren't a {}",
+            match part {
+                CallPart::Args => "list",
+                CallPart::Kwargs => "mapping",
+            }
+        ))),
+    }
+}
+
 #[utoipa::path(post, path = "/api/v1/tasks/{task_id}/retry", tag = "tasks",
     params(("task_id" = String, Path, description = "Task ID")),
     request_body = RetryRequest,
@@ -185,6 +247,10 @@ pub async fn retry_task(
     Json(req): Json<RetryRequest>,
 ) -> Result<Json<CommandResponse>, AppError> {
     auth::rbac::check_permission(&user, "tasks_retry")?;
+
+    let args = normalize_call_value(&req.args, CallPart::Args)?;
+    let kwargs = normalize_call_value(&req.kwargs, CallPart::Kwargs)?;
+    let req = RetryRequest { args, kwargs, ..req };
 
     let new_task_id = Uuid::new_v4().to_string();
 
@@ -424,4 +490,35 @@ pub fn router() -> Router<AppState> {
         .route("/tasks/{task_id}/retry", post(retry_task))
         .route("/tasks/{task_id}/revoke", post(revoke_task))
         .route("/tasks/{task_id}/retry-chain", get(get_retry_chain))
+}
+
+#[cfg(test)]
+mod retry_args_tests {
+    use super::{normalize_call_value, CallPart};
+    use serde_json::json;
+
+    #[test]
+    fn python_reprs_become_json() {
+        let args =
+            normalize_call_value(&json!("('order_1', 919.25, 'USD')"), CallPart::Args).unwrap();
+        assert_eq!(args, json!(["order_1", 919.25, "USD"]));
+        let kwargs = normalize_call_value(&json!("{'dry_run': True}"), CallPart::Kwargs).unwrap();
+        assert_eq!(kwargs, json!({"dry_run": true}));
+    }
+
+    #[test]
+    fn json_and_empty_pass_through() {
+        assert_eq!(normalize_call_value(&json!([1, 2]), CallPart::Args).unwrap(), json!([1, 2]));
+        assert_eq!(normalize_call_value(&json!(null), CallPart::Args).unwrap(), json!([]));
+        assert_eq!(normalize_call_value(&json!(""), CallPart::Kwargs).unwrap(), json!({}));
+    }
+
+    #[test]
+    fn truncated_or_wrong_shape_is_refused() {
+        assert!(normalize_call_value(&json!("('abc...', ...)"), CallPart::Args).is_err());
+        let long = format!("('{}...', ...)", "x".repeat(1100));
+        assert!(normalize_call_value(&json!(long), CallPart::Args).is_err());
+        assert!(normalize_call_value(&json!("{'a': 1}"), CallPart::Args).is_err());
+        assert!(normalize_call_value(&json!("[1]"), CallPart::Kwargs).is_err());
+    }
 }

@@ -666,7 +666,7 @@ export default function TaskDetailPage() {
         description={
           confirm === "retry"
             ? `Publishes a new copy to the ${task.queue || "default"} queue with the same arguments, then opens it.`
-            : "Workers skip a revoked task if it hasn't started, and stop it if it's running."
+            : "Workers skip a revoked task if it hasn't started. A task that's already running finishes."
         }
         subject={`${task.task_name} · ${task.task_id}`}
         confirmLabel={confirm === "retry" ? "Retry task" : "Revoke"}
