@@ -62,7 +62,7 @@
     "eslint-config-next": "^15.5.28",
     "jsdom": "^28.1.0",
     "openapi-typescript": "^7.13.0",
-    "postcss": "^8.5.30",
+    "postcss": "^8.5.31",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.7.0",
     "vitest": "^4.1.12"
