@@ -44,7 +44,6 @@
     "react-syntax-highlighter": "^15.6.0",
     "recharts": "^2.15.0",
     "tailwind-merge": "^2.6.0",
-    "zod": "^3.24.0",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
