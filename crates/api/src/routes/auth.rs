@@ -158,7 +158,7 @@ pub struct OrgSummary {
 
 #[utoipa::path(post, path = "/api/v1/auth/register", tag = "auth",
     request_body = RegisterRequest,
-    responses((status = 200, body = AuthResponse), (status = 400, description = "Validation error"))
+    responses((status = 200, body = AuthResponse, description = "Session issued"), (status = 400, description = "Validation error"))
 )]
 pub async fn register(
     State(state): State<AppState>,
@@ -202,7 +202,7 @@ pub async fn register(
 
 #[utoipa::path(post, path = "/api/v1/auth/login", tag = "auth",
     request_body = LoginRequest,
-    responses((status = 200, body = AuthResponse), (status = 200, body = OrgPickerResponse, description = "Org selection needed"), (status = 401, description = "Invalid credentials"))
+    responses((status = 200, body = AuthResponse, description = "Session issued"), (status = 200, body = OrgPickerResponse, description = "Org selection needed"), (status = 401, description = "Invalid credentials"))
 )]
 pub async fn login(
     State(state): State<AppState>,
@@ -311,7 +311,7 @@ async fn verify_request(
 }
 
 #[utoipa::path(post, path = "/api/v1/auth/refresh", tag = "auth",
-    responses((status = 200, body = AuthResponse), (status = 401, description = "Invalid refresh token"))
+    responses((status = 200, body = AuthResponse, description = "Session issued"), (status = 401, description = "Invalid refresh token"))
 )]
 pub async fn refresh(
     State(state): State<AppState>,
@@ -361,7 +361,7 @@ pub async fn logout(
 
 /// Return the current user info (used by frontend to check if session is active).
 #[utoipa::path(get, path = "/api/v1/auth/me", tag = "auth",
-    responses((status = 200, body = UserInfo), (status = 401, description = "Not authenticated"))
+    responses((status = 200, body = UserInfo, description = "Current user"), (status = 401, description = "Not authenticated"))
 )]
 pub async fn me(
     State(state): State<AppState>,
@@ -389,7 +389,7 @@ pub async fn me(
 
 /// List all orgs the current user belongs to (for org switcher).
 #[utoipa::path(get, path = "/api/v1/auth/orgs", tag = "auth",
-    responses((status = 200, body = Vec<OrgSummary>))
+    responses((status = 200, body = Vec<OrgSummary>, description = "Organizations the user belongs to"))
 )]
 pub async fn list_user_orgs(
     State(state): State<AppState>,
@@ -415,7 +415,7 @@ pub struct SwitchOrgRequest {
 
 #[utoipa::path(post, path = "/api/v1/auth/switch-org", tag = "auth",
     request_body = SwitchOrgRequest,
-    responses((status = 200, body = AuthResponse), (status = 401, description = "Not a member"))
+    responses((status = 200, body = AuthResponse, description = "Session issued"), (status = 401, description = "Not a member"))
 )]
 pub async fn switch_org(
     State(state): State<AppState>,
@@ -459,7 +459,7 @@ pub struct InvitePreviewResponse {
 /// Look up a pending invite by token to populate the accept-invite form.
 #[utoipa::path(get, path = "/api/v1/auth/invite/{token}", tag = "auth",
     params(("token" = String, Path, description = "Invite token")),
-    responses((status = 200, body = InvitePreviewResponse), (status = 404, description = "Invite not found or expired"))
+    responses((status = 200, body = InvitePreviewResponse, description = "Invite details"), (status = 404, description = "Invite not found or expired"))
 )]
 pub async fn get_invite(
     State(state): State<AppState>,
@@ -483,7 +483,7 @@ pub async fn get_invite(
 /// Accept an invitation: atomically claims the token, creates the user, and issues session tokens.
 #[utoipa::path(post, path = "/api/v1/auth/accept-invite", tag = "auth",
     request_body = AcceptInviteRequest,
-    responses((status = 200, body = AuthResponse), (status = 400, description = "Validation error"), (status = 404, description = "Invite not found or expired"))
+    responses((status = 200, body = AuthResponse, description = "Session issued"), (status = 400, description = "Validation error"), (status = 404, description = "Invite not found or expired"))
 )]
 pub async fn accept_invite(
     State(state): State<AppState>,
@@ -548,7 +548,7 @@ pub struct MagicLinkVerifyRequest {
 /// leaking which addresses have accounts.
 #[utoipa::path(post, path = "/api/v1/auth/magic-link", tag = "auth",
     request_body = MagicLinkRequest,
-    responses((status = 200, body = MagicLinkRequestResponse))
+    responses((status = 200, body = MagicLinkRequestResponse, description = "Magic link requested"))
 )]
 pub async fn magic_link_request(
     State(state): State<AppState>,
@@ -611,7 +611,7 @@ fn magic_link_email_html(link: &str) -> String {
 #[utoipa::path(post, path = "/api/v1/auth/magic-link/verify", tag = "auth",
     request_body = MagicLinkVerifyRequest,
     responses(
-        (status = 200, body = AuthResponse),
+        (status = 200, body = AuthResponse, description = "Session issued"),
         (status = 200, body = OrgPickerResponse, description = "Org selection needed"),
         (status = 401, description = "Invalid or expired token"),
     )
