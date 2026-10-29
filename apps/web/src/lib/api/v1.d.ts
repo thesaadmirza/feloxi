@@ -1894,10 +1894,10 @@ export interface components {
         };
         SystemHealthResponse: {
             components: components["schemas"]["ComponentHealth"][];
-            dead_letters?: null | components["schemas"]["DeadLetterSummary"];
+            dead_letters?: components["schemas"]["DeadLetterSummary"] | null;
             pipeline: components["schemas"]["PipelineStatsResponse"];
             status: string;
-            storage?: null | components["schemas"]["StorageInfo"];
+            storage?: components["schemas"]["StorageInfo"] | null;
             version: string;
         };
         TableStorageRow: {
@@ -2162,7 +2162,7 @@ export interface components {
         };
         /** @description Single worker detail with current state and recent events. */
         WorkerDetailResponse: {
-            current_state?: null | components["schemas"]["WorkerState"];
+            current_state?: components["schemas"]["WorkerState"] | null;
             recent_events: components["schemas"]["WorkerEventRow"][];
             worker_id: string;
         };
@@ -2594,6 +2594,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Session issued */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2630,6 +2631,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Invite details */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2709,6 +2711,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Magic link requested */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2759,6 +2762,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Current user */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2785,6 +2789,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Organizations the user belongs to */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2804,6 +2809,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Session issued */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2834,6 +2840,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Session issued */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2864,6 +2871,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Session issued */
             200: {
                 headers: {
                     [name: string]: unknown;
