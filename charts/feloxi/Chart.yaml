@@ -1,7 +1,7 @@
 apiVersion: v2
 name: feloxi
 version: 0.2.0
-appVersion: "2.1.1"
+appVersion: "2.2.0"
 description: >-
   Open-source Celery task queue monitoring platform. Real-time task and worker
   visibility via a Rust API, Next.js dashboard, PostgreSQL, ClickHouse, and Redis.
@@ -30,7 +30,23 @@ annotations:
   artifacthub.io/category: monitoring-logging
   artifacthub.io/license: Apache-2.0
   artifacthub.io/changes: |
+    - kind: added
+      description: "Support Kombu's global_keyprefix for Redis brokers, set through ?global_keyprefix= on the broker URL (2.2.0)"
     - kind: fixed
-      description: "The search bar on the Tasks page's Failures tab no longer stretches to fill the page (2.1.1)"
-  artifacthub.io/containsSecurityUpdates: "false"
+      description: "Revoke and shutdown now reach workers on Redis brokers (2.2.0)"
+    - kind: fixed
+      description: "Queue discovery on Redis brokers reports queue names, not exchange names (2.2.0)"
+    - kind: fixed
+      description: "Postgres connections that require TLS work (2.2.0)"
+    - kind: fixed
+      description: "The API no longer leaks Redis connections (2.2.0)"
+    - kind: fixed
+      description: "The API no longer panics truncating a broker message it can't parse (2.2.0)"
+    - kind: fixed
+      description: "The search bar on the Tasks page's Failures tab no longer stretches to fill the page (2.2.0)"
+    - kind: security
+      description: "Rust dependencies updated past advisories in h2, rustls, rustls-webpki, webpki-roots, quinn-proto and zip (2.2.0)"
+    - kind: security
+      description: "npm dependencies updated past advisories in undici, js-yaml, flatted, vite, esbuild, prismjs, sharp and source-map-js (2.2.0)"
+  artifacthub.io/containsSecurityUpdates: "true"
   artifacthub.io/prerelease: "false"

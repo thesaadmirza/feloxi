@@ -5,11 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.1.1] — 2026-10-01
+## [2.2.0] — 2026-10-29
+
+### Added
+
+- Redis brokers that set Kombu's `global_keyprefix` transport option now work. Add the prefix to the broker URL (`?global_keyprefix=myapp.`) and Feloxi applies it to every Redis key and channel it reads or writes. See [Connecting Celery](docs/connecting-celery.md).
 
 ### Fixed
 
+- Revoke and shutdown never reached workers on Redis brokers. Commands were published to the wrong pidbox channel as a bare JSON dict. They now go to the channel Kombu listens on, inside a full message envelope.
+- Queue discovery on Redis brokers read exchange names from `_kombu.binding.*` keys and reported them as queues. Queue names now come from the binding members.
+- Postgres connections that require TLS failed, because sqlx was built without TLS support. Managed databases can now use `sslmode=verify-full`.
+- The API leaked Redis connections. A dropped client stayed connected until it sent QUIT, so connections piled up over time. Every code path now closes its connection, including timeouts and errors.
+- The API could panic while truncating a broker message it couldn't parse.
+- A percent-encoded `global_keyprefix` in the broker URL is decoded before use.
 - The search bar on the Tasks page's Failures tab stretched to fill the empty space above the exception groups. It stays one line tall now.
+
+### Security
+
+- Rust dependencies are updated past RUSTSEC advisories in h2, rustls, rustls-webpki, webpki-roots and quinn-proto. utoipa moved to 6, so the Swagger UI build step no longer pulls in zip 3, which had three archive extraction advisories.
+- npm dependencies are updated past advisories in undici, js-yaml, flatted, vite, esbuild, prismjs, sharp and source-map-js. Most of these are build and test tools that don't ship in the web image. zod is removed; nothing used it (CVE-2023-54404).
+- `cargo audit` still lists rsa (RUSTSEC-2023-0071). It is in Cargo.lock only as a dependency of sqlx's MySQL driver, which Feloxi doesn't build, and no fixed version exists.
 
 ## [2.1.0] — 2026-09-30
 
