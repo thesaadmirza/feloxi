@@ -1,7 +1,7 @@
 # ── Stage 1: Cache dependencies ──────────────────────────────────────
 # Alpine's Rust links a static musl binary. curl is for utoipa-swagger-ui's
 # build script, which downloads the Swagger UI bundle.
-FROM rust:1.88-alpine AS builder
+FROM rust:1.95-alpine AS builder
 RUN apk add --no-cache musl-dev curl
 WORKDIR /app
 
