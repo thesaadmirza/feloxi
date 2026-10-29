@@ -5158,10 +5158,10 @@
           "dead_letters": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DeadLetterSummary"
               },
               {
-                "$ref": "#/components/schemas/DeadLetterSummary"
+                "type": "null"
               }
             ]
           },
@@ -5174,10 +5174,10 @@
           "storage": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/StorageInfo"
               },
               {
-                "$ref": "#/components/schemas/StorageInfo"
+                "type": "null"
               }
             ]
           },
@@ -6014,10 +6014,10 @@
           "current_state": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/WorkerState"
               },
               {
-                "$ref": "#/components/schemas/WorkerState"
+                "type": "null"
               }
             ]
           },
