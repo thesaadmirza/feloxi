@@ -83,8 +83,10 @@ When using `docker compose up`, the services use internal Docker networking. The
 | `CLICKHOUSE_URL`      | `http://clickhouse:8123`                      |
 | `REDIS_URL`           | `redis://redis:6379`                          |
 | `JWT_SECRET`          | `dev-secret-change-in-production-1234567890`  |
-| `CORS_ORIGIN`         | `http://localhost:3000,http://127.0.0.1:3000` |
+| `CORS_ORIGIN`         | `http://localhost:${WEB_PORT},http://127.0.0.1:${WEB_PORT}` |
 | `API_URL`             | `http://api:8080`                             |
+
+The host ports come from `.env`: `PORT` (default `8080`) for the API and `WEB_PORT` (default `3000`) for the web UI. `CORS_ORIGIN` follows `WEB_PORT`, so invite and sign-in links point at the right port.
 
 > **Warning:** The default `JWT_SECRET` is for development only. Always generate a strong, unique secret for production.
 

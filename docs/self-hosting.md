@@ -36,6 +36,8 @@ This starts 6 services:
 | `feloxi-redis`      | `redis:7-alpine`                     | —    | Real-time state              |
 | `feloxi-seed`       | Built from `Dockerfile.seed`         | —    | Demo data seeder (runs once) |
 
+If port 3000 or 8080 is already in use on the host, set `WEB_PORT` or `PORT` in `.env` before starting.
+
 The seed container populates the database with a demo tenant, 50,000 task events, 5,000 worker events, and simulated worker state. It's idempotent — running `docker compose up` again won't re-seed if data already exists.
 
 ## First-User Setup
