@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1] — 2026-11-09
+
+### Added
+
+- `docker-compose.yml` now reads the web UI's host port from `WEB_PORT` in `.env`. If port 3000 is taken you can change it without editing the compose file. `CORS_ORIGIN` follows the same value, so invite, magic-link and OAuth links still point at the right port. ([#77](https://github.com/thesaadmirza/feloxi/issues/77))
+
 ## [2.2.0] — 2026-10-29
 
 ### Added
